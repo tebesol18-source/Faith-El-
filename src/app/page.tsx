@@ -442,13 +442,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Row 5: Shipments */}
-          <div className="mb-6">
+          {/* Row 5: Shipments + Recent Activity (side by side) */}
+          <div className="grid grid-cols-1 gap-6 mb-6 lg:grid-cols-2">
             <ShipmentsCard />
-          </div>
-
-          {/* Row 6: Recent Activity */}
-          <div className="mb-6">
             <ActivityCard />
           </div>
 
