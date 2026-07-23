@@ -433,18 +433,20 @@ export default function DashboardPage() {
             <KpiRow />
           </div>
 
-          {/* Row 4: Pipeline + Deal Health + Business Health */}
-          <div className="grid grid-cols-1 gap-6 mb-6 lg:grid-cols-3">
-            <div className="lg:col-span-2"><PipelineCard /></div>
-            <div className="space-y-6">
-              <DealHealth />
-              <BusinessHealth />
-            </div>
+          {/* Row 4: Pipeline (full width) */}
+          <div className="mb-6">
+            <PipelineCard />
           </div>
 
-          {/* Row 5: Shipments + Recent Activity (side by side) */}
-          <div className="grid grid-cols-1 gap-6 mb-6 lg:grid-cols-2">
+          {/* Row 5: Deal Health + Business Health + Shipments (3 equal columns) */}
+          <div className="grid grid-cols-1 gap-6 mb-6 lg:grid-cols-3">
+            <DealHealth />
+            <BusinessHealth />
             <ShipmentsCard />
+          </div>
+
+          {/* Row 6: Recent Activity (full width) */}
+          <div className="mb-6">
             <ActivityCard />
           </div>
 
