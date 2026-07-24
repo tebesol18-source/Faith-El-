@@ -11,13 +11,14 @@ import {
   Paperclip, MoreHorizontal, Archive, Trash2,
   Circle, Tag, Calendar, MapPin, FileSignature,
   ArrowDown, DollarSign as Dollar, Package as PackageIcon,
+  PanelLeftClose, PanelLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ─── Types ─────────────────────────────────────────────────
 type Page = "dashboard" | "inbox" | "leads" | "deals" | "inventory" | "samples" | "quotes" | "contracts" | "shipments" | "finance" | "coach";
 
-// ─── Sidebar ───────────────────────────────────────────────
+// ─── Sidebar Data ──────────────────────────────────────────
 const navGroups: { label: string | null; items: { icon: any; label: string; page: Page; badge?: number; highlight?: boolean }[] }[] = [
   { label: null, items: [{ icon: LayoutDashboard, label: "Dashboard", page: "dashboard", highlight: true }] },
   { label: "Sales", items: [
@@ -40,29 +41,49 @@ const navGroups: { label: string | null; items: { icon: any; label: string; page
   ]},
 ];
 
-function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (p: Page) => void }) {
+// ─── Collapsible Sidebar ───────────────────────────────────
+function Sidebar({ currentPage, onNavigate, expanded, onToggle }: { currentPage: Page; onNavigate: (p: Page) => void; expanded: boolean; onToggle: () => void }) {
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-[240px] border-r border-gray-200 bg-white flex flex-col">
-      <div className="flex h-16 items-center gap-2.5 px-5 border-b border-gray-100">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#4A3520]">
-          <Coffee className="h-5 w-5 text-white" strokeWidth={1.5} />
+    <aside className={cn(
+      "fixed left-0 top-0 z-40 h-screen border-r border-gray-200 bg-white flex flex-col transition-all duration-300",
+      expanded ? "w-[240px]" : "w-[64px]"
+    )}>
+      {/* Logo / Toggle */}
+      <div className="flex h-16 items-center border-b border-gray-100" style={{ justifyContent: expanded ? "space-between" : "center", padding: expanded ? "0 1.25rem" : "0" }}>
+        <div className="flex items-center gap-2.5" style={{ display: expanded ? "flex" : "none" }}>
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#4A3520] shrink-0">
+            <Coffee className="h-5 w-5 text-white" strokeWidth={1.5} />
+          </div>
+          <div>
+            <span className="font-bold text-gray-900 text-sm tracking-tight">COFFEE</span>
+            <span className="font-light text-gray-400 text-sm ml-1">EXPORT</span>
+          </div>
         </div>
-        <div>
-          <span className="font-bold text-gray-900 text-sm tracking-tight">COFFEE</span>
-          <span className="font-light text-gray-400 text-sm ml-1">EXPORT</span>
-        </div>
+        <button onClick={onToggle} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-gray-100 transition-colors shrink-0">
+          {expanded ? <PanelLeftClose className="h-5 w-5 text-gray-500" strokeWidth={1.5} /> : <PanelLeft className="h-5 w-5 text-gray-500" strokeWidth={1.5} />}
+        </button>
+        {!expanded && (
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#4A3520]">
+            <Coffee className="h-5 w-5 text-white" strokeWidth={1.5} />
+          </div>
+        )}
       </div>
-      <nav className="flex-1 overflow-y-auto py-3 px-3">
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto py-3" style={{ padding: expanded ? "0.75rem 0.75rem" : "0.75rem 0.5rem" }}>
         {navGroups.map((group, gi) => (
           <div key={gi} className="mb-1">
-            {group.label && <p className="px-3 mt-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">{group.label}</p>}
+            {group.label && expanded && <p className="px-3 mt-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">{group.label}</p>}
+            {group.label && !expanded && gi > 0 && <div className="my-2 mx-2 border-t border-gray-100" />}
             <ul className="space-y-0.5">
               {group.items.map((item, i) => (
                 <li key={i}>
                   <button
                     onClick={() => onNavigate(item.page)}
+                    title={item.label}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                      "flex items-center rounded-lg transition-colors relative",
+                      expanded ? "w-full gap-3 px-3 py-2 text-sm" : "w-full justify-center p-2.5",
                       currentPage === item.page
                         ? "bg-[#4A3520] text-white font-medium"
                         : item.highlight
@@ -70,9 +91,17 @@ function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (
                         : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
                     )}
                   >
-                    <item.icon className={cn("h-[18px] w-[18px]", currentPage === item.page ? "text-white" : item.highlight ? "text-gray-700" : "text-gray-400")} strokeWidth={1.5} />
-                    <span className="flex-1 text-left">{item.label}</span>
-                    {item.badge && <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">{item.badge}</span>}
+                    <item.icon
+                      className={cn("h-[18px] w-[18px] shrink-0", currentPage === item.page ? "text-white" : item.highlight ? "text-gray-700" : "text-gray-400")}
+                      strokeWidth={1.5}
+                    />
+                    {expanded && <span className="flex-1 text-left">{item.label}</span>}
+                    {item.badge && expanded && (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold text-white">{item.badge}</span>
+                    )}
+                    {item.badge && !expanded && (
+                      <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">{item.badge}</span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -80,14 +109,18 @@ function Sidebar({ currentPage, onNavigate }: { currentPage: Page; onNavigate: (
           </div>
         ))}
       </nav>
-      <div className="border-t border-gray-100 p-4">
-        <button className="flex w-full items-center gap-3 rounded-lg p-1 hover:bg-gray-50 transition-colors">
-          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#4A3520] to-[#6B4E33] flex items-center justify-center text-white font-semibold text-sm">AS</div>
-          <div className="flex-1 text-left">
-            <p className="text-sm font-semibold text-gray-900">Abi Solomon</p>
-            <p className="text-xs text-gray-400">Coelrodan PLC</p>
-          </div>
-          <ChevronDown className="h-4 w-4 text-gray-300" />
+
+      {/* User Profile */}
+      <div className="border-t border-gray-100" style={{ padding: expanded ? "1rem" : "0.75rem 0.5rem" }}>
+        <button className={cn("flex items-center rounded-lg transition-colors hover:bg-gray-50", expanded ? "w-full gap-3 p-1" : "w-full justify-center p-1")}>
+          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#4A3520] to-[#6B4E33] flex items-center justify-center text-white font-semibold text-sm shrink-0">AS</div>
+          {expanded && (
+            <div className="flex-1 text-left overflow-hidden">
+              <p className="text-sm font-semibold text-gray-900 truncate">Abi Solomon</p>
+              <p className="text-xs text-gray-400 truncate">Coelrodan PLC</p>
+            </div>
+          )}
+          {expanded && <ChevronDown className="h-4 w-4 text-gray-300 shrink-0" />}
         </button>
       </div>
     </aside>
@@ -387,7 +420,7 @@ function DashboardPage() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// INBOX PAGE — "Who needs my attention?"
+// INBOX PAGE — Original detailed version
 // ═══════════════════════════════════════════════════════════
 const conversations = [
   { id: 1, buyer: "buyer-47@", subject: "Re: Ethiopian 25/26 Yirgacheffe", preview: "Can you send cupping scores for Guji? Need 320 bags FOB Hamburg ASAP.", time: "2h ago", unread: true, priority: "high", intent: "sample_request", confidence: 94 },
@@ -410,41 +443,44 @@ function InboxPage() {
 
   return (
     <main className="flex h-[calc(100vh-4rem)]">
-      {/* Conversation List — Clean & Simple */}
-      <div className="w-[320px] border-r border-gray-200 bg-white flex flex-col">
-        <div className="px-5 pt-5 pb-3">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Inbox</h2>
-          <div className="flex gap-1 mb-4">
-            {["All", "Unread", "Priority"].map((tab, i) => (
-              <button key={tab} className={cn("rounded-lg px-3 py-1.5 text-xs font-medium transition-colors", i === 0 ? "bg-[#4A3520] text-white" : "text-gray-400 hover:bg-gray-100")}>{tab}</button>
+      {/* Conversation List */}
+      <div className="w-[360px] border-r border-gray-200 bg-white flex flex-col">
+        <div className="p-4 border-b border-gray-100">
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Inbox</h2>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" strokeWidth={1.5} />
+              <input type="text" placeholder="Search conversations..." className="w-full rounded-lg border border-gray-200 bg-gray-50 pl-8 pr-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:bg-white focus:border-gray-300 focus:outline-none" />
+            </div>
+            <button className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"><Filter className="h-4 w-4 text-gray-500" strokeWidth={1.5} /></button>
+          </div>
+          <div className="flex gap-1 mt-3">
+            {["All", "Unread", "High Priority", "AI Drafted"].map((tab, i) => (
+              <button key={tab} className={cn("rounded-lg px-2.5 py-1 text-xs font-medium transition-colors", i === 0 ? "bg-[#4A3520] text-white" : "text-gray-500 hover:bg-gray-100")}>{tab}</button>
             ))}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-2">
+        <div className="flex-1 overflow-y-auto">
           {conversations.map((c) => (
             <button
               key={c.id}
               onClick={() => setSelectedConv(c.id)}
               className={cn(
-                "flex w-full flex-col gap-0.5 rounded-xl p-3 mb-1 text-left transition-colors",
-                selectedConv === c.id ? "bg-gray-50" : "hover:bg-gray-50/50"
+                "flex w-full flex-col gap-1 border-b border-gray-50 p-4 text-left transition-colors",
+                selectedConv === c.id ? "bg-indigo-50/50" : "hover:bg-gray-50"
               )}
             >
-              {/* Top row: sender + time */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  {c.unread && <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" />}
+                  {c.unread && <span className="h-2 w-2 rounded-full bg-blue-500" />}
                   <span className="text-sm font-semibold text-gray-900">{c.buyer}faithelexport.com</span>
                 </div>
-                <span className="text-xs text-gray-400 shrink-0">{c.time}</span>
+                <span className="text-xs text-gray-400">{c.time}</span>
               </div>
-              {/* Subject — the hierarchy anchor */}
-              <p className={cn("text-sm mt-1 truncate", c.unread ? "font-semibold text-gray-900" : "font-medium text-gray-600")}>{c.subject}</p>
-              {/* Preview — one line only */}
-              <p className="text-xs text-gray-400 truncate">{c.preview}</p>
-              {/* Single AI badge — just the intent, nothing else */}
-              <div className="flex items-center gap-2 mt-1.5">
+              <p className="text-xs text-gray-600 truncate pl-4">{c.subject}</p>
+              <p className="text-xs text-gray-400 truncate pl-4">{c.preview}</p>
+              <div className="flex items-center gap-1.5 mt-1 pl-4">
                 <span className={cn(
                   "rounded px-1.5 py-0.5 text-[10px] font-semibold",
                   c.intent === "sample_request" ? "bg-amber-50 text-amber-700" :
@@ -452,72 +488,65 @@ function InboxPage() {
                   c.intent === "confirmation" ? "bg-green-50 text-green-700" :
                   c.intent === "positive" ? "bg-green-50 text-green-700" :
                   c.intent === "logistics_question" ? "bg-blue-50 text-blue-700" :
-                  "bg-gray-100 text-gray-500"
+                  "bg-gray-100 text-gray-600"
                 )}>
                   {c.intent.replace(/_/g, " ")}
                 </span>
-                {c.priority === "high" && <span className="text-[10px] font-bold text-red-500">HIGH</span>}
+                <span className="text-[10px] text-gray-400">AI: {c.confidence}%</span>
+                {c.priority === "high" && <span className="text-[10px] font-semibold text-red-600">● HIGH</span>}
               </div>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Message View — Higher Hierarchy, More Breathing Room */}
+      {/* Message View */}
       <div className="flex-1 flex flex-col bg-[#FAFAF9]">
-        {/* Thread header — big and clear */}
-        <div className="border-b border-gray-200 bg-white px-8 py-6">
-          <h2 className="text-xl font-bold text-gray-900">{conv.subject}</h2>
-          <div className="flex items-center gap-4 mt-2">
-            <span className="text-sm text-gray-500">{conv.buyer}faithelexport.com</span>
-            <span className="text-xs text-gray-300">·</span>
-            <span className="text-sm text-gray-500">Lead L-2026-00507</span>
-            <span className="text-xs text-gray-300">·</span>
-            <span className="text-sm font-medium text-amber-600">Awaiting your reply</span>
+        <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">{conv.subject}</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Buyer: {conv.buyer}faithelexport.com · Lead: L-2026-00507 · Status: Awaiting Exporter</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"><Archive className="h-3.5 w-3.5" /> Archive</button>
+            <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"><MoreHorizontal className="h-3.5 w-3.5" /></button>
           </div>
         </div>
 
-        {/* Messages — cleaner, more spacing */}
-        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messages.map((m, i) => (
             <div key={i} className={cn("flex", m.direction === "outbound" ? "justify-end" : "justify-start")}>
               <div className={cn(
-                "max-w-[65%] rounded-2xl px-5 py-4",
+                "max-w-[70%] rounded-xl p-4",
                 m.direction === "outbound" ? "bg-[#4A3520] text-white" : "bg-white border border-gray-200 text-gray-800"
               )}>
-                {/* Sender — subtle */}
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-xs font-medium opacity-60">{m.direction === "outbound" ? "You" : m.from + "faithelexport.com"}</span>
-                  <span className="text-xs opacity-40">{m.time}</span>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xs font-medium opacity-70">{m.direction === "outbound" ? `You (${m.from}faithelexport.com)` : m.from + "faithelexport.com"}</span>
+                  <span className="text-xs opacity-50">·</span>
+                  <span className="text-xs opacity-50">{m.time}</span>
                 </div>
-                {/* Body — the hero */}
-                <p className="text-[15px] whitespace-pre-wrap leading-relaxed">{m.body}</p>
+                <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.body}</p>
 
-                {/* AI Insight — minimal, one line + action */}
                 {m.ai && (
-                  <div className="mt-4 pt-4 border-t border-gray-100/50">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Sparkles className="h-4 w-4 text-indigo-500" strokeWidth={1.5} />
-                      <span className="text-xs font-semibold text-indigo-600">AI Insight</span>
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Sparkles className="h-3.5 w-3.5 text-indigo-500" strokeWidth={1.5} />
+                      <span className="text-xs font-semibold text-indigo-600">AI TRIAGE</span>
                     </div>
-                    <p className="text-sm text-gray-600 mb-3">{m.ai.summary}</p>
-                    <div className="flex flex-wrap gap-1.5 mb-3">
-                      {[
-                        { label: "Intent", value: m.ai.intent.replace(/_/g, " ") },
-                        { label: "Volume", value: m.ai.volume ? `${m.ai.volume} bags` : null },
-                        { label: "Origin", value: m.ai.origin },
-                        { label: "Dest", value: m.ai.destination },
-                        { label: "Terms", value: m.ai.incoterm },
-                        { label: "Urgency", value: m.ai.urgency },
-                      ].filter(f => f.value).map((f, fi) => (
-                        <span key={fi} className="rounded-md bg-gray-50 px-2 py-1 text-xs">
-                          <span className="text-gray-400">{f.label}:</span> <span className="font-medium text-gray-700">{f.value}</span>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-indigo-600">→ {m.ai.nextAction}</span>
-                      <button className="rounded-lg bg-indigo-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-600 transition-colors">Take Action</button>
+                    <div className="bg-indigo-50/50 rounded-lg p-3 space-y-2">
+                      <p className="text-xs text-gray-700"><span className="font-semibold">Summary:</span> {m.ai.summary}</p>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div><span className="text-gray-400">Intent:</span> <span className="font-medium text-gray-800">{m.ai.intent.replace(/_/g, " ")}</span></div>
+                        <div><span className="text-gray-400">Urgency:</span> <span className="font-medium text-red-600">{m.ai.urgency}</span></div>
+                        {m.ai.volume && <div><span className="text-gray-400">Volume:</span> <span className="font-medium text-gray-800">{m.ai.volume} bags</span></div>}
+                        {m.ai.origin && <div><span className="text-gray-400">Origin:</span> <span className="font-medium text-gray-800">{m.ai.origin}</span></div>}
+                        {m.ai.destination && <div><span className="text-gray-400">Destination:</span> <span className="font-medium text-gray-800">{m.ai.destination}</span></div>}
+                        {m.ai.incoterm && <div><span className="text-gray-400">Incoterm:</span> <span className="font-medium text-gray-800">{m.ai.incoterm}</span></div>}
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-xs font-semibold text-indigo-600">→ {m.ai.nextAction}</span>
+                        <button className="ml-auto rounded-md bg-indigo-500 px-2 py-1 text-[11px] font-medium text-white hover:bg-indigo-600">Auto-Action</button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -526,29 +555,33 @@ function InboxPage() {
           ))}
         </div>
 
-        {/* Reply Box — simple and clean */}
-        <div className="border-t border-gray-200 bg-white px-8 py-4">
-          <div className="flex items-end gap-3">
-            <div className="flex-1">
-              <textarea
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                placeholder="Write your reply..."
-                className="w-full resize-none rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-800 placeholder:text-gray-400 focus:border-[#4A3520] focus:outline-none"
-                rows={2}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <button className="flex items-center justify-center h-10 w-10 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"><Sparkles className="h-4 w-4 text-indigo-500" strokeWidth={1.5} /></button>
-              <button
-                onClick={() => setReplyText("")}
-                className="flex items-center justify-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors"
-              >
-                <Send className="h-4 w-4" /> Send
-              </button>
+        <div className="border-t border-gray-200 bg-white p-4">
+          <div className="rounded-xl border border-gray-200">
+            <textarea
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              placeholder="Type your reply to buyer..."
+              className="w-full resize-none rounded-t-xl px-4 py-3 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none"
+              rows={3}
+            />
+            <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100">
+              <div className="flex items-center gap-2">
+                <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"><Paperclip className="h-3.5 w-3.5" /> Attach</button>
+                <button className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700"><Sparkles className="h-3.5 w-3.5" /> AI Draft</button>
+                <button className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700"><Sparkles className="h-3.5 w-3.5" /> Improve</button>
+                <button className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700"><Sparkles className="h-3.5 w-3.5" /> Translate</button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">Reply from: marcus.bell@faithelexport.com</span>
+                <button
+                  onClick={() => setReplyText("")}
+                  className="rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors flex items-center gap-1.5"
+                >
+                  <Send className="h-3.5 w-3.5" /> Send
+                </button>
+              </div>
             </div>
           </div>
-          <p className="text-xs text-gray-400 mt-2">Replying as marcus.bell@faithelexport.com</p>
         </div>
       </div>
     </main>
@@ -556,7 +589,7 @@ function InboxPage() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// PLACEHOLDER PAGE (for un-built pages)
+// PLACEHOLDER PAGE
 // ═══════════════════════════════════════════════════════════
 function PlaceholderPage({ title, question }: { title: string; question: string }) {
   return (
@@ -579,6 +612,7 @@ function PlaceholderPage({ title, question }: { title: string; question: string 
 // ═══════════════════════════════════════════════════════════
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
 
   const pageTitles: Record<Page, { title: string; question: string }> = {
     dashboard: { title: "", question: "" },
@@ -596,8 +630,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#FAFAF9]">
-      <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
-      <div className="ml-[240px]">
+      <Sidebar
+        currentPage={currentPage}
+        onNavigate={setCurrentPage}
+        expanded={sidebarExpanded}
+        onToggle={() => setSidebarExpanded(!sidebarExpanded)}
+      />
+      <div className={cn("transition-all duration-300", sidebarExpanded ? "ml-[240px]" : "ml-[64px]")}>
         <TopHeader />
         {currentPage === "dashboard" && <DashboardPage />}
         {currentPage === "inbox" && <InboxPage />}
