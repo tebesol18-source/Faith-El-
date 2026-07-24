@@ -9,7 +9,7 @@ import {
   TrendingUp, ChevronRight, Coffee, Bot, Star,
   AlertTriangle, Phone, Send, Search, Filter,
   Paperclip, MoreHorizontal, Archive, Trash2,
-  Circle, Tag, Calendar, MapPin, FileSignature,
+  Circle, Tag, Calendar, MapPin, FileSignature, X as XIcon,
   ArrowDown, DollarSign as Dollar, Package as PackageIcon,
   PanelLeftClose, PanelLeft,
 } from "lucide-react";
@@ -589,6 +589,284 @@ function InboxPage() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// LEADS PAGE — "Who should I sell to?"
+// ═══════════════════════════════════════════════════════════
+const leadsData = [
+  { id: "L-2026-00501", company: "Marcus Coffee GmbH", country: "Germany", city: "Hamburg", tier: "S", vp: "VP1", state: "QUALIFIED", language: "EN", score: 92, lastTouch: "2h ago", tags: ["specialty", "EU"], enriched: true },
+  { id: "L-2026-00502", company: "Falcon Coffee UK", country: "United Kingdom", city: "London", tier: "A", vp: "VP2", state: "IN_SEQUENCE", language: "EN", score: 85, lastTouch: "5h ago", tags: ["commercial", "UK"], enriched: true },
+  { id: "L-2026-00503", company: "Hashimoto Coffee", country: "Japan", city: "Tokyo", tier: "S", vp: "VP3", state: "SAMPLE_DISPATCHED", language: "JA", score: 88, lastTouch: "1d ago", tags: ["specialty", "Asia"], enriched: true },
+  { id: "L-2026-00504", company: "Aurora Imports", country: "Italy", city: "Trieste", tier: "A", vp: "VP1", state: "IN_SEQUENCE", language: "IT", score: 79, lastTouch: "2d ago", tags: ["commercial", "EU"], enriched: true },
+  { id: "L-2026-00505", company: "Nordic Bean Co", country: "Sweden", city: "Stockholm", tier: "B", vp: "VP2", state: "ENRICHED", language: "EN", score: 72, lastTouch: "3d ago", tags: ["specialty", "EU"], enriched: true },
+  { id: "L-2026-00506", company: "Café de Paris", country: "France", city: "Paris", tier: "A", vp: "VP1", state: "NEW", language: "FR", score: 0, lastTouch: "Never", tags: [], enriched: false },
+  { id: "L-2026-00507", company: "Blue Mountain Traders", country: "USA", city: "New York", tier: "S", vp: "VP4", state: "CONTRACTED", language: "EN", score: 95, lastTouch: "Yesterday", tags: ["specialty", "US"], enriched: true },
+  { id: "L-2026-00508", company: "Rösterei Berlin", country: "Germany", city: "Berlin", tier: "B", vp: "VP2", state: "GHOSTED", language: "DE", score: 65, lastTouch: "8d ago", tags: ["specialty", "EU"], enriched: true },
+  { id: "L-2026-00509", company: "Seoul Coffee Lab", country: "South Korea", city: "Seoul", tier: "A", vp: "VP3", state: "ENRICHED", language: "KO", score: 81, lastTouch: "4d ago", tags: ["specialty", "Asia"], enriched: true },
+  { id: "L-2026-00510", company: "Antwerp Trading", country: "Belgium", city: "Antwerp", tier: "C", vp: "VP2", state: "NEW", language: "EN", score: 0, lastTouch: "Never", tags: [], enriched: false },
+];
+
+const stateColors: Record<string, { bg: string; text: string; dot: string }> = {
+  NEW: { bg: "bg-gray-100", text: "text-gray-600", dot: "bg-gray-400" },
+  ENRICHED: { bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500" },
+  IN_SEQUENCE: { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
+  QUALIFIED: { bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500" },
+  SAMPLE_DISPATCHED: { bg: "bg-purple-50", text: "text-purple-700", dot: "bg-purple-500" },
+  CONTRACTED: { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
+  GHOSTED: { bg: "bg-red-50", text: "text-red-600", dot: "bg-red-500" },
+};
+
+const tierColors: Record<string, string> = {
+  S: "bg-[#4A3520] text-white",
+  A: "bg-indigo-100 text-indigo-700",
+  B: "bg-gray-100 text-gray-600",
+  C: "bg-gray-50 text-gray-400",
+};
+
+function LeadsPage() {
+  const [filter, setFilter] = useState("All");
+  const [selectedLead, setSelectedLead] = useState<string | null>(null);
+
+  const filters = ["All", "New", "Enriched", "In Sequence", "Qualified", "Ghosted"];
+  const filteredLeads = filter === "All"
+    ? leadsData
+    : leadsData.filter(l => l.state.replace(/_/g, " ").toLowerCase() === filter.toLowerCase());
+
+  const selected = leadsData.find(l => l.id === selectedLead);
+
+  const stats = {
+    total: leadsData.length,
+    qualified: leadsData.filter(l => l.state === "QUALIFIED").length,
+    inSequence: leadsData.filter(l => l.state === "IN_SEQUENCE").length,
+    ghosted: leadsData.filter(l => l.state === "GHOSTED").length,
+  };
+
+  return (
+    <main className="p-8 max-w-[1200px] mx-auto">
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Leads</h1>
+        <p className="text-sm text-gray-500 mt-1">Who should I sell to?</p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-medium text-gray-500">Total Leads</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{stats.total}</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-medium text-gray-500">Qualified</p>
+          <p className="text-2xl font-bold text-green-600 mt-1">{stats.qualified}</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-medium text-gray-500">In Sequence</p>
+          <p className="text-2xl font-bold text-amber-600 mt-1">{stats.inSequence}</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-medium text-gray-500">Ghosted</p>
+          <p className="text-2xl font-bold text-red-500 mt-1">{stats.ghosted}</p>
+        </div>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex gap-1">
+          {filters.map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                filter === f ? "bg-[#4A3520] text-white" : "text-gray-500 hover:bg-gray-100"
+              )}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"><Filter className="h-3.5 w-3.5" /> Filter</button>
+          <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6B4E33]"><Plus className="h-3.5 w-3.5" /> Import Leads</button>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-gray-100 bg-gray-50/50">
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Lead ID</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Company</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Country</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Tier</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">VP</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">State</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Score</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-400">Last Touch</th>
+              <th className="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredLeads.map((lead) => {
+              const sc = stateColors[lead.state] || stateColors.NEW;
+              return (
+                <tr
+                  key={lead.id}
+                  onClick={() => setSelectedLead(lead.id)}
+                  className="border-b border-gray-50 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors"
+                >
+                  <td className="px-4 py-3 text-sm font-medium text-gray-600">{lead.id}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-gray-900">{lead.company}</span>
+                      {!lead.enriched && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600">NEW</span>}
+                    </div>
+                    {lead.tags.length > 0 && (
+                      <div className="flex gap-1 mt-0.5">
+                        {lead.tags.map((tag, ti) => (
+                          <span key={ti} className="text-[10px] text-gray-400">{tag}</span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-500">{lead.country}</td>
+                  <td className="px-4 py-3">
+                    <span className={cn("flex h-6 w-6 items-center justify-center rounded-md text-xs font-bold", tierColors[lead.tier])}>{lead.tier}</span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-500">{lead.vp}</td>
+                  <td className="px-4 py-3">
+                    <span className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium", sc.bg, sc.text)}>
+                      <span className={cn("h-1.5 w-1.5 rounded-full", sc.dot)} />
+                      {lead.state.replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {lead.score > 0 ? (
+                      <div className="flex items-center gap-2">
+                        <div className="w-12 h-1.5 rounded-full bg-gray-100">
+                          <div className={cn("h-1.5 rounded-full", lead.score >= 85 ? "bg-green-500" : lead.score >= 70 ? "bg-amber-500" : "bg-red-500")} style={{ width: `${lead.score}%` }} />
+                        </div>
+                        <span className="text-xs font-medium text-gray-600">{lead.score}</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-400">{lead.lastTouch}</td>
+                  <td className="px-4 py-3"><ChevronRight className="h-4 w-4 text-gray-300" /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Lead Detail Drawer (slide-in) */}
+      {selected && (
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedLead(null)}>
+          <div className="absolute inset-0 bg-black/20" />
+          <div
+            className="relative w-[420px] h-full bg-white border-l border-gray-200 overflow-y-auto shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer header */}
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <h3 className="text-base font-semibold text-gray-900">Lead Details</h3>
+              <button onClick={() => setSelectedLead(null)} className="p-1.5 rounded-lg hover:bg-gray-100"><XIcon className="h-4 w-4 text-gray-400" strokeWidth={1.5} /></button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Company info */}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#4A3520] text-white font-bold text-lg">{selected.company.charAt(0)}</div>
+                  <div>
+                    <p className="text-lg font-bold text-gray-900">{selected.company}</p>
+                    <p className="text-xs text-gray-500">{selected.id} · {selected.city}, {selected.country}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className={cn("flex h-6 w-6 items-center justify-center rounded-md text-xs font-bold", tierColors[selected.tier])}>Tier {selected.tier}</span>
+                  <span className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium", stateColors[selected.state].bg, stateColors[selected.state].text)}>
+                    <span className={cn("h-1.5 w-1.5 rounded-full", stateColors[selected.state].dot)} />
+                    {selected.state.replace(/_/g, " ")}
+                  </span>
+                  <span className="text-xs text-gray-400">VP: {selected.vp}</span>
+                  <span className="text-xs text-gray-400">Lang: {selected.language}</span>
+                </div>
+              </div>
+
+              {/* AI Score */}
+              {selected.score > 0 && (
+                <div className="rounded-lg bg-gray-50 border border-gray-100 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">AI Match Score</span>
+                    <span className="text-2xl font-bold text-gray-900">{selected.score}<span className="text-sm text-gray-400">/100</span></span>
+                  </div>
+                  <div className="h-2 rounded-full bg-gray-200">
+                    <div className={cn("h-2 rounded-full", selected.score >= 85 ? "bg-green-500" : selected.score >= 70 ? "bg-amber-500" : "bg-red-500")} style={{ width: `${selected.score}%` }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Tags */}
+              {selected.tags.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Tags</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selected.tags.map((tag, i) => (
+                      <span key={i} className="rounded-md bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">{tag}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* AI Insight */}
+              {selected.enriched && (
+                <div className="rounded-lg border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="h-4 w-4 text-indigo-500" strokeWidth={1.5} />
+                    <span className="text-xs font-semibold text-indigo-600">AI INSIGHT</span>
+                  </div>
+                  <p className="text-sm text-gray-700 leading-relaxed">
+                    {selected.tier === "S"
+                      ? "Premium buyer with high volume potential. Recommend VP1 approach — lead with specialty Yirgacheffe lots and EUDR compliance."
+                      : selected.tier === "A"
+                      ? "Strong buyer. Recommend VP2 approach — lead with Guji/Sidamo washed lots and competitive FOB pricing."
+                      : "Standard buyer. Recommend VP3 approach — lead with value-oriented Sidamo and Limu lots."}
+                  </p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="space-y-2 pt-2">
+                {selected.state === "NEW" && (
+                  <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#4A3520] py-2.5 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+                    <Sparkles className="h-4 w-4" /> Enrich with AI
+                  </button>
+                )}
+                {selected.state === "ENRICHED" && (
+                  <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#4A3520] py-2.5 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+                    <Send className="h-4 w-4" /> Start Outreach Sequence
+                  </button>
+                )}
+                {selected.state === "GHOSTED" && (
+                  <button className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                    <Mail className="h-4 w-4" /> Send Breakup Email
+                  </button>
+                )}
+                <button className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                  View Full Timeline
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
 // PLACEHOLDER PAGE
 // ═══════════════════════════════════════════════════════════
 function PlaceholderPage({ title, question }: { title: string; question: string }) {
@@ -640,7 +918,8 @@ export default function App() {
         <TopHeader />
         {currentPage === "dashboard" && <DashboardPage />}
         {currentPage === "inbox" && <InboxPage />}
-        {currentPage !== "dashboard" && currentPage !== "inbox" && (
+        {currentPage === "leads" && <LeadsPage />}
+        {currentPage !== "dashboard" && currentPage !== "inbox" && currentPage !== "leads" && (
           <PlaceholderPage title={pageTitles[currentPage].title} question={pageTitles[currentPage].question} />
         )}
       </div>
