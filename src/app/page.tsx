@@ -1231,6 +1231,211 @@ function DealsPage() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// INVENTORY PAGE — "What coffee can I sell?"
+// ═══════════════════════════════════════════════════════════
+const lotsData = [
+  { id: "LOT-25-0001", region: "Yirgacheffe", station: "Konga Station", coop: "Konga Coop", process: "Washed", score: 87.5, screen: 14, stock: 85, cropYear: "25/26", eudr: "complete", certifications: ["Organic", "Fairtrade"], status: "active" },
+  { id: "LOT-25-0002", region: "Yirgacheffe", station: "Biloya Station", coop: "Biloya Coop", process: "Natural", score: 88.0, screen: 15, stock: 60, cropYear: "25/26", eudr: "complete", certifications: ["Organic"], status: "active" },
+  { id: "LOT-25-0003", region: "Guji", station: "Shakisso Station", coop: "Shakisso Coop", process: "Washed", score: 86.5, screen: 14, stock: 45, cropYear: "25/26", eudr: "complete", certifications: [], status: "active" },
+  { id: "LOT-25-0004", region: "Guji", station: "Shakisso Station", coop: "Shakisso Coop", process: "Natural", score: 85.0, screen: 14, stock: 30, cropYear: "25/26", eudr: "partial", certifications: [], status: "active" },
+  { id: "LOT-25-0005", region: "Sidamo", station: "Bensa Station", coop: "Bensa Coop", process: "Washed", score: 84.5, screen: 14, stock: 12, cropYear: "25/26", eudr: "complete", certifications: ["Fairtrade"], status: "active" },
+  { id: "LOT-25-0006", region: "Sidamo", station: "Bensa Station", coop: "Bensa Coop", process: "Natural", score: 83.0, screen: 13, stock: 0, cropYear: "25/26", eudr: "missing", certifications: [], status: "depleted" },
+  { id: "LOT-25-0007", region: "Limu", station: "Limu Station", coop: "Limu Coop", process: "Washed", score: 82.0, screen: 14, stock: 50, cropYear: "25/26", eudr: "partial", certifications: [], status: "active" },
+  { id: "LOT-25-0008", region: "Harrar", station: "Harrar Station", coop: "Harrar Coop", process: "Natural", score: 84.0, screen: 15, stock: 25, cropYear: "25/26", eudr: "missing", certifications: [], status: "hold" },
+];
+
+const eudrConfig: Record<string, { label: string; bg: string; text: string; dot: string }> = {
+  complete: { label: "Complete", bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500" },
+  partial: { label: "Partial", bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
+  missing: { label: "Missing", bg: "bg-red-50", text: "text-red-600", dot: "bg-red-500" },
+};
+
+const statusConfig: Record<string, { label: string; bg: string; text: string }> = {
+  active: { label: "Active", bg: "bg-green-50", text: "text-green-700" },
+  depleted: { label: "Depleted", bg: "bg-gray-100", text: "text-gray-500" },
+  hold: { label: "On Hold", bg: "bg-amber-50", text: "text-amber-700" },
+};
+
+const regionColors: Record<string, string> = {
+  Yirgacheffe: "bg-purple-100 text-purple-700",
+  Guji: "bg-blue-100 text-blue-700",
+  Sidamo: "bg-green-100 text-green-700",
+  Limu: "bg-teal-100 text-teal-700",
+  Harrar: "bg-orange-100 text-orange-700",
+};
+
+function InventoryPage() {
+  const [filterRegion, setFilterRegion] = useState("All");
+  const [filterEudr, setFilterEudr] = useState("All");
+
+  const regions = ["All", "Yirgacheffe", "Guji", "Sidamo", "Limu", "Harrar"];
+  const eudrFilters = ["All", "Complete", "Partial", "Missing"];
+
+  const filteredLots = lotsData.filter(lot => {
+    const regionMatch = filterRegion === "All" || lot.region === filterRegion;
+    const eudrMatch = filterEudr === "All" || lot.eudr === filterEudr.toLowerCase();
+    return regionMatch && eudrMatch;
+  });
+
+  const totalStock = lotsData.reduce((sum, l) => sum + l.stock, 0);
+  const activeLots = lotsData.filter(l => l.status === "active").length;
+  const eudrComplete = lotsData.filter(l => l.eudr === "complete").length;
+  const lowStock = lotsData.filter(l => l.stock > 0 && l.stock < 20).length;
+
+  return (
+    <main className="p-8 max-w-[1200px] mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Inventory</h1>
+          <p className="text-sm text-gray-500 mt-1">What coffee can I sell?</p>
+        </div>
+        <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+          <Plus className="h-4 w-4" /> Add Lot
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-medium text-gray-500">Total Stock</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{totalStock} <span className="text-sm font-normal text-gray-400">bags</span></p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-medium text-gray-500">Active Lots</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{activeLots}</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-medium text-gray-500">EUDR Complete</p>
+          <p className="text-2xl font-bold text-green-600 mt-1">{eudrComplete}<span className="text-sm font-normal text-gray-400">/{lotsData.length}</span></p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-medium text-gray-500">Low Stock</p>
+          <p className="text-2xl font-bold text-amber-600 mt-1">{lowStock}</p>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-400 mr-1">Region:</span>
+            {regions.map(r => (
+              <button
+                key={r}
+                onClick={() => setFilterRegion(r)}
+                className={cn("rounded-lg px-2.5 py-1 text-xs font-medium transition-colors", filterRegion === r ? "bg-[#4A3520] text-white" : "text-gray-500 hover:bg-gray-100")}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+          <div className="h-4 w-px bg-gray-200" />
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-400 mr-1">EUDR:</span>
+            {eudrFilters.map(e => (
+              <button
+                key={e}
+                onClick={() => setFilterEudr(e)}
+                className={cn("rounded-lg px-2.5 py-1 text-xs font-medium transition-colors", filterEudr === e ? "bg-[#4A3520] text-white" : "text-gray-500 hover:bg-gray-100")}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        </div>
+        <span className="text-xs text-gray-400">{filteredLots.length} lots</span>
+      </div>
+
+      {/* Lot Cards Grid */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {filteredLots.map((lot) => {
+          const ec = eudrConfig[lot.eudr];
+          const sc = statusConfig[lot.status];
+          const rc = regionColors[lot.region] || "bg-gray-100 text-gray-600";
+          return (
+            <div key={lot.id} className="rounded-xl border border-gray-200 bg-white p-5 hover:shadow-sm transition-shadow">
+              {/* Header */}
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className={cn("rounded-md px-2 py-0.5 text-xs font-semibold", rc)}>{lot.region}</span>
+                    <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{lot.process}</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1.5">{lot.id} · {lot.station}</p>
+                </div>
+                <span className={cn("rounded-md px-2 py-0.5 text-xs font-medium", sc.bg, sc.text)}>{sc.label}</span>
+              </div>
+
+              {/* Cupping Score */}
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50">
+                  <span className="text-lg font-bold text-amber-600">{lot.score}</span>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Cupping Score</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Screen {lot.screen} · Crop {lot.cropYear}</p>
+                </div>
+              </div>
+
+              {/* Stock bar */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-medium text-gray-500">Stock</span>
+                  <span className={cn("text-sm font-bold", lot.stock === 0 ? "text-gray-400" : lot.stock < 20 ? "text-amber-600" : "text-gray-900")}>
+                    {lot.stock} bags
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-gray-100">
+                  <div
+                    className={cn("h-2 rounded-full transition-all", lot.stock === 0 ? "bg-gray-200" : lot.stock < 20 ? "bg-amber-500" : "bg-green-500")}
+                    style={{ width: `${Math.min((lot.stock / 100) * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* EUDR + Certifications */}
+              <div className="flex items-center justify-between">
+                <span className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium", ec.bg, ec.text)}>
+                  <span className={cn("h-1.5 w-1.5 rounded-full", ec.dot)} />
+                  EUDR {ec.label}
+                </span>
+                <div className="flex gap-1">
+                  {lot.certifications.map((cert, ci) => (
+                    <span key={ci} className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">{cert}</span>
+                  ))}
+                  {lot.certifications.length === 0 && <span className="text-[10px] text-gray-300">No certs</span>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* AI Insight banner */}
+      <div className="mt-6 rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-5">
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500 shrink-0">
+            <Sparkles className="h-4 w-4 text-white" strokeWidth={1.5} />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-indigo-600 mb-1">AI Inventory Insight</p>
+            <p className="text-sm text-gray-700 leading-relaxed">
+              Guji Washed stock is running low (45 bags). You have 2 active deals requiring Guji lots totaling 620 bags.
+              Consider restocking from Shakisso Coop before committing to new quotes.
+              EUDR compliance is missing for 2 lots — required for all EU shipments.
+            </p>
+            <button className="mt-3 flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline">
+              View restocking recommendations <ArrowRight className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
 // PLACEHOLDER PAGE
 // ═══════════════════════════════════════════════════════════
 function PlaceholderPage({ title, question }: { title: string; question: string }) {
@@ -1284,7 +1489,8 @@ export default function App() {
         {currentPage === "inbox" && <InboxPage />}
         {currentPage === "leads" && <LeadsPage />}
         {currentPage === "deals" && <DealsPage />}
-        {currentPage !== "dashboard" && currentPage !== "inbox" && currentPage !== "leads" && currentPage !== "deals" && (
+        {currentPage === "inventory" && <InventoryPage />}
+        {currentPage !== "dashboard" && currentPage !== "inbox" && currentPage !== "leads" && currentPage !== "deals" && currentPage !== "inventory" && (
           <PlaceholderPage title={pageTitles[currentPage].title} question={pageTitles[currentPage].question} />
         )}
       </div>
