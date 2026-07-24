@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard, Inbox as InboxIcon, Users, Handshake, Package, FlaskConical,
   FileText, ScrollText, Truck, DollarSign, Sparkles,
@@ -1822,6 +1822,195 @@ function marginTier(pct: number) {
   return { label: "Risky", text: "text-red-600", bg: "bg-red-50", bar: "bg-red-500" };
 }
 
+// ─── Negotiation Simulator ─────────────────────────────────
+// Lets the exporter model a buyer counter-offer in real-time.
+// For each line item, drag the price → see margin impact instantly.
+// Reference markers: Floor (12%), Target (20%), Stretch (25%).
+function NegotiationSimulator({ quote }: { quote: Quote }) {
+  // Initial slider state = current quote prices
+  const [prices, setPrices] = useState<number[]>(quote.lines.map(l => l.pricePerKg));
+
+  // Reset when quote changes
+  useEffect(() => {
+    setPrices(quote.lines.map(l => l.pricePerKg));
+  }, [quote.id]);
+
+  // Compute simulated margin
+  const linesSubtotal = quote.lines.reduce((s, l, i) => s + l.weightKg * prices[i], 0);
+  const lineCost = quote.lines.reduce((s, l) => s + l.weightKg * l.costPerKg, 0);
+  const total = linesSubtotal + quote.freight + quote.insurance;
+  const commission = total * (quote.commissionPct / 100);
+  const grossMargin = total - lineCost - quote.freight - quote.insurance - commission;
+  const marginPct = total > 0 ? (grossMargin / total) * 100 : 0;
+  const mt = marginTier(marginPct);
+
+  // Original margin for delta comparison
+  const origLines = quote.lines.reduce((s, l) => s + l.weightKg * l.pricePerKg, 0);
+  const origTotal = origLines + quote.freight + quote.insurance;
+  const origCommission = origTotal * (quote.commissionPct / 100);
+  const origMargin = origTotal - lineCost - quote.freight - quote.insurance - origCommission;
+  const origMarginPct = origTotal > 0 ? (origMargin / origTotal) * 100 : 0;
+  const deltaPct = marginPct - origMarginPct;
+  const deltaTotal = total - origTotal;
+
+  // Per-line reference prices
+  const lineRefs = quote.lines.map(l => {
+    // Per-line margin benchmarks (commission-adjusted, ignoring fixed costs for simplicity)
+    const floorPrice = l.costPerKg / (1 - quote.commissionPct / 100) * 1.12; // 12% margin floor
+    const targetPrice = l.costPerKg / (1 - quote.commissionPct / 100) * 1.20; // 20% margin target
+    const stretchPrice = l.costPerKg / (1 - quote.commissionPct / 100) * 1.25; // 25% margin stretch
+    const breakEven = l.costPerKg / (1 - quote.commissionPct / 100); // 0% margin (covers cost + commission)
+    return { floorPrice, targetPrice, stretchPrice, breakEven };
+  });
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-gradient-to-br from-amber-50/50 to-white p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-amber-600" strokeWidth={1.5} />
+          <span className="text-xs font-semibold uppercase tracking-wider text-amber-700">Negotiation Simulator</span>
+        </div>
+        <button
+          onClick={() => setPrices(quote.lines.map(l => l.pricePerKg))}
+          className="text-[10px] text-gray-400 hover:text-gray-700 font-medium"
+        >
+          Reset
+        </button>
+      </div>
+      <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+        Drag each lot&apos;s price to model a counter-offer. Margin updates live. <span className="text-amber-700 font-medium">Floor = 12%</span> · <span className="text-green-600 font-medium">Target = 20%</span> · <span className="text-emerald-600 font-medium">Stretch = 25%</span>
+      </p>
+
+      {/* Per-line sliders */}
+      <div className="space-y-3 mb-4">
+        {quote.lines.map((l, i) => {
+          const ref = lineRefs[i];
+          const sliderMin = ref.breakEven * 0.95; // slightly below break-even for visibility
+          const sliderMax = ref.stretchPrice * 1.10;
+          const val = prices[i];
+          const floorPct = ((ref.floorPrice - sliderMin) / (sliderMax - sliderMin)) * 100;
+          const targetPct = ((ref.targetPrice - sliderMin) / (sliderMax - sliderMin)) * 100;
+          const stretchPct = ((ref.stretchPrice - sliderMin) / (sliderMax - sliderMin)) * 100;
+          const origPct = ((l.pricePerKg - sliderMin) / (sliderMax - sliderMin)) * 100;
+          const lineDelta = val - l.pricePerKg;
+          return (
+            <div key={i} className="rounded-md bg-white border border-gray-100 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <span className="text-xs font-semibold text-gray-900">{l.lotId}</span>
+                  <span className="text-[10px] text-gray-400 ml-1.5">{l.origin} {l.process}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm font-bold text-gray-900">${val.toFixed(2)}</span>
+                  <span className="text-[10px] text-gray-400">/kg</span>
+                  {lineDelta !== 0 && (
+                    <span className={cn("ml-1.5 text-[10px] font-medium", lineDelta < 0 ? "text-red-600" : "text-green-600")}>
+                      {lineDelta > 0 ? "+" : ""}{lineDelta.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {/* Slider */}
+              <div className="relative h-6 flex items-center">
+                {/* Track background zones */}
+                <div className="absolute inset-x-0 h-1.5 rounded-full overflow-hidden flex">
+                  <div className="bg-red-100" style={{ width: `${floorPct}%` }} />
+                  <div className="bg-amber-100" style={{ width: `${targetPct - floorPct}%` }} />
+                  <div className="bg-green-100" style={{ width: `${stretchPct - targetPct}%` }} />
+                  <div className="bg-emerald-100" style={{ width: `${100 - stretchPct}%` }} />
+                </div>
+                {/* Reference markers */}
+                <div className="absolute top-0 bottom-0 w-px bg-amber-500" style={{ left: `${floorPct}%` }} title={`Floor $${ref.floorPrice.toFixed(2)}`} />
+                <div className="absolute top-0 bottom-0 w-px bg-green-500" style={{ left: `${targetPct}%` }} title={`Target $${ref.targetPrice.toFixed(2)}`} />
+                <div className="absolute top-0 bottom-0 w-px bg-emerald-500" style={{ left: `${stretchPct}%` }} title={`Stretch $${ref.stretchPrice.toFixed(2)}`} />
+                {/* Original price marker (triangle) */}
+                <div className="absolute -top-1 w-0 h-0" style={{
+                  left: `${origPct}%`,
+                  borderLeft: "4px solid transparent",
+                  borderRight: "4px solid transparent",
+                  borderTop: "5px solid #4A3520",
+                  transform: "translateX(-50%)",
+                }} title={`Original $${l.pricePerKg.toFixed(2)}`} />
+                {/* Native range input on top */}
+                <input
+                  type="range"
+                  min={sliderMin}
+                  max={sliderMax}
+                  step={0.01}
+                  value={val}
+                  onChange={(e) => {
+                    const newPrices = [...prices];
+                    newPrices[i] = parseFloat(e.target.value);
+                    setPrices(newPrices);
+                  }}
+                  className="relative w-full appearance-none bg-transparent cursor-pointer
+                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4
+                    [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2
+                    [&::-webkit-slider-thumb]:border-amber-500 [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-grab
+                    [&::-webkit-slider-thumb]:-mt-1.5
+                    [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full
+                    [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-amber-500 [&::-moz-range-thumb]:cursor-grab"
+                  style={{ height: "6px" }}
+                />
+              </div>
+              {/* Reference labels */}
+              <div className="flex justify-between text-[9px] text-gray-400 mt-1.5">
+                <span>Break-even ${ref.breakEven.toFixed(2)}</span>
+                <span className="text-amber-600">Floor ${ref.floorPrice.toFixed(2)}</span>
+                <span className="text-green-600">Target ${ref.targetPrice.toFixed(2)}</span>
+                <span className="text-emerald-600">Stretch ${ref.stretchPrice.toFixed(2)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Simulated margin result */}
+      <div className="rounded-md bg-white border border-gray-200 p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-gray-500">Simulated Margin</span>
+          <div className="flex items-baseline gap-2">
+            <span className={cn("text-xl font-bold", mt.text)}>{marginPct.toFixed(1)}%</span>
+            {deltaPct !== 0 && (
+              <span className={cn("text-[11px] font-medium", deltaPct < 0 ? "text-red-600" : "text-green-600")}>
+                {deltaPct > 0 ? "▲" : "▼"} {Math.abs(deltaPct).toFixed(1)}pp
+              </span>
+            )}
+          </div>
+        </div>
+        {/* Margin bar */}
+        <div className="relative h-2 rounded-full bg-gray-100 overflow-hidden">
+          <div className={cn("h-full transition-all", mt.bar)} style={{ width: `${Math.min(marginPct * 3, 100)}%` }} />
+          <div className="absolute top-0 bottom-0 w-px bg-gray-400" style={{ left: "60%" }} title="Target 20%" />
+        </div>
+        <div className="grid grid-cols-3 gap-2 mt-3 text-[11px]">
+          <div className="rounded bg-gray-50 px-2 py-1.5">
+            <span className="text-gray-400 block">New Total</span>
+            <span className="font-semibold text-gray-900">${total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            {deltaTotal !== 0 && (
+              <span className={cn("block text-[10px]", deltaTotal < 0 ? "text-red-600" : "text-green-600")}>
+                {deltaTotal > 0 ? "+" : "-"}${Math.abs(deltaTotal).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </span>
+            )}
+          </div>
+          <div className="rounded bg-gray-50 px-2 py-1.5">
+            <span className="text-gray-400 block">Gross Profit</span>
+            <span className={cn("font-semibold", mt.text)}>${grossMargin.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+          </div>
+          <div className="rounded bg-gray-50 px-2 py-1.5">
+            <span className="text-gray-400 block">Verdict</span>
+            <span className={cn("font-semibold", mt.text)}>{mt.label}</span>
+          </div>
+        </div>
+        {/* Action button */}
+        <button className="w-full mt-3 rounded-lg bg-[#4A3520] px-4 py-2 text-xs font-medium text-white hover:bg-[#6B4E33] transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled={Math.abs(deltaPct) < 0.01}>
+          Generate V{quote.version + 1} at these prices
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function QuotesPage() {
   const [filter, setFilter] = useState("All");
   const [selectedQuote, setSelectedQuote] = useState<string | null>(null);
@@ -2182,6 +2371,11 @@ function QuotesPage() {
                   </div>
                 );
               })()}
+
+              {/* Negotiation Simulator — only show for actionable quotes */}
+              {["ai_draft", "pending_review", "pending_approval", "sent", "revised"].includes(selected.status) && (
+                <NegotiationSimulator quote={selected} />
+              )}
 
               {/* Buyer note */}
               {selected.buyerNote && (
