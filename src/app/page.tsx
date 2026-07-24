@@ -3199,488 +3199,407 @@ const shipmentsData: Shipment[] = [
 ];
 
 function ShipmentsPage() {
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] = useState("Active");
   const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
-  const filters = ["All", "In Transit", "At Port", "Loading", "Delayed", "Delivered"];
+  const filters = ["Active", "Issues", "Delivered"];
 
-  const filterMap: Record<string, (s: Shipment) => boolean> = {
-    "All": () => true,
-    "In Transit": (s) => s.stage === "in_transit" || s.stage === "loaded",
-    "At Port": (s) => s.stage === "at_port" || s.stage === "arrived" || s.stage === "customs",
-    "Loading": (s) => s.stage === "processing" || s.stage === "to_port",
-    "Delayed": (s) => s.status === "delayed" || s.status === "demurrage_risk",
+  // 3 simple filter groups (was 6)
+  const filterFn: Record<string, (s: Shipment) => boolean> = {
+    "Active": (s) => s.status !== "delivered",
+    "Issues": (s) => s.status === "delayed" || s.status === "demurrage_risk" || s.docReadiness < 50,
     "Delivered": (s) => s.status === "delivered",
   };
 
-  const filtered = shipmentsData.filter(filterMap[filter]);
+  const filtered = shipmentsData.filter(filterFn[filter]);
+
+  // Simple plain-English status helper
+  function plainStatus(s: Shipment): { headline: string; sub: string; color: string } {
+    if (s.status === "delivered") {
+      const delDate = s.milestones.find(m => m.stage === "delivered")?.date;
+      return { headline: "Delivered", sub: `Arrived ${delDate}`, color: "green" };
+    }
+    if (s.demurrageRisk !== null) {
+      return { headline: "Action needed", sub: `Port fees start in ${s.demurrageRisk} days`, color: "red" };
+    }
+    if (s.status === "delayed") {
+      return { headline: "Delayed", sub: `New ETA ${s.etaDate} (+4 days)`, color: "amber" };
+    }
+    if (s.docReadiness < 50) {
+      return { headline: "Docs missing", sub: `${s.docReadiness}% ready — vessel departs soon`, color: "red" };
+    }
+    if (s.stage === "at_port") return { headline: "At Djibouti port", sub: "Waiting for vessel", color: "blue" };
+    if (s.stage === "to_port") return { headline: "On the truck", sub: "Heading to Djibouti", color: "blue" };
+    if (s.stage === "processing") return { headline: "Being processed", sub: "Preparing for shipment", color: "gray" };
+    if (s.stage === "in_transit" || s.stage === "loaded") return { headline: "On the water", sub: `Arrives ${s.etaDate}`, color: "blue" };
+    if (s.stage === "arrived" || s.stage === "customs") return { headline: "In customs", sub: `${s.destinationPort} port`, color: "blue" };
+    return { headline: shipmentStatusConfig[s.status].label, sub: "", color: "gray" };
+  }
+
+  // 4-stage simplified journey (was 8)
+  function journeyStage(s: Shipment): 0 | 1 | 2 | 3 {
+    if (s.stage === "processing" || s.stage === "to_port" || s.stage === "at_port") return 0; // Ethiopia
+    if (s.stage === "loaded" || s.stage === "in_transit") return 1; // At sea
+    if (s.stage === "arrived" || s.stage === "customs") return 2; // At destination port
+    return 3; // Delivered
+  }
+
+  const journeyLabels = ["Ethiopia", "At Sea", "Arrived", "Delivered"];
 
   const stats = {
-    total: shipmentsData.length,
-    inTransit: shipmentsData.filter(s => s.stage === "in_transit" || s.stage === "loaded").length,
-    loading: shipmentsData.filter(s => s.stage === "processing" || s.stage === "to_port" || s.stage === "at_port").length,
+    active: shipmentsData.filter(s => s.status !== "delivered").length,
+    issues: shipmentsData.filter(s => s.status === "delayed" || s.status === "demurrage_risk" || s.docReadiness < 50).length,
     delivered: shipmentsData.filter(s => s.status === "delivered").length,
-    atRisk: shipmentsData.filter(s => s.status === "delayed" || s.status === "demurrage_risk").length,
-    onTimeRate: (() => {
-      const completed = shipmentsData.filter(s => s.status === "delivered" || s.status === "on_schedule");
-      const onTime = completed.filter(s => s.status !== "delayed").length;
-      return completed.length > 0 ? (onTime / completed.length) * 100 : 100;
-    })(),
-    totalValue: shipmentsData.filter(s => s.status !== "delivered").reduce((sum, s) => sum + s.contractValue, 0),
-    demurrageRisk: shipmentsData.filter(s => s.demurrageRisk !== null).length,
+    activeValue: shipmentsData.filter(s => s.status !== "delivered").reduce((sum, s) => sum + s.contractValue, 0),
   };
 
   const selected = shipmentsData.find(s => s.id === selectedShipment);
 
   return (
-    <main className="p-8 max-w-[1200px] mx-auto">
+    <main className="p-8 max-w-[1100px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Shipments</h1>
           <p className="text-sm text-gray-500 mt-1">Where is every container?</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-            <Search className="h-4 w-4" /> Track Container
-          </button>
-          <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
-            <Plus className="h-4 w-4" /> New Shipment
-          </button>
-        </div>
+        <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+          <Plus className="h-4 w-4" /> New Shipment
+        </button>
       </div>
 
-      {/* AI Insight Banner */}
-      <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-5 mb-6">
-        <div className="flex items-start gap-4">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-100">
-            <Bot className="h-5 w-5 text-indigo-600" strokeWidth={1.5} />
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-sm font-semibold text-indigo-700">Logistics Coach</span>
-              <span className="text-xs text-indigo-400">·</span>
-              <span className="text-xs text-indigo-500">{stats.atRisk} shipments need attention</span>
-            </div>
-            <p className="text-sm text-gray-700 leading-relaxed">
-              {stats.demurrageRisk > 0 ? (
-                <><span className="font-semibold text-red-700">CT-2026-001 (Hamburg) has demurrage risk in 4 days</span> — phytosanitary cert expires Jul 30, vessel arrives Aug 09. Renew at EAA today (5-7 day processing). Risk cost: ~<span className="font-semibold text-red-700">$420/day</span> demurrage if cert not ready at arrival.</>
-              ) : (
-                <>All shipments on schedule. CT-2026-005 (Busan) was delayed 4 days at Singapore congestion — new ETA Aug 16. Buyer notified. No demurrage risk.</>
-              )}
-              {" "}CT-2026-004 (Yokohama) departs in <span className="font-semibold">8 days</span> with only 25% doc readiness — needs immediate action.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-xs font-medium text-gray-500">In Transit</p>
-          <p className="text-2xl font-bold text-blue-600 mt-1">{stats.inTransit}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">containers at sea</p>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-xs font-medium text-gray-500">At Risk</p>
-          <p className="text-2xl font-bold text-red-600 mt-1">{stats.atRisk}</p>
-          <p className="text-[11px] text-red-500 mt-0.5">delayed or demurrage</p>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-xs font-medium text-gray-500">Active Value</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">${(stats.totalValue / 1000).toFixed(0)}K</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">across {stats.total - stats.delivered} shipments</p>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-xs font-medium text-gray-500">On-time Rate</p>
-          <p className="text-2xl font-bold text-green-600 mt-1">{stats.onTimeRate.toFixed(0)}%</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">{stats.delivered} delivered this season</p>
-        </div>
-      </div>
-
-      {/* Filter tabs */}
-      <div className="flex gap-1 mb-4">
+      {/* Simple filter tabs (was 6, now 3) */}
+      <div className="flex gap-1 mb-6">
         {filters.map((f) => {
-          const count = shipmentsData.filter(filterMap[f]).length;
+          const count = shipmentsData.filter(filterFn[f]).length;
+          const isActive = filter === f;
           return (
             <button
               key={f}
               onClick={() => setFilter(f)}
               className={cn(
-                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap",
-                filter === f ? "bg-[#4A3520] text-white" : "text-gray-500 hover:bg-gray-100"
+                "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+                isActive ? "bg-[#4A3520] text-white" : "text-gray-600 hover:bg-gray-100"
               )}
             >
               {f}
-              <span className={cn("rounded-full px-1.5 text-[10px]", filter === f ? "bg-white/20" : "bg-gray-100 text-gray-500")}>{count}</span>
+              <span className={cn(
+                "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                isActive ? "bg-white/20" : "bg-gray-100 text-gray-500"
+              )}>{count}</span>
+              {f === "Issues" && count > 0 && !isActive && <span className="h-2 w-2 rounded-full bg-red-500" />}
             </button>
           );
         })}
       </div>
 
-      {/* Shipment cards */}
-      <div className="space-y-3">
+      {/* Shipment cards — simplified, scannable */}
+      <div className="space-y-4">
         {filtered.map((s) => {
-          const sc = shipmentStatusConfig[s.status];
-          const currentStageIdx = stageOrder.indexOf(s.stage);
+          const ps = plainStatus(s);
+          const stage = journeyStage(s);
+          const colorClasses: Record<string, { dot: string; text: string; bg: string; bar: string }> = {
+            green: { dot: "bg-green-500", text: "text-green-700", bg: "bg-green-50", bar: "bg-green-500" },
+            red: { dot: "bg-red-500", text: "text-red-700", bg: "bg-red-50", bar: "bg-red-500" },
+            amber: { dot: "bg-amber-500", text: "text-amber-700", bg: "bg-amber-50", bar: "bg-amber-500" },
+            blue: { dot: "bg-blue-500", text: "text-blue-700", bg: "bg-blue-50", bar: "bg-blue-500" },
+            gray: { dot: "bg-gray-400", text: "text-gray-700", bg: "bg-gray-50", bar: "bg-gray-400" },
+          };
+          const cc = colorClasses[ps.color];
           return (
             <div
               key={s.id}
               onClick={() => setSelectedShipment(s.id)}
               className="rounded-xl border border-gray-200 bg-white p-5 hover:shadow-sm transition-all cursor-pointer hover:border-gray-300"
             >
-              <div className="flex items-start gap-4">
-                {/* Status indicator */}
-                <div className="flex flex-col items-center gap-2 pt-1">
-                  <span className={cn("h-3 w-3 rounded-full", sc.dot)} />
-                  <div className="w-px flex-1 bg-gray-100" style={{ minHeight: "40px" }} />
-                </div>
-
-                {/* Main content */}
-                <div className="flex-1 min-w-0">
-                  {/* Top row */}
-                  <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-semibold text-gray-900">{s.id}</span>
-                      <span className="rounded-md bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 font-mono">{s.containerNo}</span>
-                      <span className="text-sm text-gray-600">{s.flag} {s.destinationCity}</span>
-                      <span className="text-xs text-gray-400">·</span>
-                      <span className="text-xs text-gray-500">{s.buyer}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {s.demurrageRisk !== null && (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-                          <AlertTriangle className="h-2.5 w-2.5" /> Demurrage {s.demurrageRisk}d
-                        </span>
-                      )}
-                      {s.status === "delayed" && (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                          <Clock className="h-2.5 w-2.5" /> +4 days
-                        </span>
-                      )}
-                      <span className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium", sc.bg, sc.text)}>
-                        <span className={cn("h-1.5 w-1.5 rounded-full", sc.dot)} />
-                        {sc.label}
-                      </span>
-                    </div>
+              {/* Top row: who + status pill */}
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-bold text-gray-900">{s.flag} {s.destinationCity}</span>
+                    <span className="text-xs text-gray-400">·</span>
+                    <span className="text-sm text-gray-500">{s.buyer}</span>
                   </div>
+                  <p className="text-xs text-gray-400 mt-0.5">{s.id} · {s.vessel}</p>
+                </div>
+                <div className={cn("flex items-center gap-2 rounded-lg px-3 py-1.5", cc.bg)}>
+                  <span className={cn("h-2 w-2 rounded-full", cc.dot)} />
+                  <div className="text-right">
+                    <p className={cn("text-xs font-semibold leading-tight", cc.text)}>{ps.headline}</p>
+                    {ps.sub && <p className={cn("text-[10px] leading-tight mt-0.5", cc.text, "opacity-80")}>{ps.sub}</p>}
+                  </div>
+                </div>
+              </div>
 
-                  {/* Stage timeline (mini horizontal) */}
-                  <div className="flex items-center gap-1 mb-3">
-                    {stageOrder.map((st, i) => {
-                      const isComplete = i < currentStageIdx || s.stage === "delivered";
-                      const isCurrent = i === currentStageIdx && s.stage !== "delivered";
-                      return (
-                        <div key={st} className="flex-1 flex items-center">
-                          <div
-                            className={cn(
-                              "h-1.5 flex-1 rounded-full",
-                              isComplete ? "bg-green-500" : isCurrent ? "bg-blue-500" : "bg-gray-100"
-                            )}
-                          />
-                          {i < stageOrder.length - 1 && <div className="w-1" />}
+              {/* HERO: 4-stage journey bar */}
+              <div className="mb-4">
+                <div className="relative flex items-center justify-between mb-2">
+                  {journeyLabels.map((label, i) => {
+                    const isComplete = i < stage;
+                    const isCurrent = i === stage;
+                    return (
+                      <div key={label} className="flex-1 flex flex-col items-center relative">
+                        {/* Dot */}
+                        <div className={cn(
+                          "flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold border-2 z-10 bg-white",
+                          isComplete ? cn(cc.bar, "text-white border-transparent")
+                          : isCurrent ? cn("border-2", cc.text, cc.bg.replace("bg-", "border-").replace("50", "200"))
+                          : "border-gray-200 text-gray-400"
+                        )}>
+                          {isComplete ? "✓" : i + 1}
                         </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Lots + vessel info */}
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {s.lots.map((lot, li) => (
-                      <span key={li} className="rounded-md bg-gray-50 border border-gray-100 px-2 py-1 text-xs text-gray-600">{lot}</span>
-                    ))}
-                  </div>
-
-                  {/* Key details */}
-                  <div className="flex items-center gap-6 text-xs flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <Ship className="h-3.5 w-3.5 text-gray-400" strokeWidth={1.5} />
-                      <span className="text-gray-500">{s.vessel} · {s.voyage}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-gray-400">Route:</span>
-                      <span className="font-medium text-gray-700">{s.originPort} → {s.destinationPort}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-gray-400">Value:</span>
-                      <span className="font-bold text-gray-900">${(s.contractValue / 1000).toFixed(1)}K</span>
-                      <span className="text-gray-400">·</span>
-                      <span className="text-gray-500">{(s.weightKg / 1000).toFixed(0)}t</span>
-                    </div>
-                    {s.status !== "delivered" && (
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5 text-gray-400" strokeWidth={1.5} />
-                        <span className={cn(s.daysRemaining <= 7 ? "text-amber-600 font-medium" : "text-gray-500")}>
-                          ETA {s.etaDate} · {s.daysRemaining}d
-                        </span>
+                        <span className={cn(
+                          "text-[10px] mt-1.5 font-medium",
+                          isComplete ? "text-gray-700" : isCurrent ? cn(cc.text) : "text-gray-400"
+                        )}>{label}</span>
                       </div>
-                    )}
-                    {s.status === "delivered" && (
-                      <div className="flex items-center gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-green-500" strokeWidth={1.5} />
-                        <span className="text-green-600 font-medium">Delivered {s.milestones.find(m => m.stage === "delivered")?.date}</span>
-                      </div>
-                    )}
+                    );
+                  })}
+                  {/* Progress line behind dots */}
+                  <div className="absolute top-3.5 left-[12.5%] right-[12.5%] h-0.5 bg-gray-200 -z-0">
+                    <div
+                      className={cn("h-full transition-all", cc.bar)}
+                      style={{ width: `${(stage / 3) * 100}%` }}
+                    />
                   </div>
+                </div>
+              </div>
 
-                  {/* Temperature + doc readiness strip */}
-                  <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-50 text-[11px]">
-                    <div className="flex items-center gap-1.5">
-                      <span className={cn("flex h-2 w-2 rounded-full", s.tempOk ? "bg-green-500" : "bg-red-500")} />
-                      <span className="text-gray-500">Temp</span>
-                      <span className={cn("font-medium", s.tempOk ? "text-gray-700" : "text-red-600")}>{s.temperature.toFixed(1)}°C</span>
-                      <span className="text-gray-400">/ {s.humidity}% RH</span>
+              {/* Bottom row: ETA (hero) + key facts */}
+              <div className="flex items-end justify-between pt-4 border-t border-gray-50">
+                <div className="flex items-center gap-6">
+                  {s.status !== "delivered" ? (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Arrives</p>
+                      <p className="text-lg font-bold text-gray-900">{s.etaDate}</p>
+                      <p className="text-[11px] text-gray-500">{s.daysRemaining} days from now</p>
                     </div>
-                    <div className="text-gray-300">·</div>
-                    <div className="flex items-center gap-1.5">
-                      <ShieldCheck className={cn("h-3 w-3", s.docReadiness === 100 ? "text-green-500" : s.docReadiness < 50 ? "text-red-500" : "text-amber-500")} strokeWidth={1.5} />
-                      <span className="text-gray-500">Docs</span>
-                      <span className={cn("font-medium", s.docReadiness === 100 ? "text-green-600" : s.docReadiness < 50 ? "text-red-600" : "text-amber-600")}>{s.docReadiness}%</span>
+                  ) : (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Completed</p>
+                      <p className="text-lg font-bold text-green-600">On time</p>
+                      <p className="text-[11px] text-gray-500">{s.daysTotal} day voyage</p>
                     </div>
-                    {s.tempLog.length > 0 && (
-                      <>
-                        <div className="text-gray-300">·</div>
-                        <div className="flex items-center gap-1.5 text-gray-400">
-                          <TrendingUp className="h-3 w-3" />
-                          <span>{s.tempLog.length} temp readings</span>
-                        </div>
-                      </>
-                    )}
+                  )}
+                  <div className="h-10 w-px bg-gray-100" />
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Cargo</p>
+                    <p className="text-sm font-bold text-gray-900">{(s.weightKg / 1000).toFixed(1)}t</p>
+                    <p className="text-[11px] text-gray-500">${(s.contractValue / 1000).toFixed(0)}K</p>
+                  </div>
+                  <div className="h-10 w-px bg-gray-100" />
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Temperature</p>
+                    <p className={cn("text-sm font-bold", s.tempOk ? "text-gray-900" : "text-red-600")}>{s.temperature.toFixed(1)}°C</p>
+                    <p className="text-[11px] text-gray-500">{s.humidity}% humidity</p>
                   </div>
                 </div>
 
-                {/* Action button */}
-                <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-                  <button onClick={() => setSelectedShipment(s.id)} className={cn(
-                    "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
-                    s.demurrageRisk !== null ? "bg-red-600 text-white hover:bg-red-700"
-                    : s.status === "delayed" ? "border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                    : s.docReadiness < 50 ? "border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                    : "border border-gray-200 text-gray-600 hover:bg-gray-50"
-                  )}>
-                    {s.demurrageRisk !== null ? "Resolve Risk"
-                    : s.status === "delivered" ? "View History"
-                    : s.docReadiness < 50 ? "View Docs"
-                    : "Track"}
-                  </button>
-                </div>
+                {/* Right side: action hint */}
+                {ps.color === "red" && (
+                  <span className="text-xs font-medium text-red-600">Tap to resolve →</span>
+                )}
+                {ps.color === "amber" && (
+                  <span className="text-xs font-medium text-amber-700">Tap for details →</span>
+                )}
+                {ps.color === "blue" && (
+                  <span className="text-xs font-medium text-gray-400">Tap to track →</span>
+                )}
+                {ps.color === "green" && (
+                  <span className="text-xs font-medium text-gray-400">Tap for history →</span>
+                )}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Shipment Detail Drawer */}
+      {/* SIMPLIFIED Detail Drawer */}
       {selected && (
         <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedShipment(null)}>
           <div className="absolute inset-0 bg-black/20" />
           <div
-            className="relative w-[520px] h-full bg-white border-l border-gray-200 overflow-y-auto shadow-xl"
+            className="relative w-[480px] h-full bg-white border-l border-gray-200 overflow-y-auto shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Drawer header */}
             <div className="sticky top-0 z-10 border-b border-gray-100 px-6 py-4 bg-white">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-base font-semibold text-gray-900">{selected.id}</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">{selected.flag} {selected.destinationCity}, {selected.destinationCountry}</p>
+                  <h3 className="text-lg font-bold text-gray-900">{selected.flag} {selected.destinationCity}</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{selected.buyer} · {selected.id}</p>
                 </div>
                 <button onClick={() => setSelectedShipment(null)} className="p-1.5 rounded-lg hover:bg-gray-100"><XIcon className="h-4 w-4 text-gray-400" strokeWidth={1.5} /></button>
-              </div>
-              <div className="flex items-center gap-2 mt-3 flex-wrap">
-                <span className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium", shipmentStatusConfig[selected.status].bg, shipmentStatusConfig[selected.status].text)}>
-                  <span className={cn("h-1.5 w-1.5 rounded-full", shipmentStatusConfig[selected.status].dot)} />
-                  {shipmentStatusConfig[selected.status].label}
-                </span>
-                {selected.demurrageRisk !== null && (
-                  <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600">
-                    <AlertTriangle className="h-3 w-3" /> Demurrage in {selected.demurrageRisk}d
-                  </span>
-                )}
               </div>
             </div>
 
             <div className="p-6 space-y-5">
-              {/* Voyage progress */}
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Voyage Progress</p>
-                <div className="relative">
-                  {/* Stage timeline */}
-                  <div className="space-y-3">
-                    {selected.milestones.map((m, i) => {
-                      const stg = shipmentStageConfig[m.stage];
-                      const isComplete = m.completed;
-                      const isCurrent = !m.completed && i > 0 && selected.milestones[i - 1].completed;
-                      return (
-                        <div key={i} className="flex items-start gap-3">
-                          {/* Vertical line + dot */}
-                          <div className="flex flex-col items-center">
-                            <div className={cn(
-                              "flex h-7 w-7 items-center justify-center rounded-full shrink-0",
-                              isComplete ? "bg-green-100" : isCurrent ? "bg-blue-100 ring-2 ring-blue-200" : "bg-gray-100"
-                            )}>
-                              <stg.icon className={cn("h-3.5 w-3.5", isComplete ? "text-green-600" : isCurrent ? "text-blue-600" : "text-gray-400")} strokeWidth={1.5} />
+              {/* HERO: What's happening now */}
+              {(() => {
+                const ps = plainStatus(selected);
+                const stage = journeyStage(selected);
+                const cc = ({"green": {dot:"bg-green-500",text:"text-green-700",bg:"bg-green-50",bar:"bg-green-500"},"red":{dot:"bg-red-500",text:"text-red-700",bg:"bg-red-50",bar:"bg-red-500"},"amber":{dot:"bg-amber-500",text:"text-amber-700",bg:"bg-amber-50",bar:"bg-amber-500"},"blue":{dot:"bg-blue-500",text:"text-blue-700",bg:"bg-blue-50",bar:"bg-blue-500"},"gray":{dot:"bg-gray-400",text:"text-gray-700",bg:"bg-gray-50",bar:"bg-gray-400"}} as any)[ps.color];
+
+                return (
+                  <>
+                    {/* Plain English status card */}
+                    <div className={cn("rounded-xl p-4 border", cc.bg, cc.bg.replace("bg-", "border-").replace("50", "200"))}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={cn("h-2.5 w-2.5 rounded-full", cc.dot)} />
+                        <span className={cn("text-sm font-bold", cc.text)}>{ps.headline}</span>
+                      </div>
+                      <p className="text-sm text-gray-700 leading-relaxed">
+                        {selected.status === "delivered" && `This container was delivered successfully. The full voyage took ${selected.daysTotal} days from Ethiopia to ${selected.destinationCity}.`}
+                        {selected.demurrageRisk !== null && `Container is at sea heading to ${selected.destinationCity}, but the phytosanitary certificate expires in ${selected.demurrageRisk} days. If not renewed before arrival, the port will charge demurrage fees of ~$420/day.`}
+                        {selected.status === "delayed" && `Vessel was delayed at a transshipment port. New ETA is ${selected.etaDate}. Buyer has been notified. No additional cost to you.`}
+                        {selected.docReadiness < 50 && `Only ${selected.docReadiness}% of required documents are ready. Vessel departs ${selected.departureDate} — application cutoff is 48 hours before that.`}
+                        {(selected.stage === "at_port" || selected.stage === "to_port" || selected.stage === "processing") && `Container is currently in Ethiopia, ${ps.headline.toLowerCase()}. Next step: load onto ${selected.vessel}.`}
+                        {(selected.stage === "in_transit" || selected.stage === "loaded") && `Container is on the water aboard ${selected.vessel}. Currently in stage ${stage + 1} of 4. Arrives ${selected.etaDate} in ${selected.daysRemaining} days.`}
+                      </p>
+                    </div>
+
+                    {/* Big journey visualization */}
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Journey</p>
+                      <div className="relative flex items-center justify-between mb-2 px-2">
+                        {journeyLabels.map((label, i) => {
+                          const isComplete = i < stage;
+                          const isCurrent = i === stage;
+                          return (
+                            <div key={label} className="flex-1 flex flex-col items-center relative">
+                              <div className={cn(
+                                "flex h-10 w-10 items-center justify-center rounded-full text-xs font-bold border-2 z-10 bg-white",
+                                isComplete ? cn(cc.bar, "text-white border-transparent")
+                                : isCurrent ? cn("border-2", cc.text, cc.bg.replace("bg-", "border-").replace("50", "200"))
+                                : "border-gray-200 text-gray-400"
+                              )}>
+                                {isComplete ? "✓" : i + 1}
+                              </div>
+                              <span className={cn(
+                                "text-xs mt-2 font-medium",
+                                isComplete ? "text-gray-700" : isCurrent ? cn(cc.text) : "text-gray-400"
+                              )}>{label}</span>
+                              {isCurrent && <span className="text-[10px] text-gray-400 mt-0.5">Current</span>}
                             </div>
-                            {i < selected.milestones.length - 1 && (
-                              <div className={cn("w-0.5 flex-1 mt-1 mb-1", isComplete ? "bg-green-200" : "bg-gray-100")} style={{ minHeight: "16px" }} />
-                            )}
-                          </div>
-                          {/* Label + date */}
-                          <div className="flex-1 pb-2">
-                            <div className="flex items-center justify-between">
-                              <p className={cn("text-sm", isComplete ? "font-medium text-gray-900" : isCurrent ? "font-semibold text-blue-700" : "text-gray-500")}>
-                                {m.label}
-                              </p>
-                              {m.date && <span className={cn("text-xs", isComplete ? "text-gray-700" : "text-gray-400")}>{m.date}</span>}
-                            </div>
-                            {m.note && (
-                              <p className={cn("text-[11px] mt-0.5", isCurrent ? "text-blue-600" : "text-gray-500")}>{m.note}</p>
-                            )}
-                            {isCurrent && (
-                              <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold text-blue-600">
-                                <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" /> Current stage
-                              </span>
-                            )}
-                          </div>
+                          );
+                        })}
+                        <div className="absolute top-5 left-[12.5%] right-[12.5%] h-0.5 bg-gray-200 -z-0">
+                          <div className={cn("h-full transition-all", cc.bar)} style={{ width: `${(stage / 3) * 100}%` }} />
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* Container specs */}
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Container & Booking</p>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-lg bg-gray-50 p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Container No</p>
-                    <p className="text-sm font-mono font-medium text-gray-900 mt-0.5">{selected.containerNo}</p>
-                  </div>
-                  <div className="rounded-lg bg-gray-50 p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Seal No</p>
-                    <p className="text-sm font-mono font-medium text-gray-900 mt-0.5">{selected.sealNo}</p>
-                  </div>
-                  <div className="rounded-lg bg-gray-50 p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Booking Ref</p>
-                    <p className="text-sm font-mono font-medium text-gray-700 mt-0.5">{selected.bookingRef}</p>
-                  </div>
-                  <div className="rounded-lg bg-gray-50 p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Vessel / Voyage</p>
-                    <p className="text-sm font-medium text-gray-700 mt-0.5">{selected.vessel}</p>
-                    <p className="text-[10px] text-gray-400">{selected.voyage}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Cargo + value */}
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="rounded-lg bg-gray-50 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Cargo</p>
-                  <p className="text-sm font-bold text-gray-900 mt-0.5">{(selected.weightKg / 1000).toFixed(1)}t</p>
-                  <p className="text-[10px] text-gray-400">{selected.lots.length} lot{selected.lots.length > 1 ? "s" : ""}</p>
-                </div>
-                <div className="rounded-lg bg-gray-50 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Contract Value</p>
-                  <p className="text-sm font-bold text-gray-900 mt-0.5">${selected.contractValue.toLocaleString()}</p>
-                  <p className="text-[10px] text-gray-400">{selected.contractId}</p>
-                </div>
-                <div className="rounded-lg bg-gray-50 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Insurance</p>
-                  <p className="text-sm font-bold text-gray-900 mt-0.5">${selected.insuranceValue.toLocaleString()}</p>
-                  <p className="text-[10px] text-gray-400">110% of value</p>
-                </div>
-              </div>
-
-              {/* Temperature log */}
-              {selected.tempLog.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Temperature & Humidity Log</p>
-                    <span className={cn("inline-flex items-center gap-1 text-xs font-medium", selected.tempOk ? "text-green-600" : "text-red-600")}>
-                      <span className={cn("h-1.5 w-1.5 rounded-full", selected.tempOk ? "bg-green-500" : "bg-red-500")} />
-                      {selected.tempOk ? "Normal" : "Alert"}
-                    </span>
-                  </div>
-                  <div className="rounded-lg border border-gray-200 p-3">
-                    {/* Mini line chart */}
-                    <div className="relative h-16 flex items-end gap-1">
-                      {selected.tempLog.map((t, i) => {
-                        const max = Math.max(...selected.tempLog.map(x => x.temp));
-                        const min = Math.min(...selected.tempLog.map(x => x.temp));
-                        const range = max - min || 1;
-                        const height = 20 + ((t.temp - min) / range) * 60;
-                        return (
-                          <div key={i} className="flex-1 flex flex-col items-center justify-end" title={`${t.day}: ${t.temp}°C / ${t.humidity}% RH`}>
-                            <div className={cn("w-full rounded-t", selected.tempOk ? "bg-green-300" : "bg-red-300")} style={{ height: `${height}px` }} />
-                          </div>
-                        );
-                      })}
+                      </div>
                     </div>
-                    <div className="flex justify-between text-[9px] text-gray-400 mt-1">
-                      <span>{selected.tempLog[0]?.day}</span>
-                      <span>Latest: {selected.temperature.toFixed(1)}°C · {selected.humidity}% RH</span>
-                      <span>{selected.tempLog[selected.tempLog.length - 1]?.day}</span>
-                    </div>
-                    <p className="text-[10px] text-gray-500 mt-2">Target range: 15-25°C · 50-70% RH (green coffee preservation)</p>
+                  </>
+                );
+              })()}
+
+              {/* What needs attention (only if there are issues) */}
+              {(selected.demurrageRisk !== null || selected.docReadiness < 50 || selected.status === "delayed") && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" strokeWidth={1.5} />
+                    <span className="text-sm font-semibold text-amber-700">What needs attention</span>
                   </div>
+                  <ul className="space-y-1.5">
+                    {selected.demurrageRisk !== null && (
+                      <li className="text-sm text-gray-700 flex items-start gap-2">
+                        <span className="text-red-500 mt-1">•</span>
+                        <span>Renew phytosanitary certificate at EAA — takes 5-7 days, vessel arrives in {selected.demurrageRisk + 5} days</span>
+                      </li>
+                    )}
+                    {selected.docReadiness < 50 && (
+                      <li className="text-sm text-gray-700 flex items-start gap-2">
+                        <span className="text-red-500 mt-1">•</span>
+                        <span>{selected.docReadiness}% of documents ready — resolve missing items before vessel cutoff</span>
+                      </li>
+                    )}
+                    {selected.status === "delayed" && (
+                      <li className="text-sm text-gray-700 flex items-start gap-2">
+                        <span className="text-amber-500 mt-1">•</span>
+                        <span>Buyer notified of delay. No action needed unless they request compensation.</span>
+                      </li>
+                    )}
+                  </ul>
                 </div>
               )}
 
-              {/* Document readiness (links to compliance) */}
+              {/* Key facts — clean grid */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Document Readiness</p>
-                  <span className={cn("text-xs font-bold", selected.docReadiness === 100 ? "text-green-600" : selected.docReadiness < 50 ? "text-red-600" : "text-amber-600")}>
-                    {selected.docReadiness}%
-                  </span>
-                </div>
-                <div className="rounded-lg border border-gray-200 p-3">
-                  <div className="h-2 rounded-full bg-gray-100 overflow-hidden mb-2">
-                    <div className={cn("h-full", selected.docReadiness === 100 ? "bg-green-500" : selected.docReadiness < 50 ? "bg-red-500" : "bg-amber-500")} style={{ width: `${selected.docReadiness}%` }} />
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Key Facts</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Vessel</p>
+                    <p className="text-sm font-medium text-gray-900 mt-0.5">{selected.vessel}</p>
+                    <p className="text-[10px] text-gray-400">{selected.voyage}</p>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-[11px] text-gray-600">
-                      {selected.docReadiness === 100 ? "All documents approved — shipment ready at destination port." : selected.docReadiness < 50 ? "Critical: multiple documents missing. Resolve before vessel cutoff." : "Some documents still pending. Monitor closely."}
-                    </p>
-                    <button className="text-[11px] font-medium text-[#4A3520] hover:underline shrink-0 ml-2">View in Compliance →</button>
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Departure → Arrival</p>
+                    <p className="text-sm font-medium text-gray-900 mt-0.5">{selected.departureDate} → {selected.etaDate}</p>
+                    <p className="text-[10px] text-gray-400">{selected.daysTotal} day voyage</p>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Container</p>
+                    <p className="text-sm font-mono font-medium text-gray-900 mt-0.5">{selected.containerNo}</p>
+                    <p className="text-[10px] text-gray-400">Seal: {selected.sealNo}</p>
+                  </div>
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Value</p>
+                    <p className="text-sm font-bold text-gray-900 mt-0.5">${selected.contractValue.toLocaleString()}</p>
+                    <p className="text-[10px] text-gray-400">Insured: ${selected.insuranceValue.toLocaleString()}</p>
                   </div>
                 </div>
               </div>
 
-              {/* Recent events */}
+              {/* Cargo (lots) */}
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Recent Events</p>
-                <div className="space-y-2">
-                  {selected.events.map((ev, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <span className={cn(
-                        "flex h-5 w-5 shrink-0 items-center justify-center rounded-full mt-0.5",
-                        ev.type === "success" ? "bg-green-50" : ev.type === "warning" ? "bg-amber-50" : "bg-blue-50"
-                      )}>
-                        {ev.type === "success" ? <CheckCircle2 className="h-3 w-3 text-green-600" /> : ev.type === "warning" ? <AlertTriangle className="h-3 w-3 text-amber-600" /> : <Clock className="h-3 w-3 text-blue-600" />}
-                      </span>
-                      <div className="flex-1">
-                        <p className="text-xs text-gray-700">{ev.text}</p>
-                        <p className="text-[10px] text-gray-400">{ev.date}</p>
-                      </div>
-                    </div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Cargo ({(selected.weightKg / 1000).toFixed(1)}t total)</p>
+                <div className="flex flex-wrap gap-2">
+                  {selected.lots.map((lot, li) => (
+                    <span key={li} className="rounded-md bg-gray-50 border border-gray-100 px-3 py-1.5 text-xs text-gray-700">{lot}</span>
                   ))}
                 </div>
               </div>
 
-              {/* Actions */}
+              {/* Temperature history (simple, not a chart) */}
+              {selected.tempLog.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Temperature</p>
+                    <span className={cn("text-xs font-medium", selected.tempOk ? "text-green-600" : "text-red-600")}>
+                      {selected.tempOk ? "Normal range" : "Alert"}
+                    </span>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 p-3">
+                    <p className="text-sm font-bold text-gray-900">{selected.temperature.toFixed(1)}°C <span className="text-xs font-normal text-gray-400">/ {selected.humidity}% humidity</span></p>
+                    <p className="text-[11px] text-gray-500 mt-1">Target: 15-25°C · 50-70% RH for green coffee</p>
+                    <p className="text-[11px] text-gray-400 mt-1">{selected.tempLog.length} readings since {selected.tempLog[0]?.day}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Documents (link to compliance, simple) */}
+              <div className="rounded-lg border border-gray-200 p-3 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-0.5">Documents</p>
+                  <p className={cn("text-sm font-bold", selected.docReadiness === 100 ? "text-green-600" : selected.docReadiness < 50 ? "text-red-600" : "text-amber-600")}>
+                    {selected.docReadiness === 100 ? "All approved" : `${selected.docReadiness}% ready`}
+                  </p>
+                </div>
+                <button className="text-xs font-medium text-[#4A3520] hover:underline">View in Compliance →</button>
+              </div>
+
+              {/* Action buttons — only show what's actually needed */}
               <div className="space-y-2 pt-2">
                 {selected.demurrageRisk !== null && (
-                  <button className="w-full rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 transition-colors">Renew Phytosanitary Cert (5-7 days)</button>
-                )}
-                {selected.status === "delayed" && (
-                  <button className="w-full rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors">Notify Buyer of Delay</button>
+                  <button className="w-full rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 transition-colors">Renew Phytosanitary Certificate</button>
                 )}
                 {selected.docReadiness < 50 && (
                   <button className="w-full rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 transition-colors">Resolve Missing Documents</button>
                 )}
-                <button className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Track on Vessel Website</button>
-                <button className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Download Bill of Lading</button>
+                {selected.status !== "delivered" && selected.demurrageRisk === null && selected.docReadiness >= 50 && (
+                  <button className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Track on Vessel Website</button>
+                )}
+                {selected.status === "delivered" && (
+                  <button className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Download Delivery Receipt</button>
+                )}
               </div>
             </div>
           </div>
@@ -3689,7 +3608,6 @@ function ShipmentsPage() {
     </main>
   );
 }
-
 // ═══════════════════════════════════════════════════════════
 // PLACEHOLDER PAGE
 // ═══════════════════════════════════════════════════════════
