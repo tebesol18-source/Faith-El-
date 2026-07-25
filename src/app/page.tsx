@@ -614,7 +614,9 @@ function InboxPage() {
 // ═══════════════════════════════════════════════════════════
 // LEADS PAGE — "Who should I sell to?"
 // ═══════════════════════════════════════════════════════════
-const leadsData = [
+// Mock leads data — used as fallback when /api/leads is unreachable.
+// Real data is fetched at runtime from the backend SQLite database.
+const mockLeadsData = [
   { id: "L-2026-00501", company: "Marcus Coffee GmbH", country: "Germany", city: "Hamburg", tier: "S", vp: "VP1", state: "QUALIFIED", language: "EN", score: 92, lastTouch: "2h ago", tags: ["specialty", "EU"], enriched: true },
   { id: "L-2026-00502", company: "Falcon Coffee UK", country: "United Kingdom", city: "London", tier: "A", vp: "VP2", state: "IN_SEQUENCE", language: "EN", score: 85, lastTouch: "5h ago", tags: ["commercial", "UK"], enriched: true },
   { id: "L-2026-00503", company: "Hashimoto Coffee", country: "Japan", city: "Tokyo", tier: "S", vp: "VP3", state: "SAMPLE_DISPATCHED", language: "JA", score: 88, lastTouch: "1d ago", tags: ["specialty", "Asia"], enriched: true },
@@ -648,7 +650,60 @@ function LeadsPage() {
   const [filter, setFilter] = useState("All");
   const [selectedLead, setSelectedLead] = useState<string | null>(null);
 
+  // ─── Live data from backend ───
+  // Replaces the old static `leadsData` array. Falls back to mock data
+  // if the API is unreachable (e.g. during offline development).
+  const [leadsData, setLeadsData] = useState<typeof mockLeadsData | null>(null);
+  const [leadsError, setLeadsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/leads")
+      .then((r) => {
+        if (!r.ok) throw new Error(`API ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.leads) && data.leads.length > 0) {
+          setLeadsData(data.leads);
+        } else {
+          // API returned empty or error shape — fall back to mock
+          setLeadsData(mockLeadsData);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[LeadsPage] API fetch failed, using mock data:", err);
+        setLeadsError(err.message);
+        setLeadsData(mockLeadsData);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const filters = ["All", "New", "Enriched", "In Sequence", "Qualified", "Ghosted"];
+
+  // Loading state
+  if (!leadsData) {
+    return (
+      <main className="p-8 max-w-[1200px] mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Leads</h1>
+            <p className="text-sm text-gray-500 mt-1">Who should I sell to?</p>
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+          <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">Loading leads from database…</p>
+          <p className="text-xs text-gray-400 mt-1">Fetching live data from backend</p>
+        </div>
+      </main>
+    );
+  }
+
   const filteredLeads = filter === "All"
     ? leadsData
     : leadsData.filter(l => l.state.replace(/_/g, " ").toLowerCase() === filter.toLowerCase());
