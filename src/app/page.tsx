@@ -5075,7 +5075,7 @@ const aiActionStatusConfig: Record<AIAction["status"], { bg: string; text: strin
   in_progress: { bg: "bg-blue-50", text: "text-blue-700", label: "In Progress" },
 };
 
-function CoachPage() {
+function CoachPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<{ role: "user" | "ai"; text: string }[]>([
     { role: "ai", text: "Good morning, Abi. I've reviewed all 11 active deals, 6 shipments, and your compliance tracker. You have 2 critical items needing action today — the phytosanitary renewal and the Hashimoto contract signature. Want me to walk you through them?" },
@@ -5190,7 +5190,10 @@ function CoachPage() {
                     </div>
                   </div>
                 </div>
-                <button className="shrink-0 rounded-lg bg-[#4A3520] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6B4E33] transition-colors">
+                <button
+                  onClick={() => onNavigate(p.page)}
+                  className="shrink-0 rounded-lg bg-[#4A3520] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6B4E33] transition-colors"
+                >
                   Go to {pageLabel} →
                 </button>
               </div>
@@ -5447,7 +5450,7 @@ export default function App() {
         {currentPage === "shipments" && <ShipmentsPage />}
         {currentPage === "contracts" && <ContractsPage />}
         {currentPage === "finance" && <FinancePage />}
-        {currentPage === "coach" && <CoachPage />}
+        {currentPage === "coach" && <CoachPage onNavigate={setCurrentPage} />}
         {currentPage !== "dashboard" && currentPage !== "inbox" && currentPage !== "leads" && currentPage !== "deals" && currentPage !== "inventory" && currentPage !== "samples" && currentPage !== "quotes" && currentPage !== "compliance" && currentPage !== "shipments" && currentPage !== "contracts" && currentPage !== "finance" && currentPage !== "coach" && (
           <PlaceholderPage title={pageTitles[currentPage].title} question={pageTitles[currentPage].question} />
         )}
