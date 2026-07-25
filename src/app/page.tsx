@@ -6184,11 +6184,15 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
 // ═══════════════════════════════════════════════════════════
 // LOGIN PAGE
 // ═══════════════════════════════════════════════════════════
+
+// Admin credentials — recognized by email
+const ADMIN_EMAIL = "admin@coelrodan.com";
+const ADMIN_PASSWORD = "admin123";
+
 function LoginPage({ onLogin }: { onLogin: (role: "admin" | "seller") => void }) {
   const [email, setEmail] = useState("abi@coelrodan.com");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState<"admin" | "seller">("admin");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -6202,7 +6206,9 @@ function LoginPage({ onLogin }: { onLogin: (role: "admin" | "seller") => void })
     setError("");
     setTimeout(() => {
       setLoading(false);
-      onLogin(role);
+      // Auto-detect role from email
+      const isAdmin = email.trim().toLowerCase() === ADMIN_EMAIL;
+      onLogin(isAdmin ? "admin" : "seller");
     }, 800);
   };
 
@@ -6276,29 +6282,7 @@ function LoginPage({ onLogin }: { onLogin: (role: "admin" | "seller") => void })
             <p className="text-sm text-gray-500 mt-1.5">Sign in to your Coffee Export ERP account</p>
           </div>
 
-          {/* Role selector */}
-          <div className="grid grid-cols-2 gap-2 mb-6 p-1 bg-gray-100 rounded-lg">
-            <button
-              onClick={() => setRole("admin")}
-              className={cn(
-                "flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all",
-                role === "admin" ? "bg-white text-[#4A3520] shadow-sm" : "text-gray-500 hover:text-gray-700"
-              )}
-            >
-              <ShieldCheck className="h-4 w-4" />
-              Admin
-            </button>
-            <button
-              onClick={() => setRole("seller")}
-              className={cn(
-                "flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all",
-                role === "seller" ? "bg-white text-[#4A3520] shadow-sm" : "text-gray-500 hover:text-gray-700"
-              )}
-            >
-              <Users className="h-4 w-4" />
-              Seller
-            </button>
-          </div>
+          {/* Role selector — REMOVED. Role is auto-detected from email. */}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email */}
@@ -6367,7 +6351,7 @@ function LoginPage({ onLogin }: { onLogin: (role: "admin" | "seller") => void })
                 </>
               ) : (
                 <>
-                  Sign in as {role === "admin" ? "Admin" : "Seller"}
+                  Sign in
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}
@@ -6375,13 +6359,45 @@ function LoginPage({ onLogin }: { onLogin: (role: "admin" | "seller") => void })
           </form>
 
           {/* Demo credentials hint */}
-          <div className="mt-6 rounded-lg bg-indigo-50/50 border border-indigo-100 p-3">
-            <div className="flex items-start gap-2">
+          <div className="mt-6 rounded-lg bg-indigo-50/50 border border-indigo-100 p-4">
+            <div className="flex items-start gap-2 mb-3">
               <Bot className="h-4 w-4 text-indigo-500 mt-0.5 shrink-0" strokeWidth={1.5} />
               <div className="text-xs">
-                <p className="font-semibold text-indigo-700">Demo Mode</p>
-                <p className="text-gray-600 mt-0.5">Use any email + password to sign in. Admin role shows all modules; Seller role hides the Admin tab.</p>
+                <p className="font-semibold text-indigo-700">Demo Credentials</p>
+                <p className="text-gray-600 mt-0.5">Role is detected automatically from the email you use.</p>
               </div>
+            </div>
+            <div className="space-y-2">
+              {/* Admin quick-fill */}
+              <button
+                type="button"
+                onClick={() => { setEmail(ADMIN_EMAIL); setPassword(ADMIN_PASSWORD); setError(""); }}
+                className="w-full flex items-center justify-between rounded-md bg-white border border-[#4A3520]/20 px-3 py-2 text-left hover:bg-[#4A3520]/5 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-[#4A3520]" />
+                  <div>
+                    <p className="text-xs font-semibold text-gray-900">Admin (Portfolio Manager)</p>
+                    <p className="text-[11px] text-gray-500 font-mono">{ADMIN_EMAIL} · {ADMIN_PASSWORD}</p>
+                  </div>
+                </div>
+                <span className="text-[10px] text-[#4A3520] font-medium">Use →</span>
+              </button>
+              {/* Seller quick-fill */}
+              <button
+                type="button"
+                onClick={() => { setEmail("abi@coelrodan.com"); setPassword("seller123"); setError(""); }}
+                className="w-full flex items-center justify-between rounded-md bg-white border border-gray-200 px-3 py-2 text-left hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-gray-500" />
+                  <div>
+                    <p className="text-xs font-semibold text-gray-900">Seller (Operator)</p>
+                    <p className="text-[11px] text-gray-500 font-mono">abi@coelrodan.com · seller123</p>
+                  </div>
+                </div>
+                <span className="text-[10px] text-gray-500 font-medium">Use →</span>
+              </button>
             </div>
           </div>
 
