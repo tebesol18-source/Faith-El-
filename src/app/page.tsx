@@ -13,11 +13,12 @@ import {
   ArrowDown, DollarSign as Dollar, Package as PackageIcon,
   PanelLeftClose, PanelLeft,
   ShieldCheck, Leaf, Award, FileCheck, Globe, Wind, CheckSquare, AlertCircle, Upload, RefreshCw, FileX, FileClock,
+  LogOut, Lock, Eye, EyeOff, UserCog, Activity, Server,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ─── Types ─────────────────────────────────────────────────
-type Page = "dashboard" | "inbox" | "leads" | "deals" | "inventory" | "samples" | "quotes" | "contracts" | "shipments" | "compliance" | "finance" | "coach";
+type Page = "dashboard" | "inbox" | "leads" | "deals" | "inventory" | "samples" | "quotes" | "contracts" | "shipments" | "compliance" | "finance" | "coach" | "admin";
 
 // ─── Sidebar Data ──────────────────────────────────────────
 const navGroups: { label: string | null; items: { icon: any; label: string; page: Page; badge?: number; highlight?: boolean }[] }[] = [
@@ -43,10 +44,14 @@ const navGroups: { label: string | null; items: { icon: any; label: string; page
     { icon: DollarSign, label: "Finance", page: "finance", highlight: true },
     { icon: Sparkles, label: "AI Coach", page: "coach" },
   ]},
+  { label: "System", items: [
+    { icon: ShieldCheck, label: "Admin", page: "admin", highlight: true },
+  ]},
 ];
 
 // ─── Collapsible Sidebar ───────────────────────────────────
-function Sidebar({ currentPage, onNavigate, expanded, onToggle }: { currentPage: Page; onNavigate: (p: Page) => void; expanded: boolean; onToggle: () => void }) {
+function Sidebar({ currentPage, onNavigate, expanded, onToggle, navGroups: groups }: { currentPage: Page; onNavigate: (p: Page) => void; expanded: boolean; onToggle: () => void; navGroups?: typeof navGroups }) {
+  const renderedGroups = groups ?? navGroups;
   return (
     <aside className={cn(
       "fixed left-0 top-0 z-40 h-screen border-r border-gray-200 bg-white flex flex-col transition-all duration-300",
@@ -75,7 +80,7 @@ function Sidebar({ currentPage, onNavigate, expanded, onToggle }: { currentPage:
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3" style={{ padding: expanded ? "0.75rem 0.75rem" : "0.75rem 0.5rem" }}>
-        {navGroups.map((group, gi) => (
+        {renderedGroups.map((group, gi) => (
           <div key={gi} className="mb-1">
             {group.label && expanded && <p className="px-3 mt-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">{group.label}</p>}
             {group.label && !expanded && gi > 0 && <div className="my-2 mx-2 border-t border-gray-100" />}
@@ -132,11 +137,18 @@ function Sidebar({ currentPage, onNavigate, expanded, onToggle }: { currentPage:
 }
 
 // ─── Top Header ────────────────────────────────────────────
-function TopHeader() {
+function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLogout: () => void }) {
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-gray-200 bg-white/80 px-8 backdrop-blur-sm">
       <button className="p-2 rounded-lg hover:bg-gray-100"><Menu className="h-5 w-5 text-gray-600" strokeWidth={1.5} /></button>
       <div className="flex items-center gap-3">
+        <span className={cn(
+          "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold",
+          userRole === "admin" ? "bg-[#4A3520] text-white" : "bg-blue-50 text-blue-700"
+        )}>
+          {userRole === "admin" ? <ShieldCheck className="h-3 w-3" /> : <Users className="h-3 w-3" />}
+          {userRole === "admin" ? "Admin" : "Seller"}
+        </span>
         <button className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 hover:bg-gray-50 transition-colors">
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-50 text-xs font-bold text-red-600">4</span>
           <span className="text-sm font-medium text-gray-700">High Priority</span>
@@ -146,6 +158,13 @@ function TopHeader() {
         <button className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 hover:bg-indigo-100 transition-colors">
           <Bot className="h-4 w-4 text-indigo-600" strokeWidth={1.5} />
           <span className="text-sm font-medium text-indigo-700">3 AI Suggestions</span>
+        </button>
+        <button
+          onClick={onLogout}
+          title="Sign out"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 hover:text-red-600 transition-colors"
+        >
+          <LogOut className="h-4 w-4" strokeWidth={1.5} />
         </button>
         <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#4A3520] to-[#6B4E33] flex items-center justify-center text-white font-semibold text-sm">AS</div>
       </div>
@@ -5390,6 +5409,804 @@ function CoachPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
     </main>
   );
 }
+
+// ═══════════════════════════════════════════════════════════
+// ADMIN PAGE — "System operators, agents, and audit trail"
+// ═══════════════════════════════════════════════════════════
+type OperatorRole = "admin" | "manager" | "operator" | "viewer";
+type OperatorStatus = "active" | "disabled";
+
+type Operator = {
+  id: string;
+  name: string;
+  email: string;
+  role: OperatorRole;
+  status: OperatorStatus;
+  lastActive: string;
+  createdDate: string;
+  actionsToday: number;
+};
+
+type AIAgent = {
+  id: string;
+  name: string;
+  model: string;
+  status: "active" | "idle" | "error" | "paused";
+  lastAction: string;
+  lastActionTime: string;
+  actionsToday: number;
+  approvalsWaiting: number;
+  description: string;
+};
+
+type ApprovalItem = {
+  id: string;
+  agent: string;
+  action: string;
+  target: string;
+  submittedAt: string;
+  riskLevel: "low" | "medium" | "high";
+  detail: string;
+};
+
+type AuditEntry = {
+  id: string;
+  timestamp: string;
+  actor: string;
+  actorType: "operator" | "agent";
+  action: string;
+  entityType: string;
+  entityId: string;
+  detail: string;
+};
+
+const operatorRoleConfig: Record<OperatorRole, { label: string; bg: string; text: string; icon: any }> = {
+  admin: { label: "Admin", bg: "bg-[#4A3520]", text: "text-white", icon: ShieldCheck },
+  manager: { label: "Manager", bg: "bg-indigo-50", text: "text-indigo-700", icon: UserCog },
+  operator: { label: "Operator", bg: "bg-blue-50", text: "text-blue-700", icon: Users },
+  viewer: { label: "Viewer", bg: "bg-gray-100", text: "text-gray-600", icon: CheckSquare },
+};
+
+const operatorStatusConfig: Record<OperatorStatus, { label: string; bg: string; text: string; dot: string }> = {
+  active: { label: "Active", bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500" },
+  disabled: { label: "Disabled", bg: "bg-gray-100", text: "text-gray-500", dot: "bg-gray-400" },
+};
+
+const agentStatusConfig: Record<AIAgent["status"], { label: string; bg: string; text: string; dot: string }> = {
+  active: { label: "Active", bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500" },
+  idle: { label: "Idle", bg: "bg-gray-100", text: "text-gray-600", dot: "bg-gray-400" },
+  error: { label: "Error", bg: "bg-red-50", text: "text-red-700", dot: "bg-red-500" },
+  paused: { label: "Paused", bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
+};
+
+const riskLevelConfig: Record<ApprovalItem["riskLevel"], { label: string; bg: string; text: string; border: string }> = {
+  low: { label: "Low Risk", bg: "bg-green-50", text: "text-green-700", border: "border-green-200" },
+  medium: { label: "Medium Risk", bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
+  high: { label: "High Risk", bg: "bg-red-50", text: "text-red-700", border: "border-red-200" },
+};
+
+const operatorsData: Operator[] = [
+  { id: "OP-001", name: "Abi Solomon", email: "abi@coelrodan.com", role: "admin", status: "active", lastActive: "2 min ago", createdDate: "Jan 12, 2026", actionsToday: 47 },
+  { id: "OP-002", name: "Sara Bekele", email: "sara@coelrodan.com", role: "manager", status: "active", lastActive: "1h ago", createdDate: "Feb 03, 2026", actionsToday: 23 },
+  { id: "OP-003", name: "Dawit Tadesse", email: "dawit@coelrodan.com", role: "operator", status: "active", lastActive: "3h ago", createdDate: "Mar 18, 2026", actionsToday: 12 },
+  { id: "OP-004", name: "Helen Girma", email: "helen@coelrodan.com", role: "operator", status: "active", lastActive: "Yesterday", createdDate: "Apr 22, 2026", actionsToday: 0 },
+  { id: "OP-005", name: "Marcus Bauer", email: "marcus@external.com", role: "viewer", status: "active", lastActive: "2 days ago", createdDate: "May 10, 2026", actionsToday: 0 },
+  { id: "OP-006", name: "Yuki Hashimoto", email: "yuki@external.com", role: "viewer", status: "disabled", lastActive: "2 weeks ago", createdDate: "Jun 01, 2026", actionsToday: 0 },
+];
+
+const aiAgentsData: AIAgent[] = [
+  { id: "AGT-SUP", name: "Supplier Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Identified LOT-25-0007 (Limu G1) for Hashimoto counter", lastActionTime: "Yesterday", actionsToday: 8, approvalsWaiting: 0, description: "Manages supplier relationships, lot identification, and ECX auction monitoring." },
+  { id: "AGT-OUT", name: "Outreach Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Drafted Quote QU-2026-0007 for Aurora Imports", lastActionTime: "2h ago", actionsToday: 12, approvalsWaiting: 1, description: "Researches new buyers, drafts outreach emails, generates quote drafts." },
+  { id: "AGT-CUS", name: "Customer Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Drafted breakup email for Nordic Bean Co", lastActionTime: "2 days ago", actionsToday: 4, approvalsWaiting: 1, description: "Manages buyer relationships, classifies incoming emails, drafts responses." },
+  { id: "AGT-SMP", name: "Sample Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Tracked sample SR-2026-0003 dispatch to Hashimoto", lastActionTime: "Yesterday", actionsToday: 3, approvalsWaiting: 0, description: "Coordinates sample dispatch, tracks delivery, logs cupping feedback." },
+  { id: "AGT-CMP", name: "Compliance Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Flagged phytosanitary expiry on CT-2026-001", lastActionTime: "5h ago", actionsToday: 6, approvalsWaiting: 0, description: "Tracks document expiry, initiates renewal workflows, monitors regulations." },
+  { id: "AGT-LOG", name: "Logistics Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Tracked MSC Hamburg through Suez Canal", lastActionTime: "Yesterday", actionsToday: 9, approvalsWaiting: 0, description: "Tracks shipments, monitors vessel schedules, predicts delays." },
+  { id: "AGT-CRM", name: "Customer Insights Agent", model: "Llama 3.3 70B", status: "idle", lastAction: "Generated weekly buyer insights report", lastActionTime: "3 days ago", actionsToday: 1, approvalsWaiting: 0, description: "Analyzes buyer behavior, generates insights, recommends next actions." },
+];
+
+const approvalsData: ApprovalItem[] = [
+  { id: "APR-0042", agent: "Outreach Agent", action: "Send quote to Aurora Imports", target: "QU-2026-0007", submittedAt: "1h ago", riskLevel: "medium", detail: "First-time buyer, no transaction history. Quote value $22,500. Margin 21.3%. Recommend credit check before sending." },
+  { id: "APR-0041", agent: "Customer Agent", action: "Send breakup email to Nordic Bean Co", target: "QU-2026-0001", submittedAt: "2 days ago", riskLevel: "low", detail: "Quote expired 15 days ago with no response. Standard re-engagement email drafted." },
+  { id: "APR-0040", agent: "Outreach Agent", action: "Add 4 new leads from research batch", target: "L-2026-00510 to L-2026-00513", submittedAt: "3 days ago", riskLevel: "low", detail: "4 German specialty roasters identified with annual imports >5t. Auto-add to Leads pending review." },
+];
+
+const auditData: AuditEntry[] = [
+  { id: "AUD-9821", timestamp: "10:42 AM", actor: "Abi Solomon", actorType: "operator", action: "Approved quote V2", entityType: "Quote", entityId: "QU-2026-0004", detail: "Quote approved and sent to Marcus Coffee GmbH" },
+  { id: "AUD-9820", timestamp: "10:15 AM", actor: "Compliance Agent", actorType: "agent", action: "Created alert", entityType: "Shipment", entityId: "CT-2026-001", detail: "Flagged phytosanitary cert expiring in 4 days" },
+  { id: "AUD-9819", timestamp: "09:48 AM", actor: "Outreach Agent", actorType: "agent", action: "Drafted quote", entityType: "Quote", entityId: "QU-2026-0007", detail: "AI-drafted quote for Aurora Imports (new lead)" },
+  { id: "AUD-9818", timestamp: "09:22 AM", actor: "Sara Bekele", actorType: "operator", action: "Updated lot", entityType: "Inventory", entityId: "LOT-25-0007", detail: "Updated cost basis from $4.50 to $4.70/kg" },
+  { id: "AUD-9817", timestamp: "Yesterday 18:34", actor: "Logistics Agent", actorType: "agent", action: "Updated milestone", entityType: "Shipment", entityId: "CT-2026-001", detail: "Container crossed Suez Canal — on schedule" },
+  { id: "AUD-9816", timestamp: "Yesterday 16:12", actor: "Abi Solomon", actorType: "operator", action: "Signed contract", entityType: "Contract", entityId: "CT-2026-0003", detail: "Seller signature completed — contract executed" },
+  { id: "AUD-9815", timestamp: "Yesterday 14:50", actor: "Supplier Agent", actorType: "agent", action: "Identified lot", entityType: "Inventory", entityId: "LOT-25-0007", detail: "Found Limu G1 lot for Hashimoto counter-offer" },
+  { id: "AUD-9814", timestamp: "Yesterday 11:23", actor: "Dawit Tadesse", actorType: "operator", action: "Dispatched sample", entityType: "Sample", entityId: "SR-2026-0003", detail: "Sample dispatched to Hashimoto Coffee via DHL" },
+];
+
+function AdminPage({ onLogout, onNavigate }: { onLogout: () => void; onNavigate: (p: Page) => void }) {
+  const [activeTab, setActiveTab] = useState<"overview" | "operators" | "agents" | "approvals" | "audit">("overview");
+  const [selectedOperator, setSelectedOperator] = useState<string | null>(null);
+
+  const stats = {
+    activeOperators: operatorsData.filter(o => o.status === "active").length,
+    totalOperators: operatorsData.length,
+    activeAgents: aiAgentsData.filter(a => a.status === "active").length,
+    totalAgents: aiAgentsData.length,
+    pendingApprovals: approvalsData.length,
+    auditEventsToday: auditData.filter(a => a.timestamp.includes("AM") || a.timestamp.includes("M")).length,
+    agentActionsToday: aiAgentsData.reduce((s, a) => s + a.actionsToday, 0),
+  };
+
+  const selected = operatorsData.find(o => o.id === selectedOperator);
+
+  const tabs = [
+    { id: "overview" as const, label: "Overview", icon: LayoutDashboard, count: null },
+    { id: "operators" as const, label: "Operators", icon: Users, count: stats.totalOperators },
+    { id: "agents" as const, label: "AI Agents", icon: Bot, count: stats.totalAgents },
+    { id: "approvals" as const, label: "Approvals", icon: AlertTriangle, count: stats.pendingApprovals },
+    { id: "audit" as const, label: "Audit Log", icon: Activity, count: null },
+  ];
+
+  return (
+    <main className="p-8 max-w-[1200px] mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Admin</h1>
+            <span className="inline-flex items-center gap-1 rounded-md bg-[#4A3520] px-2 py-0.5 text-[10px] font-semibold text-white">
+              <ShieldCheck className="h-2.5 w-2.5" /> Admin Role
+            </span>
+          </div>
+          <p className="text-sm text-gray-500 mt-1">System operators, agents, and audit trail</p>
+        </div>
+        <button
+          onClick={onLogout}
+          className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          <LogOut className="h-4 w-4" /> Sign Out
+        </button>
+      </div>
+
+      {/* Tab navigation */}
+      <div className="flex gap-1 mb-6 border-b border-gray-200">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px",
+              activeTab === tab.id ? "border-[#4A3520] text-[#4A3520]" : "border-transparent text-gray-500 hover:text-gray-900"
+            )}
+          >
+            <tab.icon className="h-4 w-4" />
+            {tab.label}
+            {tab.count !== null && (
+              <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-semibold", activeTab === tab.id ? "bg-[#4A3520] text-white" : "bg-gray-100 text-gray-500")}>{tab.count}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* OVERVIEW TAB */}
+      {activeTab === "overview" && (
+        <div className="space-y-6">
+          {/* Stats grid */}
+          <div className="grid grid-cols-4 gap-4">
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-gray-500">Active Operators</p>
+                <Users className="h-4 w-4 text-gray-400" strokeWidth={1.5} />
+              </div>
+              <p className="text-2xl font-bold text-gray-900 mt-2">{stats.activeOperators}<span className="text-sm font-normal text-gray-400">/{stats.totalOperators}</span></p>
+              <p className="text-[11px] text-gray-400 mt-0.5">system users</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-gray-500">AI Agents Online</p>
+                <Bot className="h-4 w-4 text-gray-400" strokeWidth={1.5} />
+              </div>
+              <p className="text-2xl font-bold text-green-600 mt-2">{stats.activeAgents}<span className="text-sm font-normal text-gray-400">/{stats.totalAgents}</span></p>
+              <p className="text-[11px] text-gray-400 mt-0.5">{stats.agentActionsToday} actions today</p>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50/30 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-amber-700">Pending Approvals</p>
+                <AlertTriangle className="h-4 w-4 text-amber-500" strokeWidth={1.5} />
+              </div>
+              <p className="text-2xl font-bold text-amber-700 mt-2">{stats.pendingApprovals}</p>
+              <p className="text-[11px] text-amber-500 mt-0.5">AI actions awaiting review</p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-gray-500">System Health</p>
+                <Server className="h-4 w-4 text-green-500" strokeWidth={1.5} />
+              </div>
+              <p className="text-2xl font-bold text-green-600 mt-2">Healthy</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">all systems operational</p>
+            </div>
+          </div>
+
+          {/* Quick sections */}
+          <div className="grid grid-cols-2 gap-6">
+            {/* Pending approvals preview */}
+            <div className="rounded-xl border border-gray-200 bg-white p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-900">Pending Approvals</h3>
+                <button onClick={() => setActiveTab("approvals")} className="text-xs font-medium text-[#4A3520] hover:underline">View all →</button>
+              </div>
+              <div className="space-y-3">
+                {approvalsData.slice(0, 3).map((a) => {
+                  const rc = riskLevelConfig[a.riskLevel];
+                  return (
+                    <div key={a.id} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
+                      <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", rc.bg)}>
+                        <Bot className={cn("h-3.5 w-3.5", rc.text)} strokeWidth={1.5} />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900">{a.action}</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">{a.agent} · {a.submittedAt}</p>
+                      </div>
+                      <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", rc.bg, rc.text)}>{rc.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Recent audit preview */}
+            <div className="rounded-xl border border-gray-200 bg-white p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-900">Recent Activity</h3>
+                <button onClick={() => setActiveTab("audit")} className="text-xs font-medium text-[#4A3520] hover:underline">View all →</button>
+              </div>
+              <div className="space-y-2">
+                {auditData.slice(0, 5).map((entry) => (
+                  <div key={entry.id} className="flex items-start gap-3 py-1.5">
+                    <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full", entry.actorType === "agent" ? "bg-indigo-50" : "bg-gray-100")}>
+                      {entry.actorType === "agent" ? <Bot className="h-3 w-3 text-indigo-600" /> : <UserCog className="h-3 w-3 text-gray-600" />}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-gray-900">{entry.action} · <span className="text-gray-500">{entry.entityType} {entry.entityId}</span></p>
+                      <p className="text-[10px] text-gray-400">{entry.actor} · {entry.timestamp}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Agent status overview */}
+          <div className="rounded-xl border border-gray-200 bg-white p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-900">AI Agent Status</h3>
+              <button onClick={() => setActiveTab("agents")} className="text-xs font-medium text-[#4A3520] hover:underline">Manage →</button>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              {aiAgentsData.map((agent) => {
+                const sc = agentStatusConfig[agent.status];
+                return (
+                  <div key={agent.id} className="rounded-lg border border-gray-200 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={cn("flex h-2 w-2 rounded-full", sc.dot)} />
+                      <span className={cn("text-[10px] font-semibold", sc.text)}>{sc.label}</span>
+                    </div>
+                    <p className="text-xs font-semibold text-gray-900">{agent.name}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{agent.actionsToday} actions today</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OPERATORS TAB */}
+      {activeTab === "operators" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-600">{operatorsData.length} operators · {stats.activeOperators} active</p>
+            <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+              <Plus className="h-4 w-4" /> Add Operator
+            </button>
+          </div>
+          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Operator</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Role</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Status</th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Actions Today</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Last Active</th>
+                  <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {operatorsData.map((op) => {
+                  const rc = operatorRoleConfig[op.role];
+                  const sc = operatorStatusConfig[op.status];
+                  return (
+                    <tr key={op.id} onClick={() => setSelectedOperator(op.id)} className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#4A3520] to-[#6B4E33] text-white font-semibold text-sm shrink-0">
+                            {op.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">{op.name}</p>
+                            <p className="text-[11px] text-gray-400">{op.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className={cn("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium", rc.bg, rc.text)}>
+                          <rc.icon className="h-3 w-3" /> {rc.label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", sc.text)}>
+                          <span className={cn("h-1.5 w-1.5 rounded-full", sc.dot)} />
+                          {sc.label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-right font-medium text-gray-900">{op.actionsToday}</td>
+                      <td className="px-3 py-3 text-gray-500">{op.lastActive}</td>
+                      <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                        <button className="text-xs font-medium text-[#4A3520] hover:underline">Edit</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* AI AGENTS TAB */}
+      {activeTab === "agents" && (
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">{aiAgentsData.length} AI agents · {stats.activeAgents} active · {stats.agentActionsToday} actions today</p>
+          <div className="grid grid-cols-2 gap-4">
+            {aiAgentsData.map((agent) => {
+              const sc = agentStatusConfig[agent.status];
+              return (
+                <div key={agent.id} className="rounded-xl border border-gray-200 bg-white p-5">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", sc.bg)}>
+                        <Bot className={cn("h-5 w-5", sc.text)} strokeWidth={1.5} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{agent.name}</p>
+                        <p className="text-[11px] text-gray-400 font-mono">{agent.id} · {agent.model}</p>
+                      </div>
+                    </div>
+                    <span className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium", sc.bg, sc.text)}>
+                      <span className={cn("h-1.5 w-1.5 rounded-full", sc.dot)} />
+                      {sc.label}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-600 leading-relaxed mb-3">{agent.description}</p>
+                  <div className="rounded-lg bg-gray-50 p-3 mb-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Last Action</p>
+                    <p className="text-xs text-gray-700 mt-0.5">{agent.lastAction}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{agent.lastActionTime}</p>
+                  </div>
+                  <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                    <div className="flex items-center gap-4 text-xs">
+                      <div>
+                        <p className="text-[10px] text-gray-400">Today</p>
+                        <p className="font-bold text-gray-900">{agent.actionsToday}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-gray-400">Waiting Approval</p>
+                        <p className={cn("font-bold", agent.approvalsWaiting > 0 ? "text-amber-600" : "text-gray-900")}>{agent.approvalsWaiting}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button className="rounded-md border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                        {agent.status === "active" ? "Pause" : "Resume"}
+                      </button>
+                      <button className="rounded-md border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50 transition-colors">Configure</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* APPROVALS TAB */}
+      {activeTab === "approvals" && (
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">{approvalsData.length} AI actions awaiting your approval</p>
+          <div className="space-y-3">
+            {approvalsData.map((a) => {
+              const rc = riskLevelConfig[a.riskLevel];
+              return (
+                <div key={a.id} className={cn("rounded-xl border bg-white p-5", rc.border)}>
+                  <div className="flex items-start gap-4">
+                    <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg", rc.bg)}>
+                      <Bot className={cn("h-5 w-5", rc.text)} strokeWidth={1.5} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <p className="text-sm font-semibold text-gray-900">{a.action}</p>
+                        <span className={cn("inline-flex items-center rounded px-2 py-0.5 text-[10px] font-semibold", rc.bg, rc.text)}>{rc.label}</span>
+                        <span className="text-[10px] text-gray-400">·</span>
+                        <span className="text-[11px] text-gray-500">{a.id}</span>
+                      </div>
+                      <p className="text-xs text-gray-600 mb-2">{a.detail}</p>
+                      <div className="flex items-center gap-4 text-[11px] text-gray-500">
+                        <span>Agent: <span className="font-medium text-gray-700">{a.agent}</span></span>
+                        <span>Target: <span className="font-medium text-gray-700">{a.target}</span></span>
+                        <span>Submitted: <span className="font-medium text-gray-700">{a.submittedAt}</span></span>
+                      </div>
+                    </div>
+                    <div className="shrink-0 flex flex-col gap-2">
+                      <button className="rounded-lg bg-green-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-green-700 transition-colors">Approve</button>
+                      <button className="rounded-lg border border-red-200 text-red-600 px-4 py-1.5 text-xs font-medium hover:bg-red-50 transition-colors">Reject</button>
+                      <button className="rounded-lg border border-gray-200 px-4 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors">Review</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* AUDIT LOG TAB */}
+      {activeTab === "audit" && (
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">Complete audit trail · operators and AI agents</p>
+          <div className="rounded-xl border border-gray-200 bg-white p-5">
+            <div className="space-y-3">
+              {auditData.map((entry, i) => (
+                <div key={entry.id} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
+                  <div className="flex flex-col items-center pt-1">
+                    <span className={cn("flex h-7 w-7 items-center justify-center rounded-full", entry.actorType === "agent" ? "bg-indigo-50" : "bg-gray-100")}>
+                      {entry.actorType === "agent" ? <Bot className="h-3.5 w-3.5 text-indigo-600" /> : <UserCog className="h-3.5 w-3.5 text-gray-600" />}
+                    </span>
+                    {i < auditData.length - 1 && <div className="w-px flex-1 bg-gray-100 mt-1" style={{ minHeight: "20px" }} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm text-gray-900"><span className="font-medium">{entry.actor}</span> <span className="text-gray-600">{entry.action.toLowerCase()}</span></p>
+                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{entry.entityType} {entry.entityId}</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{entry.detail}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-[11px] text-gray-500">{entry.timestamp}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5 font-mono">{entry.id}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Operator Detail Drawer */}
+      {selected && (
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedOperator(null)}>
+          <div className="absolute inset-0 bg-black/20" />
+          <div className="relative w-[440px] h-full bg-white border-l border-gray-200 overflow-y-auto shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 border-b border-gray-100 px-6 py-4 bg-white flex items-center justify-between">
+              <h3 className="text-base font-semibold text-gray-900">Operator Details</h3>
+              <button onClick={() => setSelectedOperator(null)} className="p-1.5 rounded-lg hover:bg-gray-100"><XIcon className="h-4 w-4 text-gray-400" strokeWidth={1.5} /></button>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="text-center">
+                <div className="flex h-16 w-16 mx-auto items-center justify-center rounded-full bg-gradient-to-br from-[#4A3520] to-[#6B4E33] text-white font-bold text-xl">
+                  {selected.name.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                </div>
+                <p className="text-lg font-bold text-gray-900 mt-3">{selected.name}</p>
+                <p className="text-sm text-gray-500">{selected.email}</p>
+                <div className="flex items-center justify-center gap-2 mt-3">
+                  {(() => {
+                    const RoleIcon = operatorRoleConfig[selected.role].icon;
+                    return (
+                      <span className={cn("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium", operatorRoleConfig[selected.role].bg, operatorRoleConfig[selected.role].text)}>
+                        <RoleIcon className="h-3 w-3" /> {operatorRoleConfig[selected.role].label}
+                      </span>
+                    );
+                  })()}
+                  <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", operatorStatusConfig[selected.status].text)}>
+                    <span className={cn("h-1.5 w-1.5 rounded-full", operatorStatusConfig[selected.status].dot)} />
+                    {operatorStatusConfig[selected.status].label}
+                  </span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Operator ID</p>
+                  <p className="text-sm font-mono font-medium text-gray-900 mt-0.5">{selected.id}</p>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Created</p>
+                  <p className="text-sm font-medium text-gray-700 mt-0.5">{selected.createdDate}</p>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Last Active</p>
+                  <p className="text-sm font-medium text-gray-700 mt-0.5">{selected.lastActive}</p>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Actions Today</p>
+                  <p className="text-sm font-bold text-gray-900 mt-0.5">{selected.actionsToday}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Role Permissions</p>
+                <div className="rounded-lg border border-gray-200 p-3 space-y-1.5 text-xs">
+                  {selected.role === "admin" && (
+                    <>
+                      <p className="text-gray-700">✓ Full system access</p>
+                      <p className="text-gray-700">✓ Manage operators and AI agents</p>
+                      <p className="text-gray-700">✓ Approve/reject AI actions</p>
+                      <p className="text-gray-700">✓ View audit log</p>
+                      <p className="text-gray-700">✓ Override any workflow</p>
+                    </>
+                  )}
+                  {selected.role === "manager" && (
+                    <>
+                      <p className="text-gray-700">✓ Access all operational pages</p>
+                      <p className="text-gray-700">✓ Approve quotes and contracts</p>
+                      <p className="text-gray-700">✓ Manage inventory and shipments</p>
+                      <p className="text-gray-400">✗ Cannot manage operators</p>
+                      <p className="text-gray-400">✗ Cannot configure AI agents</p>
+                    </>
+                  )}
+                  {selected.role === "operator" && (
+                    <>
+                      <p className="text-gray-700">✓ Daily operational tasks</p>
+                      <p className="text-gray-700">✓ Send quotes and samples</p>
+                      <p className="text-gray-700">✓ Update shipment milestones</p>
+                      <p className="text-gray-400">✗ Cannot approve contracts</p>
+                      <p className="text-gray-400">✗ Cannot view finance</p>
+                    </>
+                  )}
+                  {selected.role === "viewer" && (
+                    <>
+                      <p className="text-gray-700">✓ View all pages (read-only)</p>
+                      <p className="text-gray-400">✗ Cannot make changes</p>
+                      <p className="text-gray-400">✗ Cannot approve actions</p>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-2 pt-2">
+                <button className="w-full rounded-lg bg-[#4A3520] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">Edit Operator</button>
+                <button className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Reset Password</button>
+                {selected.status === "active" ? (
+                  <button className="w-full rounded-lg border border-red-200 text-red-600 px-4 py-2.5 text-sm font-medium hover:bg-red-50 transition-colors">Disable Operator</button>
+                ) : (
+                  <button className="w-full rounded-lg border border-green-200 text-green-600 px-4 py-2.5 text-sm font-medium hover:bg-green-50 transition-colors">Re-enable Operator</button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// LOGIN PAGE
+// ═══════════════════════════════════════════════════════════
+function LoginPage({ onLogin }: { onLogin: (role: "admin" | "seller") => void }) {
+  const [email, setEmail] = useState("abi@coelrodan.com");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [role, setRole] = useState<"admin" | "seller">("admin");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = (e: { preventDefault: () => void }) => {
+    e.preventDefault();
+    if (!email || !password) {
+      setError("Please enter both email and password");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setTimeout(() => {
+      setLoading(false);
+      onLogin(role);
+    }, 800);
+  };
+
+  return (
+    <div className="min-h-screen flex">
+      {/* Left side — branding panel */}
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-[#2D1810] via-[#4A3520] to-[#6B4E33] relative overflow-hidden">
+        {/* Decorative coffee bean pattern */}
+        <div className="absolute inset-0 opacity-5">
+          <div className="absolute top-20 left-20 w-32 h-32 rounded-full bg-white" />
+          <div className="absolute top-40 right-20 w-24 h-24 rounded-full bg-white" />
+          <div className="absolute bottom-32 left-32 w-40 h-40 rounded-full bg-white" />
+          <div className="absolute bottom-20 right-40 w-28 h-28 rounded-full bg-white" />
+        </div>
+        <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 backdrop-blur">
+              <Coffee className="h-6 w-6 text-white" strokeWidth={1.5} />
+            </div>
+            <div>
+              <p className="font-bold text-lg tracking-tight">COFFEE</p>
+              <p className="font-light text-sm text-white/60 -mt-1">EXPORT ERP</p>
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-4xl font-bold leading-tight mb-4">
+              From Addis to the<br />world&apos;s best roasters.
+            </h2>
+            <p className="text-white/70 text-lg leading-relaxed max-w-md">
+              Manage leads, samples, quotes, contracts, shipments, and compliance — all in one AI-powered platform built for Ethiopian coffee exporters.
+            </p>
+            <div className="grid grid-cols-3 gap-4 mt-8 max-w-md">
+              <div>
+                <p className="text-3xl font-bold">11</p>
+                <p className="text-xs text-white/60 mt-1">Integrated modules</p>
+              </div>
+              <div>
+                <p className="text-3xl font-bold">7</p>
+                <p className="text-xs text-white/60 mt-1">AI agents working</p>
+              </div>
+              <div>
+                <p className="text-3xl font-bold">2%</p>
+                <p className="text-xs text-white/60 mt-1">Commission shielded</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-xs text-white/40">
+            © 2026 Coelrodan PLC · Powered by Coffee Export ERP
+          </div>
+        </div>
+      </div>
+
+      {/* Right side — login form */}
+      <div className="flex-1 flex items-center justify-center p-8 bg-[#FAFAF9]">
+        <div className="w-full max-w-md">
+          {/* Mobile logo */}
+          <div className="lg:hidden flex items-center justify-center gap-2.5 mb-8">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#4A3520]">
+              <Coffee className="h-5 w-5 text-white" strokeWidth={1.5} />
+            </div>
+            <div>
+              <p className="font-bold text-gray-900 tracking-tight">COFFEE</p>
+              <p className="font-light text-xs text-gray-400 -mt-0.5">EXPORT ERP</p>
+            </div>
+          </div>
+
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Welcome back</h1>
+            <p className="text-sm text-gray-500 mt-1.5">Sign in to your Coffee Export ERP account</p>
+          </div>
+
+          {/* Role selector */}
+          <div className="grid grid-cols-2 gap-2 mb-6 p-1 bg-gray-100 rounded-lg">
+            <button
+              onClick={() => setRole("admin")}
+              className={cn(
+                "flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all",
+                role === "admin" ? "bg-white text-[#4A3520] shadow-sm" : "text-gray-500 hover:text-gray-700"
+              )}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              Admin
+            </button>
+            <button
+              onClick={() => setRole("seller")}
+              className={cn(
+                "flex items-center justify-center gap-2 py-2 px-4 rounded-md text-sm font-medium transition-all",
+                role === "seller" ? "bg-white text-[#4A3520] shadow-sm" : "text-gray-500 hover:text-gray-700"
+              )}
+            >
+              <Users className="h-4 w-4" />
+              Seller
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Email */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" strokeWidth={1.5} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  className="w-full rounded-lg border border-gray-200 bg-white pl-10 pr-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10 transition-colors"
+                />
+              </div>
+            </div>
+
+            {/* Password */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" strokeWidth={1.5} />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full rounded-lg border border-gray-200 bg-white pl-10 pr-10 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10 transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Error message */}
+            {error && (
+              <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+                {error}
+              </div>
+            )}
+
+            {/* Remember + forgot */}
+            <div className="flex items-center justify-between text-xs">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" defaultChecked className="rounded border-gray-300 text-[#4A3520] focus:ring-[#4A3520]" />
+                <span className="text-gray-600">Remember me for 30 days</span>
+              </label>
+              <button type="button" className="font-medium text-[#4A3520] hover:underline">Forgot password?</button>
+            </div>
+
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-lg bg-[#4A3520] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                <>
+                  Sign in as {role === "admin" ? "Admin" : "Seller"}
+                  <ArrowRight className="h-4 w-4" />
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Demo credentials hint */}
+          <div className="mt-6 rounded-lg bg-indigo-50/50 border border-indigo-100 p-3">
+            <div className="flex items-start gap-2">
+              <Bot className="h-4 w-4 text-indigo-500 mt-0.5 shrink-0" strokeWidth={1.5} />
+              <div className="text-xs">
+                <p className="font-semibold text-indigo-700">Demo Mode</p>
+                <p className="text-gray-600 mt-0.5">Use any email + password to sign in. Admin role shows all modules; Seller role hides the Admin tab.</p>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-center text-xs text-gray-400 mt-6">
+            Don&apos;t have an account? <button className="font-medium text-[#4A3520] hover:underline">Contact your administrator</button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════
 function PlaceholderPage({ title, question }: { title: string; question: string }) {
   return (
@@ -5411,8 +6228,32 @@ function PlaceholderPage({ title, question }: { title: string; question: string 
 // MAIN APP SHELL
 // ═══════════════════════════════════════════════════════════
 export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userRole, setUserRole] = useState<"admin" | "seller">("admin");
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
+
+  const handleLogin = (role: "admin" | "seller") => {
+    setUserRole(role);
+    setIsLoggedIn(true);
+    setCurrentPage("dashboard");
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setUserRole("admin");
+    setCurrentPage("dashboard");
+  };
+
+  // Show login page if not authenticated
+  if (!isLoggedIn) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
+  // Filter nav based on role — sellers don't see Admin
+  const visibleNavGroups = userRole === "admin"
+    ? navGroups
+    : navGroups.filter(g => !g.label || g.label !== "System");
 
   const pageTitles: Record<Page, { title: string; question: string }> = {
     dashboard: { title: "", question: "" },
@@ -5427,6 +6268,7 @@ export default function App() {
     compliance: { title: "Compliance", question: "Which documents are missing or expiring?" },
     finance: { title: "Finance", question: "How much money have I made?" },
     coach: { title: "AI Coach", question: "What should I do next?" },
+    admin: { title: "Admin", question: "System operators, agents, and audit trail" },
   };
 
   return (
@@ -5436,9 +6278,10 @@ export default function App() {
         onNavigate={setCurrentPage}
         expanded={sidebarExpanded}
         onToggle={() => setSidebarExpanded(!sidebarExpanded)}
+        navGroups={visibleNavGroups}
       />
       <div className={cn("transition-all duration-300", sidebarExpanded ? "ml-[240px]" : "ml-[64px]")}>
-        <TopHeader />
+        <TopHeader userRole={userRole} onLogout={handleLogout} />
         {currentPage === "dashboard" && <DashboardPage />}
         {currentPage === "inbox" && <InboxPage />}
         {currentPage === "leads" && <LeadsPage />}
@@ -5451,7 +6294,8 @@ export default function App() {
         {currentPage === "contracts" && <ContractsPage />}
         {currentPage === "finance" && <FinancePage />}
         {currentPage === "coach" && <CoachPage onNavigate={setCurrentPage} />}
-        {currentPage !== "dashboard" && currentPage !== "inbox" && currentPage !== "leads" && currentPage !== "deals" && currentPage !== "inventory" && currentPage !== "samples" && currentPage !== "quotes" && currentPage !== "compliance" && currentPage !== "shipments" && currentPage !== "contracts" && currentPage !== "finance" && currentPage !== "coach" && (
+        {currentPage === "admin" && userRole === "admin" && <AdminPage onLogout={handleLogout} onNavigate={setCurrentPage} />}
+        {currentPage !== "dashboard" && currentPage !== "inbox" && currentPage !== "leads" && currentPage !== "deals" && currentPage !== "inventory" && currentPage !== "samples" && currentPage !== "quotes" && currentPage !== "compliance" && currentPage !== "shipments" && currentPage !== "contracts" && currentPage !== "finance" && currentPage !== "coach" && currentPage !== "admin" && (
           <PlaceholderPage title={pageTitles[currentPage].title} question={pageTitles[currentPage].question} />
         )}
       </div>
