@@ -445,7 +445,8 @@ function DashboardPage() {
 // ═══════════════════════════════════════════════════════════
 // INBOX PAGE — Original detailed version
 // ═══════════════════════════════════════════════════════════
-const conversations = [
+// Mock inbox data — used as fallback when /api/inbox is unreachable.
+const mockConversations = [
   { id: 1, buyer: "buyer-47@", subject: "Re: Ethiopian 25/26 Yirgacheffe", preview: "Can you send cupping scores for Guji? Need 320 bags FOB Hamburg ASAP.", time: "2h ago", unread: true, priority: "high", intent: "sample_request", confidence: 94 },
   { id: 2, buyer: "buyer-12@", subject: "Re: Quote QU-2026-0004-V2", preview: "Can you do $0.062/kg CIF instead of FOB?", time: "5h ago", unread: true, priority: "high", intent: "counter_offer", confidence: 96 },
   { id: 3, buyer: "buyer-3@", subject: "Re: Contract CT-2026-0003", preview: "We confirm and accept the terms. Please proceed with signing.", time: "1d ago", unread: true, priority: "medium", intent: "confirmation", confidence: 91 },
@@ -454,7 +455,7 @@ const conversations = [
   { id: 6, buyer: "buyer-5@", subject: "Out of office", preview: "I will be back in the office on Monday. Please expect a delay in my response.", time: "4d ago", unread: false, priority: "low", intent: "auto_reply", confidence: 99 },
 ];
 
-const messages = [
+const mockMessages = [
   { direction: "outbound", from: "marcus.bell@", subject: "Ethiopian 25/26 Yirgacheffe — first container spot", body: "Hi,\n\nFollowing up on our LinkedIn exchange. We have 25/26 Yirgacheffe lots available now with full EUDR data packs.\n\nWould you have 20 minutes this week for a quick call?\n\nBest", time: "Yesterday 4:30 PM" },
   { direction: "inbound", from: "buyer-47@", subject: "Re: Ethiopian 25/26 Yirgacheffe — first container spot", body: "Hi,\n\nThanks for the note. Looks interesting — can you send me the cupping scores for the Guji lots too? And what's your earliest FOB Djibouti date?\n\nI could do a call next Tuesday at 14:00 CET.\n\nKonrad", time: "Today 10:24 AM", ai: { classification: "question", summary: "Buyer interested in Yirgacheffe and requests cupping scores for Guji", intent: "sample_request", volume: 320, origin: "Guji", destination: "Hamburg", incoterm: "FOB", urgency: "High", nextAction: "Send Cupping Scores" } },
 ];
@@ -462,6 +463,55 @@ const messages = [
 function InboxPage() {
   const [selectedConv, setSelectedConv] = useState(1);
   const [replyText, setReplyText] = useState("");
+  const [conversations, setConversations] = useState<typeof mockConversations | null>(null);
+  const [messages, setMessages] = useState<typeof mockMessages | null>(null);
+
+  // ─── Live data from backend ───
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/inbox")
+      .then((r) => {
+        if (!r.ok) throw new Error(`API ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.conversations) && data.conversations.length > 0) {
+          setConversations(data.conversations);
+          setMessages(data.messages || mockMessages);
+        } else {
+          setConversations(mockConversations);
+          setMessages(mockMessages);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[InboxPage] API fetch failed, using mock data:", err);
+        setConversations(mockConversations);
+        setMessages(mockMessages);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Loading state
+  if (!conversations || !messages) {
+    return (
+      <main className="flex h-[calc(100vh-4rem)]">
+        <div className="w-[360px] border-r border-gray-200 bg-white flex flex-col">
+          <div className="p-4 border-b border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">Inbox</h2>
+          </div>
+          <div className="flex-1 flex items-center justify-center">
+            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center bg-[#FAFAF9]">
+          <p className="text-sm text-gray-500">Loading messages from database…</p>
+        </div>
+      </main>
+    );
+  }
+
   const conv = conversations.find(c => c.id === selectedConv) || conversations[0];
 
   return (
@@ -3769,7 +3819,9 @@ const contractStatusConfig: Record<ContractStatus, { label: string; bg: string; 
   cancelled: { label: "Cancelled", bg: "bg-red-50", text: "text-red-700", dot: "bg-red-500", action: "View" },
 };
 
-const contractsData: Contract[] = [
+// Mock contracts data — used as fallback when /api/contracts is unreachable.
+// Real data is fetched at runtime from the backend SQLite database.
+const mockContractsData: Contract[] = [
   {
     id: "CT-2026-0003", quoteId: "QU-2026-0003", buyer: "Blue Mountain Traders", buyerCountry: "Germany",
     buyerContact: "Hans Müller", buyerEmail: "h.mueller@bluemountain.de", seller: "Coelrodan PLC", sellerContact: "Abi Solomon",
@@ -4296,6 +4348,32 @@ function ContractsPage() {
   const [selectedContract, setSelectedContract] = useState<string | null>(null);
   const filters = ["All", "Needs Signature", "Executed", "In Progress", "Completed", "Cancelled"];
 
+  // ─── Live data from backend ───
+  const [contractsData, setContractsData] = useState<Contract[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/contracts")
+      .then((r) => {
+        if (!r.ok) throw new Error(`API ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.contracts) && data.contracts.length > 0) {
+          setContractsData(data.contracts);
+        } else {
+          setContractsData(mockContractsData);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[ContractsPage] API fetch failed, using mock data:", err);
+        setContractsData(mockContractsData);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const filterMap: Record<string, (c: Contract) => boolean> = {
     "All": () => true,
     "Needs Signature": (c) => c.status === "pending_buyer_sig" || c.status === "pending_seller_sig" || c.status === "draft",
@@ -4304,6 +4382,26 @@ function ContractsPage() {
     "Completed": (c) => c.status === "completed",
     "Cancelled": (c) => c.status === "cancelled" || c.status === "expired",
   };
+
+  // Loading state
+  if (!contractsData) {
+    return (
+      <main className="p-8 max-w-[1200px] mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Contracts</h1>
+            <p className="text-sm text-gray-500 mt-1">Which contracts need signing?</p>
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+          <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">Loading contracts from database…</p>
+        </div>
+      </main>
+    );
+  }
 
   const filtered = contractsData.filter(filterMap[filter]);
 
@@ -5648,7 +5746,7 @@ type AuditEntry = {
   entityId: string;
 };
 
-const operatorsData: Operator[] = [
+const mockOperatorsData: Operator[] = [
   { id: "OP-001", name: "Abi Solomon", email: "abi@coelrodan.com", role: "admin", status: "active", lastActive: "2 min ago", actionsToday: 47 },
   { id: "OP-002", name: "Sara Bekele", email: "sara@coelrodan.com", role: "manager", status: "active", lastActive: "1h ago", actionsToday: 23 },
   { id: "OP-003", name: "Dawit Tadesse", email: "dawit@coelrodan.com", role: "operator", status: "active", lastActive: "3h ago", actionsToday: 12 },
@@ -5657,7 +5755,7 @@ const operatorsData: Operator[] = [
   { id: "OP-006", name: "Yuki Hashimoto", email: "yuki@external.com", role: "viewer", status: "disabled", lastActive: "2 weeks ago", actionsToday: 0 },
 ];
 
-const aiAgentsData: AIAgent[] = [
+const mockAiAgentsData: AIAgent[] = [
   { id: "AGT-SUP", name: "Supplier Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Identified LOT-25-0007 for Hashimoto counter", lastActionTime: "Yesterday", actionsToday: 8, approvalsWaiting: 0 },
   { id: "AGT-OUT", name: "Outreach Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Drafted Quote QU-2026-0007 for Aurora", lastActionTime: "2h ago", actionsToday: 12, approvalsWaiting: 1 },
   { id: "AGT-CUS", name: "Customer Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Drafted breakup email for Nordic Bean", lastActionTime: "2 days ago", actionsToday: 4, approvalsWaiting: 1 },
@@ -5667,13 +5765,13 @@ const aiAgentsData: AIAgent[] = [
   { id: "AGT-CRM", name: "Customer Insights Agent", model: "Llama 3.3 70B", status: "idle", lastAction: "Generated weekly buyer insights report", lastActionTime: "3 days ago", actionsToday: 1, approvalsWaiting: 0 },
 ];
 
-const approvalsData: ApprovalItem[] = [
+const mockApprovalsData: ApprovalItem[] = [
   { id: "APR-0042", agent: "Outreach Agent", action: "Send quote to Aurora Imports", target: "QU-2026-0007", submittedAt: "1h ago", riskLevel: "medium", detail: "First-time buyer, no transaction history. Quote value $22,500. Margin 21.3%." },
   { id: "APR-0041", agent: "Customer Agent", action: "Send breakup email to Nordic Bean Co", target: "QU-2026-0001", submittedAt: "2 days ago", riskLevel: "low", detail: "Quote expired 15 days ago. Standard re-engagement email." },
   { id: "APR-0040", agent: "Outreach Agent", action: "Add 4 new leads from research batch", target: "L-2026-00510 to L-2026-00513", submittedAt: "3 days ago", riskLevel: "low", detail: "4 German specialty roasters identified with annual imports >5t." },
 ];
 
-const auditData: AuditEntry[] = [
+const mockAuditData: AuditEntry[] = [
   { id: "AUD-9821", timestamp: "10:42 AM", actor: "Abi Solomon", actorType: "operator", action: "Approved quote V2", entityType: "Quote", entityId: "QU-2026-0004" },
   { id: "AUD-9820", timestamp: "10:15 AM", actor: "Compliance Agent", actorType: "agent", action: "Created alert", entityType: "Shipment", entityId: "CT-2026-001" },
   { id: "AUD-9819", timestamp: "09:48 AM", actor: "Outreach Agent", actorType: "agent", action: "Drafted quote", entityType: "Quote", entityId: "QU-2026-0007" },
@@ -5693,6 +5791,56 @@ const operatorRoleConfig: Record<OperatorRole, { label: string; bg: string; text
 function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) => void }) {
   const [activeTab, setActiveTab] = useState<"portfolio" | "sellers" | "commission" | "risk" | "system">("portfolio");
   const [selectedSeller, setSelectedSeller] = useState<string | null>(null);
+
+  // ─── System tab data (fetched from backend) ───
+  const [operatorsData, setOperatorsData] = useState<Operator[] | null>(null);
+  const [aiAgentsData, setAiAgentsData] = useState<AIAgent[] | null>(null);
+  const [approvalsData, setApprovalsData] = useState<ApprovalItem[] | null>(null);
+  const [auditData, setAuditData] = useState<AuditEntry[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin")
+      .then((r) => {
+        if (!r.ok) throw new Error(`API ${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok) {
+          if (Array.isArray(data.operators) && data.operators.length > 0) {
+            setOperatorsData(data.operators);
+          } else {
+            setOperatorsData(mockOperatorsData);
+          }
+          if (Array.isArray(data.agents) && data.agents.length > 0) {
+            setAiAgentsData(data.agents);
+          } else {
+            setAiAgentsData(mockAiAgentsData);
+          }
+          setApprovalsData(Array.isArray(data.approvals) ? data.approvals : mockApprovalsData);
+          if (Array.isArray(data.audit) && data.audit.length > 0) {
+            setAuditData(data.audit);
+          } else {
+            setAuditData(mockAuditData);
+          }
+        } else {
+          setOperatorsData(mockOperatorsData);
+          setAiAgentsData(mockAiAgentsData);
+          setApprovalsData(mockApprovalsData);
+          setAuditData(mockAuditData);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[AdminPage] API fetch failed, using mock data:", err);
+        setOperatorsData(mockOperatorsData);
+        setAiAgentsData(mockAiAgentsData);
+        setApprovalsData(mockApprovalsData);
+        setAuditData(mockAuditData);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Portfolio totals
   const totals = {
@@ -6024,6 +6172,16 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
       {/* ═══ SYSTEM TAB ═══ */}
       {activeTab === "system" && (
         <div className="space-y-6">
+          {/* Loading state for system data */}
+          {!operatorsData || !aiAgentsData || !approvalsData || !auditData ? (
+            <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+              <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+                <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+              </div>
+              <p className="text-sm font-medium text-gray-700">Loading system data from database…</p>
+            </div>
+          ) : (
+          <>
           <div className="grid grid-cols-4 gap-4">
             <div className="rounded-xl border border-gray-200 bg-white p-4">
               <p className="text-xs font-medium text-gray-500">Operators</p>
@@ -6117,6 +6275,8 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
               </tbody>
             </table>
           </div>
+          </>
+          )}
         </div>
       )}
 
