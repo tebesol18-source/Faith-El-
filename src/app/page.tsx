@@ -635,8 +635,14 @@ const stateColors: Record<string, { bg: string; text: string; dot: string }> = {
   IN_SEQUENCE: { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
   QUALIFIED: { bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500" },
   SAMPLE_DISPATCHED: { bg: "bg-purple-50", text: "text-purple-700", dot: "bg-purple-500" },
-  CONTRACTED: { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
+  SAMPLE_FEEDBACK_DUE: { bg: "bg-purple-100", text: "text-purple-800", dot: "bg-purple-600" },
+  DECIDED_APPROVED: { bg: "bg-green-100", text: "text-green-800", dot: "bg-green-600" },
+  DECIDED_REJECTED: { bg: "bg-red-50", text: "text-red-600", dot: "bg-red-500" },
+  DECIDED_NEEDS_ANOTHER: { bg: "bg-amber-100", text: "text-amber-800", dot: "bg-amber-600" },
   GHOSTED: { bg: "bg-red-50", text: "text-red-600", dot: "bg-red-500" },
+  CONTRACTED: { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
+  NURTURE: { bg: "bg-lime-50", text: "text-lime-700", dot: "bg-lime-500" },
+  BLOCKED: { bg: "bg-gray-200", text: "text-gray-700", dot: "bg-gray-600" },
 };
 
 const tierColors: Record<string, string> = {

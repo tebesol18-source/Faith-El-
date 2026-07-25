@@ -43,7 +43,7 @@ function getDbPath(): string {
   return "/home/z/my-project/coffee_export/data/coffee_export.db";
 }
 
-// Frontend-expected lead shape
+// Frontend-expected lead shape — matches ALL fields shown in the Streamlit leads page
 type FrontendLead = {
   id: string;
   company: string;
@@ -51,17 +51,24 @@ type FrontendLead = {
   city: string | null;
   tier: string | null;
   vp: string | null;
+  vpLabel: string | null;       // "VP1 — Origin Access" etc.
   state: string;
   language: string;
+  languageFlag: string;          // 🇬🇧 🇩🇪 etc.
   score: number;
-  lastTouch: string;
-  tags: string[];
+  lastTouch: string;             // relative ("2h ago")
+  updatedTs: string | null;      // raw ISO for sorting
+  updatedFormatted: string;      // "2026-07-03 09:49:00"
+  tags: string[];                // real tags from lead_tags table
   enriched: boolean;
-  // Extra fields from backend (for detail drawer)
+  // Extra fields from backend (for detail drawer — matches Streamlit detail view)
   website?: string | null;
-  agent?: string | null;
-  sequenceStep?: number;
+  agent?: string | null;         // current_agent
+  sequenceStep?: number;         // 0-6
   ghostedCount?: number;
+  substituteRound?: number;
+  nextActionDueTs?: string | null;
+  nextActionAgent?: string | null;
   createdAt?: string | null;
   primaryContact?: {
     name: string | null;
@@ -95,6 +102,47 @@ function relativeTime(ts: string | null): string {
   } catch {
     return "Unknown";
   }
+}
+
+/**
+ * VP label — matches Streamlit's vp_label() function.
+ */
+function vpLabel(vp: string | null): string | null {
+  if (!vp) return null;
+  const labels: Record<string, string> = {
+    VP1: "VP1 — Origin Access",
+    VP2: "VP2 — Sustainability",
+    VP3: "VP3 — Commercial FOB",
+    VP4: "VP4 — Microlot Exclusivity",
+  };
+  return labels[vp] || vp;
+}
+
+/**
+ * Language flag — matches Streamlit's language_flag() function.
+ */
+function languageFlag(lang: string): string {
+  const flags: Record<string, string> = {
+    EN: "🇬🇧",
+    DE: "🇩🇪",
+    FR: "🇫🇷",
+    IT: "🇮🇹",
+    JA: "🇯🇵",
+    KO: "🇰🇷",
+    ZH: "🇨🇳",
+    AR: "🇸🇦",
+    TR: "🇹🇷",
+    RU: "🇷🇺",
+  };
+  return flags[lang] || "🌍";
+}
+
+/**
+ * Format ISO timestamp to "YYYY-MM-DD HH:MM:SS" — matches Streamlit's format_ts().
+ */
+function formatTs(ts: string | null): string {
+  if (!ts) return "—";
+  return ts.substring(0, 19).replace("T", " ");
 }
 
 /**
@@ -175,7 +223,8 @@ export async function GET(request: NextRequest) {
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
 
     try {
-      // Build query — join leads with lead_contacts (primary only) in one go
+      // Build query — join leads with lead_contacts (primary) and lead_tags
+      // Matches ALL fields shown in the Streamlit leads page
       let query = `
         SELECT
           l.lead_id,
@@ -187,17 +236,20 @@ export async function GET(request: NextRequest) {
           l.current_agent,
           l.last_touch_ts,
           l.next_action_due_ts,
+          l.next_action_agent,
           l.priority_tier,
           l.recommended_vp,
           l.outreach_language,
           l.sequence_step,
           l.ghosted_count,
+          l.substitute_round,
           l.created_ts,
           l.updated_ts,
           lc.name AS contact_name,
           lc.title AS contact_title,
           lc.email AS contact_email,
-          lc.phone AS contact_phone
+          lc.phone AS contact_phone,
+          (SELECT GROUP_CONCAT(tag, ', ') FROM lead_tags WHERE lead_id = l.lead_id) AS tags_csv
         FROM leads l
         LEFT JOIN lead_contacts lc ON l.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL
         WHERE l.deleted_ts IS NULL
@@ -224,7 +276,7 @@ export async function GET(request: NextRequest) {
 
       const rows = db.prepare(query).all(...params) as any[];
 
-      // Map to frontend shape
+      // Map to frontend shape — includes ALL Streamlit fields
       const leads: FrontendLead[] = rows.map((row) => {
         const enriched = row.current_state !== "NEW";
         const score = calculateScore(
@@ -233,6 +285,10 @@ export async function GET(request: NextRequest) {
           enriched,
           row.sequence_step || 0
         );
+        // Use real tags from DB; fall back to derived tags if none
+        const realTags = row.tags_csv
+          ? row.tags_csv.split(", ").filter(Boolean)
+          : deriveTags(row.headquarters_country, row.priority_tier, row.current_state);
         return {
           id: row.lead_id,
           company: row.company_name,
@@ -240,16 +296,23 @@ export async function GET(request: NextRequest) {
           city: row.headquarters_city || null,
           tier: row.priority_tier,
           vp: row.recommended_vp,
+          vpLabel: vpLabel(row.recommended_vp),
           state: row.current_state,
           language: row.outreach_language || "EN",
+          languageFlag: languageFlag(row.outreach_language || "EN"),
           score,
           lastTouch: relativeTime(row.last_touch_ts),
-          tags: deriveTags(row.headquarters_country, row.priority_tier, row.current_state),
+          updatedTs: row.updated_ts || null,
+          updatedFormatted: formatTs(row.updated_ts),
+          tags: realTags,
           enriched,
-          website: row.website,
+          website: row.website || null,
           agent: row.current_agent,
-          sequenceStep: row.sequence_step,
-          ghostedCount: row.ghosted_count,
+          sequenceStep: row.sequence_step || 0,
+          ghostedCount: row.ghosted_count || 0,
+          substituteRound: row.substitute_round || 0,
+          nextActionDueTs: row.next_action_due_ts || null,
+          nextActionAgent: row.next_action_agent || null,
           createdAt: row.created_ts,
           primaryContact: row.contact_name
             ? {
