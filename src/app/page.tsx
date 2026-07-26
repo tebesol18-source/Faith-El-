@@ -1267,9 +1267,19 @@ function LeadsPage() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Target Country</label>
-                <select value={researchCountry} onChange={(e) => setResearchCountry(e.target.value)} disabled={researching} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
-                  <option>Germany</option><option>United Kingdom</option><option>USA</option><option>Japan</option><option>Italy</option><option>France</option><option>Belgium</option><option>Sweden</option><option>South Korea</option><option>Netherlands</option>
-                </select>
+                <input
+                  type="text"
+                  list="country-suggestions"
+                  value={researchCountry}
+                  onChange={(e) => setResearchCountry(e.target.value)}
+                  disabled={researching}
+                  placeholder="Type any country (e.g. Germany, Japan, Brazil…)"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10"
+                />
+                <datalist id="country-suggestions">
+                  <option value="Germany" /><option value="United Kingdom" /><option value="USA" /><option value="Japan" /><option value="Italy" /><option value="France" /><option value="Belgium" /><option value="Sweden" /><option value="South Korea" /><option value="Netherlands" /><option value="Spain" /><option value="Switzerland" /><option value="Austria" /><option value="Denmark" /><option value="Norway" /><option value="Finland" /><option value="Australia" /><option value="Canada" /><option value="Brazil" /><option value="Taiwan" /><option value="Singapore" /><option value="United Arab Emirates" /><option value="Saudi Arabia" /><option value="South Africa" /><option value="Ireland" /><option value="Poland" /><option value="Czech Republic" /><option value="Greece" /><option value="Portugal" /><option value="Mexico" /><option value="Argentina" /><option value="Chile" /><option value="Colombia" /><option value="Turkey" /><option value="Israel" /><option value="Thailand" /><option value="Malaysia" /><option value="Philippines" /><option value="Indonesia" /><option value="Vietnam" /><option value="Hong Kong" /><option value="New Zealand" />
+                </datalist>
+                <p className="text-[11px] text-gray-400 mt-1">Type any country name — suggestions appear as you type. Agent 2 will detect the language and assign cities automatically.</p>
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Buyer Segment</label>
