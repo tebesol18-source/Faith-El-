@@ -118,7 +118,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, action, reviewer, notes } = body;
+    const { id, action, reviewer, notes, feedback_reason, edited_fields, seller_notes } = body;
 
     if (!id || !action || !["approve", "reject"].includes(action)) {
       return NextResponse.json(
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
       }
 
       const now = nowISO();
-      const reviewerName = reviewer || "admin";
+      const reviewerName = reviewer || "seller";
       const reviewNotes = notes || "";
       const newStatus = action === "approve" ? "approved" : "rejected";
 
@@ -148,6 +148,25 @@ export async function POST(request: NextRequest) {
         WHERE id = ?
       `).run(newStatus, reviewerName, now, reviewNotes, id);
 
+      // ═══ Capture human feedback for learning ═══
+      db.prepare(`
+        INSERT INTO agent_feedback (
+          action_id, agent_id, action_type, target_entity_id,
+          decision, feedback_reason, edited_fields, original_payload, seller_notes, created_ts
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        pending.agent_id,
+        pending.action_type,
+        pending.target_entity_id,
+        newStatus,
+        feedback_reason || null,
+        edited_fields ? JSON.stringify(edited_fields) : null,
+        pending.payload,
+        seller_notes || reviewNotes || null,
+        now
+      );
+
       // Log to supervisor_log
       db.prepare(`
         INSERT INTO supervisor_log (timestamp, agent_id, event_type, severity, message, action_taken, details)
@@ -157,9 +176,9 @@ export async function POST(request: NextRequest) {
         pending.agent_id,
         action === "approve" ? "ACTION_APPROVED" : "ACTION_REJECTED",
         action === "approve" ? "info" : "warning",
-        `${pending.agent_id}'s action "${pending.action_description}" was ${newStatus} by ${reviewerName}`,
-        action === "approve" ? "Action approved — supervisor will execute on next tick" : "Action rejected — event marked as consumed",
-        JSON.stringify({ actionId: id, actionType: pending.action_type, reviewer: reviewerName, notes: reviewNotes })
+        `${pending.agent_id}'s action "${pending.action_description}" was ${newStatus} by ${reviewerName}${feedback_reason ? ` — reason: ${feedback_reason}` : ''}`,
+        action === "approve" ? "Action approved — supervisor will execute on next tick" : "Action rejected — feedback recorded for learning",
+        JSON.stringify({ actionId: id, actionType: pending.action_type, reviewer: reviewerName, feedbackReason: feedback_reason, hasEdits: !!edited_fields })
       );
 
       // If rejected, mark the associated event as consumed (so the agent doesn't retry)

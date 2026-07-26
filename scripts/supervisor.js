@@ -350,6 +350,101 @@ class Supervisor {
     return { issuesFound, autoCorrected, totalPending };
   }
 
+  /** Read past feedback for an agent to learn from seller preferences */
+  getAgentFeedback(agentId, actionType) {
+    const rows = this.db.prepare(`
+      SELECT decision, feedback_reason, seller_notes, target_entity_id
+      FROM agent_feedback
+      WHERE agent_id = ? AND action_type = ?
+      ORDER BY created_ts DESC LIMIT 10
+    `).all(agentId, actionType);
+
+    if (rows.length === 0) return null;
+
+    const rejections = rows.filter(r => r.decision === "rejected");
+    const approvals = rows.filter(r => r.decision === "approved");
+    const rejectReasons = {};
+    rejections.forEach(r => {
+      if (r.feedback_reason) rejectReasons[r.feedback_reason] = (rejectReasons[r.feedback_reason] || 0) + 1;
+    });
+
+    return {
+      total_feedback: rows.length,
+      approvals: approvals.length,
+      rejections: rejections.length,
+      approval_rate: rows.length > 0 ? Math.round((approvals.length / rows.length) * 100) : 0,
+      top_reject_reasons: Object.entries(rejectReasons).sort((a, b) => b[1] - a[1]).slice(0, 3),
+      recent_notes: rejections.filter(r => r.seller_notes).slice(0, 3).map(r => r.seller_notes),
+    };
+  }
+
+  /** Read buyer memory for a specific lead */
+  getBuyerMemory(leadId) {
+    const rows = this.db.prepare(`
+      SELECT memory_type, memory_key, memory_value, confidence, source
+      FROM buyer_memory WHERE lead_id = ?
+      ORDER BY memory_type, memory_key
+    `).all(leadId);
+
+    if (rows.length === 0) return null;
+
+    const memory = {
+      preferences: {},
+      purchase_history: {},
+      interactions: {},
+      journey: {},
+      memory_count: rows.length,
+    };
+
+    rows.forEach(r => {
+      const entry = { value: r.memory_value, confidence: r.confidence, source: r.source };
+      if (r.memory_type === "preference") memory.preferences[r.memory_key] = entry;
+      else if (r.memory_type === "purchase_history") memory.purchase_history[r.memory_key] = entry;
+      else if (r.memory_type === "interaction") memory.interactions[r.memory_key] = entry;
+      else if (r.memory_type === "journey") memory.journey[r.memory_key] = entry;
+    });
+
+    return memory;
+  }
+
+  /** Write or update a buyer memory */
+  setBuyerMemory(leadId, memoryType, memoryKey, memoryValue, confidence = 0.8, source = "inferred") {
+    const now = nowISO();
+    this.db.prepare(`
+      INSERT INTO buyer_memory (lead_id, memory_type, memory_key, memory_value, confidence, source, created_ts, updated_ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(lead_id, memory_type, memory_key)
+      DO UPDATE SET memory_value = excluded.memory_value, confidence = excluded.confidence, updated_ts = excluded.updated_ts
+    `).run(leadId, memoryType, memoryKey, memoryValue, confidence, source, now, now);
+  }
+
+  /** Learn from seller feedback and update buyer memory */
+  learnFromFeedback(leadId, feedbackReason, sellerNotes, actionType) {
+    if (!leadId) return;
+
+    // Map reject reasons to buyer memory updates
+    const reasonToMemory = {
+      wrong_tone: { type: "preference", key: "tone_preference", value: "casual", confidence: 0.8 },
+      too_long: { type: "preference", key: "email_length_preference", value: "short", confidence: 0.8 },
+      wrong_lots: { type: "preference", key: "lot_preference_note", value: sellerNotes || "seller disagreed with lot selection", confidence: 0.7 },
+      wrong_price: { type: "preference", key: "price_sensitivity", value: "high", confidence: 0.8 },
+      wrong_language: { type: "preference", key: "language_correction", value: sellerNotes || "wrong language used", confidence: 0.9 },
+      already_contacted: { type: "interaction", key: "already_contacted", value: "true", confidence: 1.0 },
+      not_ready: { type: "journey", key: "readiness", value: "not_ready", confidence: 0.8 },
+      wrong_cta: { type: "preference", key: "cta_preference", value: "soft", confidence: 0.8 },
+    };
+
+    const memUpdate = reasonToMemory[feedbackReason];
+    if (memUpdate) {
+      this.setBuyerMemory(leadId, memUpdate.type, memUpdate.key, memUpdate.value, memUpdate.confidence, "seller_feedback");
+    }
+
+    // Store free-text notes as a memory
+    if (sellerNotes) {
+      this.setBuyerMemory(leadId, "feedback", "latest_seller_note", sellerNotes, 0.9, "seller_feedback");
+    }
+  }
+
   /** Get VP rationale for reasoning panel */
   getVPRationale(vp) {
     const rationales = {
@@ -556,6 +651,61 @@ abi@coelrodan.com`;
       // Draft the actual email content
       const emailDraft = this.draftOutreachEmail(lead, availableLots);
 
+      // Read past feedback to learn from seller preferences
+      const feedback = this.getAgentFeedback("Agent 3", "send_email");
+
+      // Read buyer memory for personalization
+      const buyerMemory = this.getBuyerMemory(lead.lead_id);
+
+      // Adapt email based on feedback
+      let adaptedNotes = [];
+      if (feedback) {
+        if (feedback.top_reject_reasons.some(([reason, count]) => reason === "too_long" && count >= 1)) {
+          emailDraft.body = emailDraft.body.replace(/\n\nAvailable lots for your consideration:[\s\S]*?(?=\n\n)/, "");
+          adaptedNotes.push("Email shortened — seller previously rejected for being too long");
+        }
+        if (feedback.top_reject_reasons.some(([reason, count]) => reason === "wrong_tone" && count >= 1)) {
+          emailDraft.body = emailDraft.body.replace(/Dear [^,]+,/, "Hi,");
+          adaptedNotes.push("Greeting simplified to 'Hi,' — seller prefers less formal tone");
+        }
+        if (feedback.top_reject_reasons.some(([reason, count]) => reason === "wrong_cta" && count >= 1)) {
+          emailDraft.body = emailDraft.body.replace(/Would you have.*?\?/, "Let me know if you'd like to receive our current inventory list.");
+          adaptedNotes.push("Call-to-action softened — seller prefers less pushy approach");
+        }
+      }
+
+      // Adapt email based on buyer memory
+      if (buyerMemory) {
+        // If buyer was already contacted, adjust the email
+        if (buyerMemory.interactions.already_contacted && buyerMemory.interactions.already_contacted.value === "true") {
+          adaptedNotes.push("⚠️ Buyer was previously marked as 'already contacted' — seller may want to skip this lead");
+        }
+        // If buyer has purchase history, reference it
+        if (buyerMemory.purchase_history.total_contracts && parseInt(buyerMemory.purchase_history.total_contracts.value) > 0) {
+          const contractCount = buyerMemory.purchase_history.total_contracts.value;
+          const preferredIncoterm = buyerMemory.purchase_history.preferred_incoterm?.value;
+          // Add a line about past business
+          const pastBusinessLine = `\nWe've successfully completed ${contractCount} contract(s) together previously${preferredIncoterm ? ` on ${preferredIncoterm} terms` : ""}, and we'd love to continue the partnership.`;
+          emailDraft.body = emailDraft.body.replace(/(\n\nWould you have|\n\nI'd love|\n\nPlease let me)/, pastBusinessLine + "$1");
+          adaptedNotes.push(`Referenced ${contractCount} past contract(s) — buyer has purchase history`);
+        }
+        // If buyer has tone preference from feedback, apply it
+        if (buyerMemory.preferences.tone_preference?.value === "casual") {
+          emailDraft.body = emailDraft.body.replace(/Dear [^,]+,/, "Hi,");
+          adaptedNotes.push("Greeting set to 'Hi,' — buyer memory shows casual tone preference");
+        }
+        // If buyer has email length preference
+        if (buyerMemory.preferences.email_length_preference?.value === "short") {
+          emailDraft.body = emailDraft.body.replace(/\n\nAvailable lots for your consideration:[\s\S]*?(?=\n\n)/, "");
+          adaptedNotes.push("Email shortened — buyer memory shows preference for concise emails");
+        }
+        // If buyer has CTA preference
+        if (buyerMemory.preferences.cta_preference?.value === "soft") {
+          emailDraft.body = emailDraft.body.replace(/Would you have.*?\?/, "Let me know if you'd like to receive our current inventory list.");
+          adaptedNotes.push("Call-to-action softened — buyer memory shows preference for soft CTAs");
+        }
+      }
+
       // Build reasoning for "Why I recommended this"
       const reasoning = {
         buyer_tier: lead.priority_tier || "A",
@@ -582,6 +732,29 @@ abi@coelrodan.com`;
           lead.priority_tier === "S" ? "S-tier buyer — high value, justify direct approach" : `${lead.priority_tier}-tier buyer — standard outreach approach`,
           lead.outreach_language !== "EN" ? `Non-English language (${lead.outreach_language}) — email drafted in buyer's language` : "English — standard international business language",
         ],
+        feedback_learning: feedback ? {
+          past_approvals: feedback.approvals,
+          past_rejections: feedback.rejections,
+          approval_rate: `${feedback.approval_rate}%`,
+          adaptations_applied: adaptedNotes.filter(n => !n.includes("buyer memory")),
+          top_reject_reasons: feedback.top_reject_reasons.map(([reason, count]) => `${reason} (${count}x)`),
+        } : null,
+        buyer_memory: buyerMemory ? {
+          memory_count: buyerMemory.memory_count,
+          has_purchase_history: Object.keys(buyerMemory.purchase_history).length > 0,
+          has_interactions: Object.keys(buyerMemory.interactions).length > 0,
+          past_contracts: buyerMemory.purchase_history.total_contracts?.value || "0",
+          preferred_incoterm: buyerMemory.purchase_history.preferred_incoterm?.value || null,
+          outreach_touches: buyerMemory.interactions.outreach_touches?.value || "0",
+          already_contacted: buyerMemory.interactions.already_contacted?.value === "true" || false,
+          tone_preference: buyerMemory.preferences.tone_preference?.value || null,
+          email_length_preference: buyerMemory.preferences.email_length_preference?.value || null,
+          cta_preference: buyerMemory.preferences.cta_preference?.value || null,
+          ghosted_count: buyerMemory.interactions.ghosted_count?.value || "0",
+          journey_stage: buyerMemory.journey.current_stage?.value || null,
+          latest_seller_note: buyerMemory.preferences.latest_seller_note?.value || buyerMemory.feedback?.latest_seller_note?.value || null,
+          adaptations_from_memory: adaptedNotes.filter(n => n.includes("buyer memory")),
+        } : null,
       };
 
       this.db.prepare(`
@@ -704,6 +877,26 @@ abi@coelrodan.com`;
     const approvedActions = this.db.prepare(`
       SELECT * FROM pending_agent_actions WHERE status = 'approved'
     `).all();
+
+    // Also learn from recently rejected actions (update buyer memory)
+    const recentRejections = this.db.prepare(`
+      SELECT af.*, pa.payload
+      FROM agent_feedback af
+      JOIN pending_agent_actions pa ON af.action_id = pa.id
+      WHERE af.decision = 'rejected'
+      AND af.created_ts > datetime('now', '-5 minutes')
+    `).all();
+
+    for (const rej of recentRejections) {
+      let leadId = rej.target_entity_id;
+      if (!leadId && rej.payload) {
+        try { leadId = JSON.parse(rej.payload).lead_id; } catch {}
+      }
+      if (leadId) {
+        this.learnFromFeedback(leadId, rej.feedback_reason, rej.seller_notes, rej.action_type);
+        log(`  🧠 Agent learned from rejection: ${rej.feedback_reason} → updated memory for ${leadId}`);
+      }
+    }
 
     for (const action of approvedActions) {
       const payload = JSON.parse(action.payload || "{}");

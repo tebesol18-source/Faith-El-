@@ -141,6 +141,9 @@ function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLog
   const [showApprovals, setShowApprovals] = useState(false);
   const [pendingActions, setPendingActions] = useState<any[]>([]);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectNotes, setRejectNotes] = useState("");
 
   const fetchApprovals = () => {
     fetch("/api/approvals")
@@ -159,15 +162,19 @@ function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLog
 
   const handleApprove = (id: number) => {
     setActionLoading(id);
-    fetch("/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) })
+    fetch("/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action: "approve", reviewer: "seller" }) })
       .then(() => { fetchApprovals(); })
       .finally(() => setActionLoading(null));
   };
 
   const handleReject = (id: number) => {
     setActionLoading(id);
-    fetch("/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action: "reject" }) })
-      .then(() => { fetchApprovals(); })
+    fetch("/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      id, action: "reject", reviewer: "seller",
+      feedback_reason: rejectReason || "other",
+      seller_notes: rejectNotes || undefined,
+    }) })
+      .then(() => { fetchApprovals(); setRejectingId(null); setRejectReason(""); setRejectNotes(""); })
       .finally(() => setActionLoading(null));
   };
 
@@ -392,6 +399,85 @@ function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLog
                               </div>
                             </div>
                           )}
+                          {/* Feedback learning — shows past seller decisions */}
+                          {p.reasoning.feedback_learning && (
+                            <div className="mt-2 pt-2 border-t border-indigo-100">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Learning from Your Past Decisions</p>
+                              <div className="flex items-center gap-3 text-[11px] mb-1">
+                                <span className="inline-flex items-center gap-1 rounded bg-green-50 px-1.5 py-0.5 text-green-700">{p.reasoning.feedback_learning.past_approvals} approved</span>
+                                <span className="inline-flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-red-600">{p.reasoning.feedback_learning.past_rejections} rejected</span>
+                                <span className="text-gray-500">Approval rate: {p.reasoning.feedback_learning.approval_rate}</span>
+                              </div>
+                              {p.reasoning.feedback_learning.adaptations_applied && p.reasoning.feedback_learning.adaptations_applied.length > 0 && (
+                                <div className="space-y-0.5 mt-1">
+                                  {p.reasoning.feedback_learning.adaptations_applied.map((adaptation: string, i: number) => (
+                                    <div key={i} className="flex gap-1.5 text-[11px] text-indigo-600">
+                                      <span className="shrink-0">⚡</span>
+                                      <span>{adaptation}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {p.reasoning.feedback_learning.top_reject_reasons && p.reasoning.feedback_learning.top_reject_reasons.length > 0 && (
+                                <div className="mt-1 text-[10px] text-gray-400">
+                                  Past reject reasons: {p.reasoning.feedback_learning.top_reject_reasons.join(", ")}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {/* Buyer memory — what Agent 3 knows about this buyer */}
+                          {p.reasoning.buyer_memory && (
+                            <div className="mt-2 pt-2 border-t border-indigo-100">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Buyer Memory ({p.reasoning.buyer_memory.memory_count} records)</p>
+                              <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                                {p.reasoning.buyer_memory.past_contracts !== "0" && (
+                                  <div><span className="text-gray-400">Past Contracts:</span> <span className="font-medium text-gray-700">{p.reasoning.buyer_memory.past_contracts}</span></div>
+                                )}
+                                {p.reasoning.buyer_memory.preferred_incoterm && (
+                                  <div><span className="text-gray-400">Preferred Incoterm:</span> <span className="font-medium text-gray-700">{p.reasoning.buyer_memory.preferred_incoterm}</span></div>
+                                )}
+                                {p.reasoning.buyer_memory.outreach_touches !== "0" && (
+                                  <div><span className="text-gray-400">Outreach Touches:</span> <span className="font-medium text-gray-700">{p.reasoning.buyer_memory.outreach_touches}</span></div>
+                                )}
+                                {p.reasoning.buyer_memory.ghosted_count !== "0" && (
+                                  <div><span className="text-gray-400">Ghosted Count:</span> <span className="font-medium text-red-600">{p.reasoning.buyer_memory.ghosted_count}</span></div>
+                                )}
+                                {p.reasoning.buyer_memory.tone_preference && (
+                                  <div><span className="text-gray-400">Tone Pref:</span> <span className="font-medium text-indigo-600">{p.reasoning.buyer_memory.tone_preference}</span></div>
+                                )}
+                                {p.reasoning.buyer_memory.email_length_preference && (
+                                  <div><span className="text-gray-400">Length Pref:</span> <span className="font-medium text-indigo-600">{p.reasoning.buyer_memory.email_length_preference}</span></div>
+                                )}
+                                {p.reasoning.buyer_memory.cta_preference && (
+                                  <div><span className="text-gray-400">CTA Pref:</span> <span className="font-medium text-indigo-600">{p.reasoning.buyer_memory.cta_preference}</span></div>
+                                )}
+                                {p.reasoning.buyer_memory.journey_stage && (
+                                  <div><span className="text-gray-400">Journey:</span> <span className="font-medium text-gray-700">{p.reasoning.buyer_memory.journey_stage.replace(/_/g, " ")}</span></div>
+                                )}
+                              </div>
+                              {p.reasoning.buyer_memory.already_contacted && (
+                                <div className="mt-1 flex gap-1.5 text-[11px] text-amber-600">
+                                  <span className="shrink-0">⚠️</span>
+                                  <span>Buyer was previously marked as "already contacted"</span>
+                                </div>
+                              )}
+                              {p.reasoning.buyer_memory.adaptations_from_memory && p.reasoning.buyer_memory.adaptations_from_memory.length > 0 && (
+                                <div className="space-y-0.5 mt-1">
+                                  {p.reasoning.buyer_memory.adaptations_from_memory.map((adaptation: string, i: number) => (
+                                    <div key={i} className="flex gap-1.5 text-[11px] text-indigo-600">
+                                      <span className="shrink-0">🧠</span>
+                                      <span>{adaptation}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {p.reasoning.buyer_memory.latest_seller_note && (
+                                <div className="mt-1 rounded bg-amber-50 px-2 py-1 text-[10px] text-amber-700 italic">
+                                  Last seller note: "{p.reasoning.buyer_memory.latest_seller_note}"
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -430,24 +516,61 @@ function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLog
 
                       {/* Action buttons */}
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleReject(a.id)}
-                          disabled={actionLoading === a.id}
-                          className="rounded-lg border border-red-200 text-red-600 px-4 py-2 text-xs font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
-                        >
-                          {actionLoading === a.id ? "..." : "Reject"}
-                        </button>
-                        <button
-                          onClick={() => handleApprove(a.id)}
-                          disabled={actionLoading === a.id}
-                          className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white hover:bg-green-700 transition-colors disabled:opacity-50"
-                        >
-                          {actionLoading === a.id ? (
-                            <><div className="h-3 w-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Processing…</>
-                          ) : (
-                            <><CheckCircle2 className="h-3.5 w-3.5" /> Approve & Execute</>
-                          )}
-                        </button>
+                        {rejectingId === a.id ? (
+                          /* Reject reason form */
+                          <div className="w-full space-y-2">
+                            <select
+                              value={rejectReason}
+                              onChange={(e) => setRejectReason(e.target.value)}
+                              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 focus:outline-none focus:border-red-300"
+                            >
+                              <option value="">Select reason…</option>
+                              <option value="wrong_tone">Wrong tone / too formal</option>
+                              <option value="too_long">Email too long</option>
+                              <option value="wrong_lots">Wrong lots recommended</option>
+                              <option value="wrong_price">Price too high / too low</option>
+                              <option value="wrong_language">Wrong language</option>
+                              <option value="already_contacted">Already contacted this buyer</option>
+                              <option value="not_ready">Buyer not ready for outreach</option>
+                              <option value="wrong_cta">Call-to-action not appropriate</option>
+                              <option value="other">Other (explain below)</option>
+                            </select>
+                            <textarea
+                              value={rejectNotes}
+                              onChange={(e) => setRejectNotes(e.target.value)}
+                              placeholder="Optional: tell Agent 3 what to do differently next time…"
+                              rows={2}
+                              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-red-300 resize-none"
+                            />
+                            <div className="flex items-center justify-end gap-2">
+                              <button onClick={() => { setRejectingId(null); setRejectReason(""); setRejectNotes(""); }} className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+                              <button onClick={() => handleReject(a.id)} disabled={!rejectReason || actionLoading === a.id} className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 transition-colors disabled:opacity-50">
+                                {actionLoading === a.id ? <><div className="h-3 w-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Submitting…</> : <>Confirm Reject</>}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => { setRejectingId(a.id); setRejectReason(""); setRejectNotes(""); }}
+                              disabled={actionLoading === a.id}
+                              className="rounded-lg border border-red-200 text-red-600 px-4 py-2 text-xs font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
+                            >
+                              {actionLoading === a.id ? "..." : "Reject"}
+                            </button>
+                            <button
+                              onClick={() => handleApprove(a.id)}
+                              disabled={actionLoading === a.id}
+                              className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+                            >
+                              {actionLoading === a.id ? (
+                                <><div className="h-3 w-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Processing…</>
+                              ) : (
+                                <><CheckCircle2 className="h-3.5 w-3.5" /> Approve & Execute</>
+                              )}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   );
