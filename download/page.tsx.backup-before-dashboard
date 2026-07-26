@@ -175,15 +175,14 @@ function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLog
 // ═══════════════════════════════════════════════════════════
 // DASHBOARD PAGE
 // ═══════════════════════════════════════════════════════════
-// Mock dashboard data — used as fallback when /api/dashboard is unreachable.
-const mockPriorities = [
+const priorities = [
   { num: "1", color: "bg-red-500", text: "Reply to Aurora Coffee — asked for pricing 2h ago", time: "2h ago" },
   { num: "2", color: "bg-amber-500", text: "Approve Quote V2 — QU-2026-0004", time: "3h ago" },
   { num: "3", color: "bg-green-600", text: "Sign Contract CT-2026-0003", time: "5h ago" },
   { num: "4", color: "bg-blue-500", text: "Shipment CT-2026-001 arrives tomorrow", time: "Tomorrow" },
 ];
 
-const mockStages = [
+const stages = [
   { label: "New Leads", count: 24, value: "$0", color: "bg-blue-500" },
   { label: "Qualified", count: 18, value: "$45K", color: "bg-indigo-500" },
   { label: "Sampling", count: 12, value: "$32K", color: "bg-purple-500" },
@@ -193,14 +192,14 @@ const mockStages = [
   { label: "Completed", count: 15, value: "$86K", color: "bg-emerald-600" },
 ];
 
-const mockKpis = [
+const kpis = [
   { label: "Deals", value: "18", sub: "Active", context: "$45,680 Potential", icon: Handshake, iconBg: "bg-green-50", iconColor: "text-green-600", trend: "12%", trendUp: true },
   { label: "Quotes", value: "8", sub: "Awaiting Approval", context: "$84,000 Pipeline", icon: FileText, iconBg: "bg-amber-50", iconColor: "text-amber-600", trend: "5%", trendUp: true },
   { label: "Shipments", value: "3", sub: "In Transit", context: "All on schedule", icon: Ship, iconBg: "bg-blue-50", iconColor: "text-blue-600", trend: "0%", trendUp: true },
   { label: "Payments", value: "$42K", sub: "Outstanding", context: "$86K Paid", icon: DollarSign, iconBg: "bg-green-50", iconColor: "text-green-600", trend: "8%", trendUp: false },
 ];
 
-const mockActivities = [
+const activities = [
   { time: "10:24 AM", text: "Marcus Coffee accepted Quote V2", badge: "Deal", badgeBg: "bg-green-50", badgeColor: "text-green-700", dot: "bg-green-500" },
   { time: "Yesterday", text: "Contract CT-2026-0003 signed by buyer", badge: "Contract", badgeBg: "bg-purple-50", badgeColor: "text-purple-700", dot: "bg-purple-500" },
   { time: "Yesterday", text: "Payment received: $12,800 from Falcon UK", badge: "Payment", badgeBg: "bg-blue-50", badgeColor: "text-blue-700", dot: "bg-blue-500" },
@@ -208,101 +207,18 @@ const mockActivities = [
   { time: "3 days ago", text: "AI generated Quote V3 for Aurora Coffee", badge: "AI", badgeBg: "bg-indigo-50", badgeColor: "text-indigo-700", dot: "bg-indigo-500" },
 ];
 
-const mockShipments = [
+const shipments = [
   { id: "CT-2026-001", dest: "Hamburg", flag: "🇩🇪", status: "In Transit", statusColor: "text-blue-600", statusBg: "bg-blue-50", eta: "2 days", progress: 68 },
   { id: "CT-2026-002", dest: "Antwerp", flag: "🇧🇪", status: "Departed", statusColor: "text-amber-600", statusBg: "bg-amber-50", eta: "5 days", progress: 20 },
   { id: "CT-2026-003", dest: "Trieste", flag: "🇮🇹", status: "On Schedule", statusColor: "text-green-600", statusBg: "bg-green-50", eta: "10 days", progress: 10 },
 ];
 
 function DashboardPage() {
-  // ─── Live data from backend ───
-  const [dashboardData, setDashboardData] = useState<{
-    priorities: typeof mockPriorities;
-    stages: typeof mockStages;
-    kpis: typeof mockKpis;
-    activities: typeof mockActivities;
-    shipments: typeof mockShipments;
-  } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/dashboard")
-      .then((r) => {
-        if (!r.ok) throw new Error(`API ${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        if (data.ok && data.data) {
-          const d = data.data;
-          // Map API kpis (which have icon as string) to use real icon components
-          const iconMap: Record<string, any> = {
-            Handshake,
-            FileText,
-            Users,
-            DollarSign,
-            Ship,
-          };
-          const mappedKpis = (d.kpis || []).map((k: any) => ({
-            ...k,
-            icon: iconMap[k.icon] || Handshake,
-          }));
-          setDashboardData({
-            priorities: d.priorities?.length > 0 ? d.priorities : mockPriorities,
-            stages: d.stages?.length > 0 ? d.stages : mockStages,
-            kpis: mappedKpis.length > 0 ? mappedKpis : mockKpis,
-            activities: d.activities?.length > 0 ? d.activities : mockActivities,
-            shipments: d.shipments?.length > 0 ? d.shipments : mockShipments,
-          });
-        } else {
-          setDashboardData({
-            priorities: mockPriorities,
-            stages: mockStages,
-            kpis: mockKpis,
-            activities: mockActivities,
-            shipments: mockShipments,
-          });
-        }
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.warn("[DashboardPage] API fetch failed, using mock data:", err);
-        setDashboardData({
-          priorities: mockPriorities,
-          stages: mockStages,
-          kpis: mockKpis,
-          activities: mockActivities,
-          shipments: mockShipments,
-        });
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  // Loading state
-  if (!dashboardData) {
-    return (
-      <main className="p-8 max-w-[1200px] mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Good Morning, Abi <span className="inline-block">👋</span></h1>
-          <p className="text-sm text-gray-500 mt-2">Loading dashboard data…</p>
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-          <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
-            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
-          </div>
-          <p className="text-sm font-medium text-gray-700">Fetching live data from database…</p>
-        </div>
-      </main>
-    );
-  }
-
-  const { priorities, stages, kpis, activities, shipments } = dashboardData;
-
   return (
     <main className="p-8 max-w-[1200px] mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Good Morning, Abi <span className="inline-block">👋</span></h1>
-        <p className="text-sm text-gray-500 mt-2">You have <span className="font-semibold text-gray-900">{priorities.length} priority tasks</span> and <span className="font-semibold text-green-600">{kpis[3]?.value}</span> in active pipeline.</p>
+        <p className="text-sm text-gray-500 mt-2">You have <span className="font-semibold text-gray-900">4 high priority tasks</span> and <span className="font-semibold text-gray-900">8 normal tasks</span> worth <span className="font-semibold text-green-600">$84,300</span> to complete today.</p>
       </div>
 
       {/* Priorities + AI Coach */}
