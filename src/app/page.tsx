@@ -6036,6 +6036,42 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
   const [approvalsData, setApprovalsData] = useState<ApprovalItem[] | null>(null);
   const [auditData, setAuditData] = useState<AuditEntry[] | null>(null);
 
+  // ─── Supervisor data (agent health + fault log) ───
+  const [supervisorAgents, setSupervisorAgents] = useState<any[] | null>(null);
+  const [supervisorFaults, setSupervisorFaults] = useState<any[]>([]);
+  const [supervisorRunning, setSupervisorRunning] = useState(false);
+  const [supervisorStats, setSupervisorStats] = useState<any>({});
+
+  const fetchSupervisor = () => {
+    fetch("/api/supervisor")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok) {
+          setSupervisorAgents(data.agents || []);
+          setSupervisorFaults(data.faults || []);
+          setSupervisorRunning(data.supervisor?.running || false);
+          setSupervisorStats(data.stats || {});
+        }
+      })
+      .catch((err) => console.warn("[AdminPage] Supervisor fetch failed:", err));
+  };
+
+  // ─── Pause/Resume handlers (REAL — calls backend API) ───
+  const handlePauseAgent = (agentId: string) => {
+    fetch(`/api/agents/${encodeURIComponent(agentId)}/pause`, { method: "POST" })
+      .then(() => fetchSupervisor()); // Refresh after pause
+  };
+  const handleResumeAgent = (agentId: string) => {
+    fetch(`/api/agents/${encodeURIComponent(agentId)}/resume`, { method: "POST" })
+      .then(() => fetchSupervisor()); // Refresh after resume
+  };
+
+  useEffect(() => {
+    fetchSupervisor();
+    const interval = setInterval(fetchSupervisor, 15000); // Auto-refresh every 15s
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     fetch("/api/admin")
@@ -6410,110 +6446,200 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
       {/* ═══ SYSTEM TAB ═══ */}
       {activeTab === "system" && (
         <div className="space-y-6">
-          {/* Loading state for system data */}
-          {!operatorsData || !aiAgentsData || !approvalsData || !auditData ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-              <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
-                <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          {/* Supervisor status banner */}
+          <div className={cn(
+            "rounded-xl border p-4 flex items-center justify-between",
+            supervisorRunning ? "border-green-200 bg-green-50/50" : "border-red-200 bg-red-50/50"
+          )}>
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-lg",
+                supervisorRunning ? "bg-green-100" : "bg-red-100"
+              )}>
+                <Activity className={cn("h-5 w-5", supervisorRunning ? "text-green-600" : "text-red-600")} strokeWidth={1.5} />
               </div>
-              <p className="text-sm font-medium text-gray-700">Loading system data from database…</p>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">
+                  Agent Supervisor {supervisorRunning ? "Running" : "Stopped"}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {supervisorRunning
+                    ? "Monitoring all 7 agents every 10 seconds — auto-correcting faults"
+                    : "Supervisor is not running — agents will not process events automatically"}
+                </p>
+              </div>
             </div>
-          ) : (
-          <>
-          <div className="grid grid-cols-4 gap-4">
-            <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <p className="text-xs font-medium text-gray-500">Operators</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{operatorsData.filter(o => o.status === "active").length}<span className="text-sm font-normal text-gray-400">/{operatorsData.length}</span></p>
-            </div>
-            <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <p className="text-xs font-medium text-gray-500">AI Agents Online</p>
-              <p className="text-2xl font-bold text-green-600 mt-1">{aiAgentsData.filter(a => a.status === "active").length}<span className="text-sm font-normal text-gray-400">/{aiAgentsData.length}</span></p>
-            </div>
-            <div className="rounded-xl border border-amber-200 bg-amber-50/30 p-4">
-              <p className="text-xs font-medium text-amber-700">Pending Approvals</p>
-              <p className="text-2xl font-bold text-amber-700 mt-1">{approvalsData.length}</p>
-            </div>
-            <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <p className="text-xs font-medium text-gray-500">System Health</p>
-              <p className="text-2xl font-bold text-green-600 mt-1">Healthy</p>
-            </div>
-          </div>
-
-          {/* Pending approvals */}
-          <div className="rounded-xl border border-gray-200 bg-white p-5">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Pending AI Approvals</h3>
-            <div className="space-y-2">
-              {approvalsData.map((a) => (
-                <div key={a.id} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50">
-                    <Bot className="h-3.5 w-3.5 text-indigo-600" strokeWidth={1.5} />
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-900">{a.action}</p>
-                    <p className="text-[11px] text-gray-500 mt-0.5">{a.agent} · {a.submittedAt}</p>
-                  </div>
-                  <div className="flex gap-1.5 shrink-0">
-                    <button className="rounded-md bg-green-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-green-700 transition-colors">Approve</button>
-                    <button className="rounded-md border border-red-200 text-red-600 px-2.5 py-1 text-[11px] font-medium hover:bg-red-50 transition-colors">Reject</button>
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center gap-4 text-xs">
+              <div className="text-center">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400">Agent Runs</p>
+                <p className="text-base font-bold text-gray-900">{supervisorStats.totalAgentRuns || 0}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400">Errors</p>
+                <p className={cn("text-base font-bold", (supervisorStats.totalErrors || 0) > 0 ? "text-red-600" : "text-gray-900")}>{supervisorStats.totalErrors || 0}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400">Pending Events</p>
+                <p className="text-base font-bold text-amber-600">{supervisorStats.pendingEvents || 0}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-[10px] uppercase tracking-wider text-gray-400">Faults</p>
+                <p className={cn("text-base font-bold", (supervisorStats.criticalFaults || 0) > 0 ? "text-red-600" : (supervisorStats.warningFaults || 0) > 0 ? "text-amber-600" : "text-green-600")}>{(supervisorStats.warningFaults || 0) + (supervisorStats.criticalFaults || 0)}</p>
+              </div>
             </div>
           </div>
 
-          {/* AI agents grid */}
-          <div className="rounded-xl border border-gray-200 bg-white p-5">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">AI Agents</h3>
-            <div className="grid grid-cols-3 gap-3">
-              {aiAgentsData.map((agent) => {
-                const isActive = agent.status === "active";
-                return (
-                  <div key={agent.id} className="rounded-lg border border-gray-200 p-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={cn("h-2 w-2 rounded-full", isActive ? "bg-green-500" : "bg-gray-400")} />
-                      <span className="text-[10px] text-gray-400">{agent.actionsToday} today</span>
-                    </div>
-                    <p className="text-xs font-semibold text-gray-900">{agent.name}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">{agent.id} · {agent.model}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Operators table */}
-          <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-100"><h3 className="text-sm font-semibold text-gray-900">System Operators</h3></div>
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Operator</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Role</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Actions Today</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Last Active</th>
-                </tr>
-              </thead>
-              <tbody>
-                {operatorsData.map((op) => {
-                  const rc = operatorRoleConfig[op.role];
+          {/* Agent health cards with working pause/resume */}
+          {supervisorAgents && supervisorAgents.length > 0 ? (
+            <div className="rounded-xl border border-gray-200 bg-white p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-900">AI Agent Health (Live)</h3>
+                <span className="text-xs text-gray-400">Auto-refreshes every 15s</span>
+              </div>
+              <div className="space-y-2">
+                {supervisorAgents.map((agent) => {
+                  const statusConfig: Record<string, { dot: string; bg: string; text: string; label: string }> = {
+                    active: { dot: "bg-green-500", bg: "bg-green-50", text: "text-green-700", label: "Active" },
+                    working: { dot: "bg-blue-500", bg: "bg-blue-50", text: "text-blue-700", label: "Working" },
+                    idle: { dot: "bg-gray-400", bg: "bg-gray-100", text: "text-gray-600", label: "Idle" },
+                    paused: { dot: "bg-amber-500", bg: "bg-amber-50", text: "text-amber-700", label: "Paused" },
+                    error: { dot: "bg-red-500", bg: "bg-red-50", text: "text-red-700", label: "Error" },
+                  };
+                  const sc = statusConfig[agent.status] || statusConfig.idle;
                   return (
-                    <tr key={op.id} className="border-b border-gray-100 last:border-0">
-                      <td className="px-4 py-2">
-                        <p className="font-medium text-gray-900">{op.name}</p>
-                        <p className="text-[11px] text-gray-400">{op.email}</p>
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium", rc.bg, rc.text)}>{rc.label}</span>
-                      </td>
-                      <td className="px-3 py-2 text-right font-medium text-gray-900">{op.actionsToday}</td>
-                      <td className="px-3 py-2 text-gray-500 text-xs">{op.lastActive}</td>
-                    </tr>
+                    <div key={agent.id} className={cn("rounded-lg border p-3 flex items-center gap-4", sc.bg, "border-gray-200")}>
+                      <span className={cn("h-3 w-3 rounded-full shrink-0", sc.dot, agent.status === "working" && "animate-pulse")} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <p className="text-sm font-semibold text-gray-900">{agent.name}</p>
+                          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", sc.bg, sc.text)}>{sc.label}</span>
+                          {agent.pendingEvents > 0 && <span className="text-[10px] text-amber-600 font-medium">{agent.pendingEvents} pending</span>}
+                          {agent.consecutiveErrors > 0 && <span className="text-[10px] text-red-600 font-medium">{agent.consecutiveErrors} errors</span>}
+                        </div>
+                        <div className="flex items-center gap-4 text-[11px] text-gray-500">
+                          <span>{agent.id}</span>
+                          <span>Runs: <span className="font-medium text-gray-700">{agent.runCount}</span></span>
+                          <span>Last: <span className="font-medium text-gray-700">{agent.lastRunTs}</span></span>
+                          {agent.lastError && <span className="text-red-500">Error: {agent.lastError}</span>}
+                        </div>
+                      </div>
+                      <div className="shrink-0">
+                        {agent.isPaused ? (
+                          <button onClick={() => handleResumeAgent(agent.id)} className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 transition-colors">
+                            <RefreshCw className="h-3 w-3" /> Resume
+                          </button>
+                        ) : (
+                          <button onClick={() => handlePauseAgent(agent.id)} className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 transition-colors">
+                            <Clock className="h-3 w-3" /> Pause
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-          </>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
+              <div className="flex h-8 w-8 mx-auto items-center justify-center rounded-full bg-gray-100 mb-3">
+                <div className="h-4 w-4 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+              </div>
+              <p className="text-sm text-gray-500">Loading agent health from supervisor…</p>
+            </div>
+          )}
+
+          {/* Supervisor fault log */}
+          {supervisorFaults.length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-900">Supervisor Fault Log</h3>
+                <span className="text-xs text-gray-400">{supervisorFaults.length} recent events</span>
+              </div>
+              <div className="space-y-2">
+                {supervisorFaults.slice(0, 10).map((f) => {
+                  const severityConfig: Record<string, { bg: string; text: string; icon: any }> = {
+                    critical: { bg: "bg-red-50", text: "text-red-700", icon: AlertCircle },
+                    warning: { bg: "bg-amber-50", text: "text-amber-700", icon: AlertTriangle },
+                    info: { bg: "bg-blue-50", text: "text-blue-700", icon: CheckCircle2 },
+                  };
+                  const sc = severityConfig[f.severity] || severityConfig.info;
+                  return (
+                    <div key={f.id} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
+                      <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-full", sc.bg)}>
+                        <sc.icon className={cn("h-3 w-3", sc.text)} strokeWidth={1.5} />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-gray-900">{f.message}</p>
+                        <div className="flex items-center gap-3 mt-0.5">
+                          <span className="text-[10px] text-gray-400">{f.timestamp}</span>
+                          {f.agentId && <span className="text-[10px] text-gray-400">· {f.agentId}</span>}
+                          {f.actionTaken && <span className="text-[10px] text-green-600">→ {f.actionTaken}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Pending approvals */}
+          {approvalsData && approvalsData.length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-5">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Pending AI Approvals</h3>
+              <div className="space-y-2">
+                {approvalsData.map((a) => (
+                  <div key={a.id} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50">
+                      <Bot className="h-3.5 w-3.5 text-indigo-600" strokeWidth={1.5} />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-900">{a.action}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">{a.agent} · {a.submittedAt}</p>
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
+                      <button className="rounded-md bg-green-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-green-700 transition-colors">Approve</button>
+                      <button className="rounded-md border border-red-200 text-red-600 px-2.5 py-1 text-[11px] font-medium hover:bg-red-50 transition-colors">Reject</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Operators table */}
+          {operatorsData && operatorsData.length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+              <div className="px-5 py-3 border-b border-gray-100"><h3 className="text-sm font-semibold text-gray-900">System Operators</h3></div>
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Operator</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Role</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Actions Today</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Last Active</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {operatorsData.map((op) => {
+                    const rc = operatorRoleConfig[op.role];
+                    return (
+                      <tr key={op.id} className="border-b border-gray-100 last:border-0">
+                        <td className="px-4 py-2">
+                          <p className="font-medium text-gray-900">{op.name}</p>
+                          <p className="text-[11px] text-gray-400">{op.email}</p>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium", rc.bg, rc.text)}>{rc.label}</span>
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium text-gray-900">{op.actionsToday}</td>
+                        <td className="px-3 py-2 text-gray-500 text-xs">{op.lastActive}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
