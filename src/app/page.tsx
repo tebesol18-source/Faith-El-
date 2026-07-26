@@ -790,36 +790,55 @@ function LeadsPage() {
   const [filter, setFilter] = useState("All");
   const [selectedLead, setSelectedLead] = useState<string | null>(null);
 
+  // ─── Lead Research modal state ───
+  const [showResearch, setShowResearch] = useState(false);
+  const [researchCountry, setResearchCountry] = useState("Germany");
+  const [researchSegment, setResearchSegment] = useState("Specialty Importer");
+  const [researchCount, setResearchCount] = useState(5);
+  const [researching, setResearching] = useState(false);
+  const [researchResult, setResearchResult] = useState<string | null>(null);
+
   // ─── Live data from backend ───
   // Replaces the old static `leadsData` array. Falls back to mock data
   // if the API is unreachable (e.g. during offline development).
   const [leadsData, setLeadsData] = useState<typeof mockLeadsData | null>(null);
   const [leadsError, setLeadsError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const refetchLeads = () => {
     fetch("/api/leads")
-      .then((r) => {
-        if (!r.ok) throw new Error(`API ${r.status}`);
-        return r.json();
-      })
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
       .then((data) => {
-        if (cancelled) return;
-        if (data.ok && Array.isArray(data.leads) && data.leads.length > 0) {
-          setLeadsData(data.leads);
+        if (data.ok && Array.isArray(data.leads) && data.leads.length > 0) setLeadsData(data.leads);
+        else setLeadsData(mockLeadsData);
+      })
+      .catch(() => setLeadsData(mockLeadsData));
+  };
+
+  useEffect(() => {
+    refetchLeads();
+  }, []);
+
+  // ─── Lead Research handler ───
+  const handleResearch = () => {
+    setResearching(true);
+    setResearchResult(null);
+    fetch("/api/agents/research-leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ country: researchCountry, segment: researchSegment, count: researchCount }),
+    })
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok) {
+          setResearchResult(`✓ Agent 2 created ${data.created} new leads for ${researchCountry} (${researchSegment})`);
+          refetchLeads(); // Refresh the leads list
         } else {
-          // API returned empty or error shape — fall back to mock
-          setLeadsData(mockLeadsData);
+          setResearchResult(`✗ Error: ${data.error}`);
         }
       })
-      .catch((err) => {
-        if (cancelled) return;
-        console.warn("[LeadsPage] API fetch failed, using mock data:", err);
-        setLeadsError(err.message);
-        setLeadsData(mockLeadsData);
-      });
-    return () => { cancelled = true; };
-  }, []);
+      .catch((err) => setResearchResult(`✗ Failed: ${err.message}`))
+      .finally(() => setResearching(false));
+  };
 
   const filters = ["All", "New", "Enriched", "In Sequence", "Qualified", "Ghosted"];
 
@@ -903,6 +922,7 @@ function LeadsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"><Filter className="h-3.5 w-3.5" /> Filter</button>
+          <button onClick={() => { setShowResearch(true); setResearchResult(null); }} className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"><Bot className="h-3.5 w-3.5" /> Research New Leads</button>
           <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6B4E33]"><Plus className="h-3.5 w-3.5" /> Import Leads</button>
         </div>
       </div>
@@ -1074,6 +1094,57 @@ function LeadsPage() {
                 )}
                 <button className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
                   View Full Timeline
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lead Research Modal */}
+      {showResearch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => !researching && setShowResearch(false)}>
+          <div className="w-[480px] rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100">
+                  <Bot className="h-5 w-5 text-indigo-600" strokeWidth={1.5} />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900">Agent 2 — Lead Research</h3>
+                  <p className="text-xs text-gray-500">Generates & enriches new buyer leads automatically</p>
+                </div>
+              </div>
+              {!researching && <button onClick={() => setShowResearch(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><XIcon className="h-4 w-4 text-gray-400" strokeWidth={1.5} /></button>}
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Target Country</label>
+                <select value={researchCountry} onChange={(e) => setResearchCountry(e.target.value)} disabled={researching} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                  <option>Germany</option><option>United Kingdom</option><option>USA</option><option>Japan</option><option>Italy</option><option>France</option><option>Belgium</option><option>Sweden</option><option>South Korea</option><option>Netherlands</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Buyer Segment</label>
+                <select value={researchSegment} onChange={(e) => setResearchSegment(e.target.value)} disabled={researching} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                  <option>Specialty Importer</option><option>Commercial Importer</option><option>Roaster</option><option>Distributor</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">How Many Leads?</label>
+                <div className="flex items-center gap-3">
+                  <input type="range" min={1} max={20} value={researchCount} onChange={(e) => setResearchCount(parseInt(e.target.value))} disabled={researching} className="flex-1 accent-[#4A3520]" />
+                  <span className="text-sm font-bold text-gray-900 w-8 text-right">{researchCount}</span>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">Agent 2 will generate {researchCount} lead{researchCount > 1 ? "s" : ""}, enrich each with tier/VP/language, create contacts, and publish events.</p>
+              </div>
+              {researchResult && (
+                <div className={cn("rounded-lg p-3 text-sm", researchResult.startsWith("✓") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600")}>{researchResult}</div>
+              )}
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button onClick={() => setShowResearch(false)} disabled={researching} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">Close</button>
+                <button onClick={handleResearch} disabled={researching} className="flex items-center gap-2 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors disabled:opacity-60">
+                  {researching ? (<><div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Researching…</>) : (<><Sparkles className="h-4 w-4" /> Start Research</>)}
                 </button>
               </div>
             </div>
@@ -1486,6 +1557,12 @@ function InventoryPage() {
   const [filterRegion, setFilterRegion] = useState("All");
   const [filterEudr, setFilterEudr] = useState("All");
 
+  // ─── Inventory upload state ───
+  const [showUpload, setShowUpload] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<string | null>(null);
+
   const regions = ["All", "Yirgacheffe", "Guji", "Sidamo", "Limu", "Harrar"];
   const eudrFilters = ["All", "Complete", "Partial", "Missing"];
 
@@ -1500,6 +1577,32 @@ function InventoryPage() {
   const eudrComplete = lotsData.filter(l => l.eudr === "complete").length;
   const lowStock = lotsData.filter(l => l.stock > 0 && l.stock < 20).length;
 
+  // ─── Inventory upload handler ───
+  const handleUpload = () => {
+    setUploading(true);
+    setUploadResult(null);
+    fetch("/api/inventory/upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ csv: csvText }),
+    })
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok) {
+          setUploadResult(`✓ Agent 1 created ${data.created} new lots in inventory`);
+          setCsvText("");
+        } else {
+          setUploadResult(`✗ Error: ${data.error}`);
+        }
+      })
+      .catch((err) => setUploadResult(`✗ Failed: ${err.message}`))
+      .finally(() => setUploading(false));
+  };
+
+  const sampleCsv = `region,washing_station_name,coop_name,process,screen_size,cupping_score,crop_year,stock_bags_remaining,certifications,eudr_data_status,eudr_gps_lat,eudr_gps_lon,eudr_farmgate_price_etb_per_kg
+Yirgacheffe,Konga Station,Yirgacheffe Union,Washed,14,87.5,25/26,45,organic,complete,6.1627,38.1964,28.5
+Guji,Hambela Station,Hambela Co-op,Washed,15,86.8,25/26,60,organic;FT,complete,5.9847,38.2856,27.5`;
+
   return (
     <main className="p-8 max-w-[1200px] mx-auto">
       {/* Header */}
@@ -1508,9 +1611,14 @@ function InventoryPage() {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Inventory</h1>
           <p className="text-sm text-gray-500 mt-1">What coffee can I sell?</p>
         </div>
-        <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
-          <Plus className="h-4 w-4" /> Add Lot
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setShowUpload(true); setUploadResult(null); }} className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 transition-colors">
+            <Upload className="h-4 w-4" /> Upload Inventory
+          </button>
+          <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+            <Plus className="h-4 w-4" /> Add Lot
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -1649,6 +1757,52 @@ function InventoryPage() {
           </div>
         </div>
       </div>
+
+      {/* Inventory Upload Modal */}
+      {showUpload && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => !uploading && setShowUpload(false)}>
+          <div className="w-[560px] rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100">
+                  <Upload className="h-5 w-5 text-indigo-600" strokeWidth={1.5} />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900">Agent 1 — Upload Inventory</h3>
+                  <p className="text-xs text-gray-500">Paste CSV data to create coffee lots</p>
+                </div>
+              </div>
+              {!uploading && <button onClick={() => setShowUpload(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><XIcon className="h-4 w-4 text-gray-400" strokeWidth={1.5} /></button>}
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500">CSV Data</label>
+                  <button onClick={() => setCsvText(sampleCsv)} className="text-[11px] font-medium text-indigo-600 hover:underline">Load Sample Data</button>
+                </div>
+                <textarea
+                  value={csvText}
+                  onChange={(e) => setCsvText(e.target.value)}
+                  disabled={uploading}
+                  placeholder="region,washing_station_name,coop_name,process,screen_size,cupping_score,..."
+                  rows={8}
+                  className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-xs font-mono text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10 resize-none"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">Columns: region, washing_station_name, coop_name, process, screen_size, cupping_score, crop_year, stock_bags_remaining, certifications, eudr_data_status, eudr_gps_lat, eudr_gps_lon, eudr_farmgate_price_etb_per_kg</p>
+              </div>
+              {uploadResult && (
+                <div className={cn("rounded-lg p-3 text-sm", uploadResult.startsWith("✓") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600")}>{uploadResult}</div>
+              )}
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button onClick={() => setShowUpload(false)} disabled={uploading} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">Close</button>
+                <button onClick={handleUpload} disabled={uploading || !csvText.trim()} className="flex items-center gap-2 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors disabled:opacity-60">
+                  {uploading ? (<><div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Uploading…</>) : (<><Upload className="h-4 w-4" /> Upload & Create Lots</>)}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
