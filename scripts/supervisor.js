@@ -350,6 +350,39 @@ class Supervisor {
     return { issuesFound, autoCorrected, totalPending };
   }
 
+  /** Get VP rationale for reasoning panel */
+  getVPRationale(vp) {
+    const rationales = {
+      VP1: "Origin Access — buyer benefits from direct cooperative relationships and traceable sourcing",
+      VP2: "Sustainability — buyer values EUDR compliance, organic/Fairtrade certifications",
+      VP3: "Commercial FOB — buyer prioritizes competitive pricing and reliable shipping volumes",
+      VP4: "Microlot Exclusivity — buyer seeks single-station, farmer-traceable specialty lots",
+    };
+    return rationales[vp] || rationales.VP1;
+  }
+
+  /** Calculate email confidence score (0-100) */
+  calculateEmailConfidence(lead, availableLots) {
+    let score = 50; // base
+    if (lead.contact_name) score += 15; // personalization possible
+    if (availableLots.length >= 3) score += 15; // strong inventory
+    if (lead.priority_tier === "S" || lead.priority_tier === "A") score += 10; // high-value buyer
+    if (lead.outreach_language !== "EN") score += 5; // native language = better response rate
+    if (lead.recommended_vp) score += 5; // VP assigned = enriched data
+    return Math.min(score, 98); // cap at 98 (never 100%)
+  }
+
+  /** Calculate contract confidence score (0-100) */
+  calculateContractConfidence(lead, availableLots, totalBags) {
+    let score = 55; // base — contracts are inherently less certain
+    if (lead.priority_tier === "S") score += 15; // premium buyer = higher close rate
+    else if (lead.priority_tier === "A") score += 10;
+    if (availableLots.length >= 2) score += 10; // inventory available
+    if (totalBags >= 200) score += 5; // meaningful volume
+    if (lead.headquarters_country === "Germany" || lead.headquarters_country === "USA") score += 5; // established markets
+    return Math.min(score, 92); // cap at 92
+  }
+
   /** Draft a personalized outreach email based on lead data */
   draftOutreachEmail(lead, availableLots) {
     const company = lead.company_name;
@@ -523,6 +556,34 @@ abi@coelrodan.com`;
       // Draft the actual email content
       const emailDraft = this.draftOutreachEmail(lead, availableLots);
 
+      // Build reasoning for "Why I recommended this"
+      const reasoning = {
+        buyer_tier: lead.priority_tier || "A",
+        buyer_country: lead.headquarters_country || "Unknown",
+        recommended_vp: lead.recommended_vp || "VP1",
+        language_detected: lead.outreach_language || "EN",
+        contact_name: lead.contact_name || null,
+        available_lots_considered: availableLots.length,
+        top_lots_recommended: availableLots.slice(0, 3).map(l => ({
+          lot_id: l.lot_id,
+          region: l.region,
+          process: l.process,
+          cupping_score: l.cupping_score,
+          stock: l.stock_bags_remaining,
+        })),
+        subject_line_rationale: `Subject written in ${lead.outreach_language === "EN" ? "English" : lead.outreach_language} — matches buyer's HQ country (${lead.headquarters_country})`,
+        vp_rationale: this.getVPRationale(lead.recommended_vp),
+        cta_rationale: `Tier ${lead.priority_tier} buyers get ${lead.priority_tier === "S" ? "a direct call-to-action for this week" : lead.priority_tier === "A" ? "a 20-minute call request for next week" : "a sample set offer"} based on engagement likelihood`,
+        lot_selection_rationale: `Selected top ${Math.min(3, availableLots.length)} lots by cupping score from ${availableLots.length} available lots in inventory`,
+        confidence: this.calculateEmailConfidence(lead, availableLots),
+        confidence_factors: [
+          lead.contact_name ? "Contact name available — personalized greeting possible" : "No contact name — using company greeting",
+          availableLots.length >= 3 ? "3+ lots available — strong product offering" : `Only ${availableLots.length} lots available — limited selection`,
+          lead.priority_tier === "S" ? "S-tier buyer — high value, justify direct approach" : `${lead.priority_tier}-tier buyer — standard outreach approach`,
+          lead.outreach_language !== "EN" ? `Non-English language (${lead.outreach_language}) — email drafted in buyer's language` : "English — standard international business language",
+        ],
+      };
+
       this.db.prepare(`
         INSERT INTO pending_agent_actions (
           agent_id, action_type, action_description,
@@ -544,15 +605,16 @@ abi@coelrodan.com`;
           email_body: emailDraft.body,
           email_to: emailDraft.to,
           email_from: emailDraft.from,
+          reasoning: reasoning,
         }),
         riskLevel,
         nowISO()
       );
 
       this.logEvent("Agent 3", "PENDING_ACTION_CREATED", "info",
-        `Agent 3 drafted outreach email for ${lead.company_name} — subject: "${emailDraft.subject}"`,
+        `Agent 3 drafted outreach email for ${lead.company_name} — subject: "${emailDraft.subject}" (confidence: ${reasoning.confidence}%)`,
         "Email draft added to seller approval queue",
-        JSON.stringify({ leadId: lead.lead_id, riskLevel, subject: emailDraft.subject })
+        JSON.stringify({ leadId: lead.lead_id, riskLevel, subject: emailDraft.subject, confidence: reasoning.confidence })
       );
     }
 
@@ -574,6 +636,31 @@ abi@coelrodan.com`;
     for (const lead of approvedLeads) {
       // Draft the actual contract terms
       const contractDraft = this.draftContractTerms(lead, availableLots);
+
+      // Build reasoning for "Why I recommended this"
+      const contractReasoning = {
+        buyer_tier: lead.priority_tier || "A",
+        buyer_country: lead.headquarters_country || "Unknown",
+        volume_rationale: `Tier ${lead.priority_tier} buyers typically order ${lead.priority_tier === "S" ? "500" : lead.priority_tier === "A" ? "300" : lead.priority_tier === "B" ? "200" : "100"} bags — based on historical order patterns`,
+        incoterm_rationale: lead.headquarters_country && ["Germany","Italy","France","Belgium","Netherlands","Sweden","Spain","Austria","Denmark","Finland"].includes(lead.headquarters_country)
+          ? `CIF selected — EU destination (${lead.headquarters_country}), seller arranges shipping to ${contractDraft.destinationPort}`
+          : `FOB selected — non-EU destination (${lead.headquarters_country}), buyer arranges shipping from Djibouti`,
+        price_rationale: `$${lead.priority_tier === "S" ? "7.50" : lead.priority_tier === "A" ? "6.80" : lead.priority_tier === "B" ? "5.50" : "4.80"}/kg — based on tier ${lead.priority_tier} pricing tier (reflects cupping score expectations and volume commitment)`,
+        payment_rationale: lead.priority_tier === "S"
+          ? "LC at sight — standard for premium tier buyers with high-value contracts"
+          : lead.priority_tier === "A"
+          ? "30% deposit + 70% against B/L copy — balances risk for both parties at mid-tier volumes"
+          : "T/T 50/50 — simpler payment flow for lower-volume contracts",
+        lots_selected: contractDraft.lots.length,
+        lots_rationale: `Selected ${contractDraft.lots.length} lot(s) from available inventory — prioritized by cupping score and stock availability`,
+        confidence: this.calculateContractConfidence(lead, availableLots, contractDraft.totalVolumeBags),
+        confidence_factors: [
+          `Lead is in DECIDED_APPROVED state — buyer already approved samples`,
+          `${lead.priority_tier}-tier buyer — ${lead.priority_tier === "S" ? "high close rate" : lead.priority_tier === "A" ? "good close rate" : "moderate close rate"}`,
+          `${availableLots.length} lots available in inventory — ${availableLots.length >= 2 ? "sufficient stock" : "limited stock"}`,
+          `Contract value: $${contractDraft.totalValue.toLocaleString()} — ${contractDraft.totalValue >= 1000 ? "meaningful transaction" : "small transaction"}`,
+        ],
+      };
 
       this.db.prepare(`
         INSERT INTO pending_agent_actions (
@@ -600,15 +687,16 @@ abi@coelrodan.com`;
           contract_template: contractDraft.contractTemplate,
           lots: contractDraft.lots,
           contract_terms: contractDraft.terms,
+          reasoning: contractReasoning,
         }),
         "high",
         nowISO()
       );
 
       this.logEvent("Agent 5", "PENDING_ACTION_CREATED", "info",
-        `Agent 5 drafted contract for ${lead.company_name} — ${contractDraft.totalVolumeBags} bags at $${contractDraft.totalValue.toLocaleString()} (${contractDraft.incoterm} ${contractDraft.destinationPort})`,
+        `Agent 5 drafted contract for ${lead.company_name} — ${contractDraft.totalVolumeBags} bags at $${contractDraft.totalValue.toLocaleString()} (${contractDraft.incoterm} ${contractDraft.destinationPort}) (confidence: ${contractReasoning.confidence}%)`,
         "Contract draft added to seller approval queue (high risk)",
-        JSON.stringify({ leadId: lead.lead_id, contractId: contractDraft.contractId, totalValue: contractDraft.totalValue })
+        JSON.stringify({ leadId: lead.lead_id, contractId: contractDraft.contractId, totalValue: contractDraft.totalValue, confidence: contractReasoning.confidence })
       );
     }
 

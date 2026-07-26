@@ -310,6 +310,91 @@ function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLog
                         </div>
                       )}
 
+                      {/* Reasoning panel — "Why I recommended this" */}
+                      {p.reasoning && (
+                        <div className="mb-3 rounded-lg border border-indigo-100 bg-indigo-50/40 p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Sparkles className="h-3.5 w-3.5 text-indigo-500" strokeWidth={1.5} />
+                            <span className="text-[11px] font-semibold text-indigo-700">WHY I RECOMMENDED THIS</span>
+                            <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                              {p.reasoning.confidence}% confidence
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-[11px] mb-2">
+                            {p.reasoning.buyer_tier && (
+                              <div><span className="text-gray-400">Buyer Tier:</span> <span className="font-medium text-gray-700">{p.reasoning.buyer_tier}</span></div>
+                            )}
+                            {p.reasoning.buyer_country && (
+                              <div><span className="text-gray-400">Country:</span> <span className="font-medium text-gray-700">{p.reasoning.buyer_country}</span></div>
+                            )}
+                            {p.reasoning.recommended_vp && (
+                              <div><span className="text-gray-400">Strategy:</span> <span className="font-medium text-gray-700">{p.reasoning.recommended_vp}</span></div>
+                            )}
+                            {p.reasoning.language_detected && (
+                              <div><span className="text-gray-400">Language:</span> <span className="font-medium text-gray-700">{p.reasoning.language_detected}</span></div>
+                            )}
+                            {p.reasoning.available_lots_considered !== undefined && (
+                              <div><span className="text-gray-400">Lots Considered:</span> <span className="font-medium text-gray-700">{p.reasoning.available_lots_considered}</span></div>
+                            )}
+                            {p.reasoning.lots_selected !== undefined && (
+                              <div><span className="text-gray-400">Lots Selected:</span> <span className="font-medium text-gray-700">{p.reasoning.lots_selected}</span></div>
+                            )}
+                          </div>
+                          {/* Rationale lines */}
+                          <div className="space-y-1 text-[11px] text-gray-600">
+                            {p.reasoning.vp_rationale && (
+                              <div className="flex gap-1.5"><span className="text-indigo-400 shrink-0">•</span><span>{p.reasoning.vp_rationale}</span></div>
+                            )}
+                            {p.reasoning.lot_selection_rationale && (
+                              <div className="flex gap-1.5"><span className="text-indigo-400 shrink-0">•</span><span>{p.reasoning.lot_selection_rationale}</span></div>
+                            )}
+                            {p.reasoning.cta_rationale && (
+                              <div className="flex gap-1.5"><span className="text-indigo-400 shrink-0">•</span><span>{p.reasoning.cta_rationale}</span></div>
+                            )}
+                            {p.reasoning.incoterm_rationale && (
+                              <div className="flex gap-1.5"><span className="text-indigo-400 shrink-0">•</span><span>{p.reasoning.incoterm_rationale}</span></div>
+                            )}
+                            {p.reasoning.price_rationale && (
+                              <div className="flex gap-1.5"><span className="text-indigo-400 shrink-0">•</span><span>{p.reasoning.price_rationale}</span></div>
+                            )}
+                            {p.reasoning.payment_rationale && (
+                              <div className="flex gap-1.5"><span className="text-indigo-400 shrink-0">•</span><span>{p.reasoning.payment_rationale}</span></div>
+                            )}
+                            {p.reasoning.volume_rationale && (
+                              <div className="flex gap-1.5"><span className="text-indigo-400 shrink-0">•</span><span>{p.reasoning.volume_rationale}</span></div>
+                            )}
+                          </div>
+                          {/* Recommended lots */}
+                          {p.reasoning.top_lots_recommended && p.reasoning.top_lots_recommended.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-indigo-100">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Recommended Lots</p>
+                              <div className="space-y-0.5">
+                                {p.reasoning.top_lots_recommended.map((lot: any, i: number) => (
+                                  <div key={i} className="text-[11px] text-gray-600 flex justify-between">
+                                    <span>{lot.lot_id}: {lot.region} {lot.process}</span>
+                                    <span className="text-gray-400">score {lot.cupping_score} · {lot.stock} bags</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Confidence factors */}
+                          {p.reasoning.confidence_factors && p.reasoning.confidence_factors.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-indigo-100">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Confidence Factors</p>
+                              <div className="space-y-0.5">
+                                {p.reasoning.confidence_factors.map((factor: string, i: number) => (
+                                  <div key={i} className="flex gap-1.5 text-[11px] text-gray-500">
+                                    <span className={cn("shrink-0", p.reasoning.confidence >= 80 ? "text-green-500" : p.reasoning.confidence >= 60 ? "text-amber-500" : "text-red-500")}>✓</span>
+                                    <span>{factor}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Contract draft preview */}
                       {isContract && (
                         <div className="mb-3 rounded-lg bg-white border border-gray-200 overflow-hidden">
