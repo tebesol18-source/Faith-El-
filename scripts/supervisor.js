@@ -350,13 +350,158 @@ class Supervisor {
     return { issuesFound, autoCorrected, totalPending };
   }
 
+  /** Draft a personalized outreach email based on lead data */
+  draftOutreachEmail(lead, availableLots) {
+    const company = lead.company_name;
+    const country = lead.headquarters_country || "your region";
+    const tier = lead.priority_tier || "A";
+    const lang = lead.outreach_language || "EN";
+    const contactName = lead.contact_name || "";
+
+    // Greeting based on language
+    const greetings = {
+      EN: contactName ? `Dear ${contactName},` : `Dear ${company} Team,`,
+      DE: contactName ? `Sehr geehrte(r) ${contactName},` : `Sehr geehrte Damen und Herren,`,
+      JA: contactName ? `${contactName}様` : `${company} 御中`,
+      FR: contactName ? `Cher/Chère ${contactName},` : `Madame, Monsieur,`,
+      IT: contactName ? `Gentile ${contactName},` : `Gentile Team di ${company},`,
+      KO: `${company} 담당자님,`,
+      ZH: `尊敬的${company}团队：`,
+      AR: `مرحباً فريق ${company}،`,
+      TR: `Sayın ${company} Ekibi,`,
+      RU: `Уважаемая команда ${company},`,
+    };
+
+    // Sign-off based on language
+    const signoffs = {
+      EN: "Best regards",
+      DE: "Mit freundlichen Grüßen",
+      JA: "よろしくお願いいたします",
+      FR: "Cordialement",
+      IT: "Cordiali saluti",
+      KO: "감사합니다",
+      ZH: "此致敬礼",
+      AR: "مع خالص التحيات",
+      TR: "Saygılarımla",
+      RU: "С уважением",
+    };
+
+    // VP-based messaging
+    const vpMessages = {
+      VP1: "We have direct origin access to washed Yirgacheffe G1 and Guji G1 lots from our cooperative partnerships in Ethiopia. Our 25/26 crop is now available with cupping scores of 86+.",
+      VP2: "Our lots come with full EUDR compliance data packs, including GPS coordinates and deforestation attestations. We work directly with cooperatives that hold organic and Fairtrade certifications.",
+      VP3: "We offer competitive FOB Djibouti pricing on commercial volumes (500+ bags) with reliable shipping windows. Our 25/26 Sidamo and Limu lots are ready for immediate shipment.",
+      VP4: "We have exclusive microlot selections from single washing stations — traceable to the farmer level. Perfect for your specialty program.",
+    };
+
+    const vpMsg = vpMessages[lead.recommended_vp] || vpMessages.VP1;
+
+    // Available lots to mention
+    let lotMention = "";
+    if (availableLots && availableLots.length > 0) {
+      const topLots = availableLots.slice(0, 3);
+      lotMention = `\n\nAvailable lots for your consideration:\n${topLots.map(l => `  • ${l.lot_id}: ${l.region} ${l.process} — cupping score ${l.cupping_score}, ${l.stock_bags_remaining} bags available`).join("\n")}`;
+    }
+
+    // Call to action based on tier
+    const ctas = {
+      S: "I'd love to arrange a call this week to discuss your specialty program and share cupping samples. Would Tuesday or Wednesday work for you?",
+      A: "Would you have 20 minutes next week for a quick call to discuss how our Ethiopian lots fit your sourcing needs?",
+      B: "I'd be happy to send you sample sets and a pricing sheet. What volume are you looking for this season?",
+      C: "Please let me know if you'd like to receive our current inventory list with pricing.",
+    };
+    const cta = ctas[tier] || ctas.A;
+
+    // Subject line
+    const subjects = {
+      EN: `Ethiopian 25/26 coffee — available lots from Coelrodan PLC`,
+      DE: `Äthiopischer Kaffee 25/26 — verfügbare Lots von Coelrodan PLC`,
+      JA: `エチオピア 25/26 産コーヒー — Coelrodan PLCからのご案内`,
+      FR: `Café éthiopien 25/26 — lots disponibles de Coelrodan PLC`,
+      IT: `Caffè etiope 25/26 — lotti disponibili da Coelrodan PLC`,
+      KO: `에티오피아 25/26 커피 — Coelrodan PLC의 가용 로트`,
+      ZH: `埃塞俄比亚 25/26 咖啡 — Coelrodan PLC 可供批次`,
+      AR: `قهوة إثيوبية 25/26 — أ lots متاحة من Coelrodan PLC`,
+      TR: `Etiyopya 25/26 kahvesi — Coelrodan PLC'den mevcut partiler`,
+      RU: `Эфиопский кофе 25/26 — доступные лоты от Coelrodan PLC`,
+    };
+
+    const subject = subjects[lang] || subjects.EN;
+    const greeting = greetings[lang] || greetings.EN;
+    const signoff = signoffs[lang] || signoffs.EN;
+
+    const body = `${greeting}
+
+I hope this message finds you well. I'm reaching out from Coelrodan PLC, an Ethiopian coffee export company based in Addis Ababa.
+
+${vpMsg}${lotMention}
+
+${cta}
+
+${signoff},
+Abi Solomon
+Coelrodan PLC
+Addis Ababa, Ethiopia
+abi@coelrodan.com`;
+
+    return { subject, body, to: `${contactName ? contactName.toLowerCase().replace(/[^a-z]/g, ".") : "info"}@${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`, from: "abi@coelrodan.com" };
+  }
+
+  /** Draft contract terms based on lead tier + available lots */
+  draftContractTerms(lead, availableLots) {
+    const tier = lead.priority_tier || "A";
+    const tierVolumes = { S: 500, A: 300, B: 200, C: 100 };
+    const volume = tierVolumes[tier] || 300;
+    const country = lead.headquarters_country || "";
+
+    // Incoterm based on destination
+    const euCountries = ["Germany", "Italy", "France", "Belgium", "Netherlands", "Sweden", "Spain", "Austria", "Denmark", "Finland"];
+    const incoterm = euCountries.includes(country) ? "CIF" : "FOB";
+    const destinationPort = euCountries.includes(country) ? (country === "Germany" ? "Hamburg" : country === "Italy" ? "Trieste" : country === "Belgium" ? "Antwerp" : "Rotterdam") : "Djibouti";
+
+    // Price based on tier and available lots
+    const tierPrices = { S: 7.50, A: 6.80, B: 5.50, C: 4.80 };
+    const basePrice = tierPrices[tier] || 6.80;
+
+    // Payment terms based on tier
+    const paymentTerms = tier === "S" ? "LC at sight" : tier === "A" ? "30% deposit · 70% against B/L copy" : "T/T 50/50";
+
+    // Select lots for the contract
+    const selectedLots = (availableLots || []).slice(0, tier === "S" ? 3 : 2);
+    const totalBags = selectedLots.reduce((s, l) => s + Math.min(l.stock_bags_remaining, Math.ceil(volume / selectedLots.length)), 0) || volume;
+    const totalValue = Math.round(totalBags * basePrice);
+
+    return {
+      contractId: `CT-2026-${Math.floor(Math.random() * 9000) + 1000}`,
+      buyer: lead.company_name,
+      incoterm,
+      destinationPort,
+      currency: "USD",
+      totalVolumeBags: totalBags,
+      totalValue,
+      paymentTerms,
+      shipmentWindow: "Aug 2026 — Sep 2026",
+      contractTemplate: "ICC_ECE_7_21",
+      lots: selectedLots.map(l => ({
+        lotId: l.lot_id,
+        region: l.region,
+        process: l.process,
+        quantityBags: Math.min(l.stock_bags_remaining, Math.ceil(volume / Math.max(selectedLots.length, 1))),
+        unitPrice: basePrice,
+      })),
+      terms: `Contract for ${totalBags} bags (${(totalBags * 0.06).toFixed(1)}t) of Ethiopian green coffee.\nIncoterm: ${incoterm} ${destinationPort}\nPayment: ${paymentTerms}\nShipment window: Aug—Sep 2026\nTotal value: $${totalValue.toLocaleString()} USD`,
+    };
+  }
+
   /** Phase 4: Generate pending actions for risky operations */
   generatePendingActions() {
     // Find leads in ENRICHED state that don't have a pending action yet
-    // Agent 3 wants to start outreach (send first email) — needs admin approval
+    // Agent 3 wants to start outreach (send first email) — needs seller approval
     const enrichedLeads = this.db.prepare(`
-      SELECT l.lead_id, l.company_name, l.headquarters_country, l.priority_tier, l.outreach_language
+      SELECT l.lead_id, l.company_name, l.headquarters_country, l.priority_tier,
+             l.outreach_language, l.recommended_vp, lc.name AS contact_name
       FROM leads l
+      LEFT JOIN lead_contacts lc ON l.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL
       WHERE l.current_state = 'ENRICHED' AND l.deleted_ts IS NULL
       AND NOT EXISTS (
         SELECT 1 FROM pending_agent_actions p
@@ -365,8 +510,19 @@ class Supervisor {
       LIMIT 5
     `).all();
 
+    // Get available lots for email personalization
+    const availableLots = this.db.prepare(`
+      SELECT lot_id, region, process, cupping_score, stock_bags_remaining
+      FROM lots WHERE deleted_ts IS NULL AND stock_bags_remaining > 0
+      ORDER BY cupping_score DESC LIMIT 5
+    `).all();
+
     for (const lead of enrichedLeads) {
       const riskLevel = lead.priority_tier === "S" ? "medium" : "low";
+
+      // Draft the actual email content
+      const emailDraft = this.draftOutreachEmail(lead, availableLots);
+
       this.db.prepare(`
         INSERT INTO pending_agent_actions (
           agent_id, action_type, action_description,
@@ -376,24 +532,33 @@ class Supervisor {
       `).run(
         "Agent 3",
         "send_email",
-        `Send first outreach email to ${lead.company_name} (${lead.headquarters_country}) — ${lead.priority_tier} tier, ${lead.outreach_language}`,
+        `Drafted outreach email to ${lead.company_name} (${lead.headquarters_country}) — ${lead.priority_tier} tier`,
         "lead",
         lead.lead_id,
-        JSON.stringify({ lead_id: lead.lead_id, company: lead.company_name, step: 1, language: lead.outreach_language }),
+        JSON.stringify({
+          lead_id: lead.lead_id,
+          company: lead.company_name,
+          step: 1,
+          language: lead.outreach_language,
+          email_subject: emailDraft.subject,
+          email_body: emailDraft.body,
+          email_to: emailDraft.to,
+          email_from: emailDraft.from,
+        }),
         riskLevel,
         nowISO()
       );
 
       this.logEvent("Agent 3", "PENDING_ACTION_CREATED", "info",
-        `Agent 3 queued outreach email for ${lead.company_name} — awaiting admin approval`,
-        "Action added to approval queue",
-        JSON.stringify({ leadId: lead.lead_id, riskLevel })
+        `Agent 3 drafted outreach email for ${lead.company_name} — subject: "${emailDraft.subject}"`,
+        "Email draft added to seller approval queue",
+        JSON.stringify({ leadId: lead.lead_id, riskLevel, subject: emailDraft.subject })
       );
     }
 
     // Find leads in DECIDED_APPROVED state — Agent 5 wants to create a contract
     const approvedLeads = this.db.prepare(`
-      SELECT l.lead_id, l.company_name, l.headquarters_country
+      SELECT l.lead_id, l.company_name, l.headquarters_country, l.priority_tier
       FROM leads l
       WHERE l.current_state = 'DECIDED_APPROVED' AND l.deleted_ts IS NULL
       AND NOT EXISTS (
@@ -407,6 +572,9 @@ class Supervisor {
     `).all();
 
     for (const lead of approvedLeads) {
+      // Draft the actual contract terms
+      const contractDraft = this.draftContractTerms(lead, availableLots);
+
       this.db.prepare(`
         INSERT INTO pending_agent_actions (
           agent_id, action_type, action_description,
@@ -416,18 +584,31 @@ class Supervisor {
       `).run(
         "Agent 5",
         "create_contract",
-        `Create contract for ${lead.company_name} (${lead.headquarters_country}) — sample approved`,
+        `Drafted contract for ${lead.company_name} — ${contractDraft.totalVolumeBags} bags, ${contractDraft.incoterm} ${contractDraft.destinationPort}, $${contractDraft.totalValue.toLocaleString()}`,
         "lead",
         lead.lead_id,
-        JSON.stringify({ lead_id: lead.lead_id, company: lead.company_name }),
+        JSON.stringify({
+          lead_id: lead.lead_id,
+          company: lead.company_name,
+          contract_id: contractDraft.contractId,
+          incoterm: contractDraft.incoterm,
+          destination_port: contractDraft.destinationPort,
+          total_volume_bags: contractDraft.totalVolumeBags,
+          total_value: contractDraft.totalValue,
+          payment_terms: contractDraft.paymentTerms,
+          shipment_window: contractDraft.shipmentWindow,
+          contract_template: contractDraft.contractTemplate,
+          lots: contractDraft.lots,
+          contract_terms: contractDraft.terms,
+        }),
         "high",
         nowISO()
       );
 
       this.logEvent("Agent 5", "PENDING_ACTION_CREATED", "info",
-        `Agent 5 queued contract creation for ${lead.company_name} — awaiting admin approval`,
-        "Action added to approval queue (high risk)",
-        JSON.stringify({ leadId: lead.lead_id })
+        `Agent 5 drafted contract for ${lead.company_name} — ${contractDraft.totalVolumeBags} bags at $${contractDraft.totalValue.toLocaleString()} (${contractDraft.incoterm} ${contractDraft.destinationPort})`,
+        "Contract draft added to seller approval queue (high risk)",
+        JSON.stringify({ leadId: lead.lead_id, contractId: contractDraft.contractId, totalValue: contractDraft.totalValue })
       );
     }
 

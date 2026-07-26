@@ -260,6 +260,9 @@ function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLog
               ) : (
                 pendingActions.map((a) => {
                   const rc = riskConfig[a.riskLevel] || riskConfig.medium;
+                  const p = a.payload || {};
+                  const isEmail = a.actionType === "send_email" && p.email_subject;
+                  const isContract = a.actionType === "create_contract" && p.contract_terms;
                   return (
                     <div key={a.id} className={cn("rounded-lg border p-4", rc.border, rc.bg)}>
                       <div className="flex items-start gap-3 mb-3">
@@ -278,6 +281,68 @@ function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLog
                           <p className="text-[11px] text-gray-400 mt-0.5">Submitted {a.submittedAt}</p>
                         </div>
                       </div>
+
+                      {/* Email draft preview */}
+                      {isEmail && (
+                        <div className="mb-3 rounded-lg bg-white border border-gray-200 overflow-hidden">
+                          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50">
+                            <Mail className="h-3.5 w-3.5 text-gray-400" strokeWidth={1.5} />
+                            <span className="text-[11px] font-semibold text-gray-500">EMAIL DRAFT</span>
+                            <span className="text-[10px] text-gray-400">— review before sending</span>
+                          </div>
+                          <div className="px-3 py-2 space-y-1.5">
+                            <div className="flex gap-2 text-xs">
+                              <span className="text-gray-400 shrink-0 w-12">To:</span>
+                              <span className="text-gray-700 font-mono">{p.email_to}</span>
+                            </div>
+                            <div className="flex gap-2 text-xs">
+                              <span className="text-gray-400 shrink-0 w-12">From:</span>
+                              <span className="text-gray-700 font-mono">{p.email_from}</span>
+                            </div>
+                            <div className="flex gap-2 text-xs">
+                              <span className="text-gray-400 shrink-0 w-12">Subject:</span>
+                              <span className="text-gray-900 font-semibold">{p.email_subject}</span>
+                            </div>
+                            <div className="mt-2 pt-2 border-t border-gray-100">
+                              <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans leading-relaxed max-h-40 overflow-y-auto">{p.email_body}</pre>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Contract draft preview */}
+                      {isContract && (
+                        <div className="mb-3 rounded-lg bg-white border border-gray-200 overflow-hidden">
+                          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50">
+                            <FileSignature className="h-3.5 w-3.5 text-gray-400" strokeWidth={1.5} />
+                            <span className="text-[11px] font-semibold text-gray-500">CONTRACT DRAFT</span>
+                            <span className="text-[10px] text-gray-400">— review terms before creating</span>
+                          </div>
+                          <div className="px-3 py-2 space-y-1.5">
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div><span className="text-gray-400">Volume:</span> <span className="font-medium text-gray-700">{p.total_volume_bags} bags</span></div>
+                              <div><span className="text-gray-400">Value:</span> <span className="font-bold text-gray-900">${(p.total_value || 0).toLocaleString()}</span></div>
+                              <div><span className="text-gray-400">Incoterm:</span> <span className="font-medium text-gray-700">{p.incoterm} {p.destination_port}</span></div>
+                              <div><span className="text-gray-400">Payment:</span> <span className="font-medium text-gray-700">{p.payment_terms}</span></div>
+                            </div>
+                            {p.lots && p.lots.length > 0 && (
+                              <div className="mt-2 pt-2 border-t border-gray-100">
+                                <p className="text-[10px] text-gray-400 mb-1">LOTS:</p>
+                                {p.lots.map((lot: any, i: number) => (
+                                  <div key={i} className="text-[11px] text-gray-600 flex justify-between">
+                                    <span>{lot.lotId} — {lot.region} {lot.process}</span>
+                                    <span>{lot.quantityBags} bags @ ${lot.unitPrice}/kg</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div className="mt-2 pt-2 border-t border-gray-100">
+                              <pre className="text-[11px] text-gray-600 whitespace-pre-wrap font-sans leading-relaxed max-h-32 overflow-y-auto">{p.contract_terms}</pre>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Action buttons */}
                       <div className="flex items-center justify-end gap-2">
                         <button
