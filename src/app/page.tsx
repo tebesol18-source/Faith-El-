@@ -1158,7 +1158,8 @@ function LeadsPage() {
 // ═══════════════════════════════════════════════════════════
 // DEALS PAGE — "Where is every opportunity?"
 // ═══════════════════════════════════════════════════════════
-const dealsData = [
+// Mock deals data — used as fallback when /api/deals is unreachable.
+const mockDealsData = [
   { id: "DEAL-2026-0001", lead: "Marcus Coffee GmbH", leadId: "L-2026-00501", stage: "negotiating", origin: "Guji", process: "Washed", volume: "320 bags", incoterm: "FOB", value: 1305, probability: 75, health: "healthy", updated: "2h ago", quotes: 2, lastQuote: "QUOTE-2026-0004-V2" },
   { id: "DEAL-2026-0002", lead: "Falcon Coffee UK", leadId: "L-2026-00502", stage: "quoting", origin: "Yirgacheffe", process: "Natural", volume: "500 bags", incoterm: "CIF", value: 2400, probability: 60, health: "healthy", updated: "5h ago", quotes: 1, lastQuote: "QUOTE-2026-0005-V1" },
   { id: "DEAL-2026-0003", lead: "Hashimoto Coffee", leadId: "L-2026-00503", stage: "sampling", origin: "Sidamo", process: "Washed", volume: "200 bags", incoterm: "FOB", value: 696, probability: 40, health: "waiting", updated: "1d ago", quotes: 0, lastQuote: null },
@@ -1189,6 +1190,49 @@ const healthConfig: Record<string, { label: string; dot: string; text: string }>
 function DealsPage() {
   const [view, setView] = useState<"pipeline" | "list">("pipeline");
   const [selectedDeal, setSelectedDeal] = useState<string | null>(null);
+
+  // ─── Live data from backend ───
+  const [dealsData, setDealsData] = useState<typeof mockDealsData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/deals")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.deals) && data.deals.length > 0) {
+          setDealsData(data.deals);
+        } else {
+          setDealsData(mockDealsData);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[DealsPage] API fetch failed, using mock data:", err);
+        setDealsData(mockDealsData);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Loading state
+  if (!dealsData) {
+    return (
+      <main className="p-8 max-w-[1200px] mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Deals</h1>
+            <p className="text-sm text-gray-500 mt-1">Where is every opportunity?</p>
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+          <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">Loading deals from database…</p>
+        </div>
+      </main>
+    );
+  }
 
   const activeDeals = dealsData.filter(d => d.stage !== "closed_won" && d.stage !== "closed_lost");
   const wonDeals = dealsData.filter(d => d.stage === "closed_won");
@@ -4795,7 +4839,8 @@ const txnStatusConfig: Record<TxnStatus, { label: string; bg: string; text: stri
   due_soon: { label: "Due Soon", bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
 };
 
-const transactionsData: Transaction[] = [
+// Mock finance data — used as fallback when /api/finance is unreachable.
+const mockTransactionsData: Transaction[] = [
   // ─── INVOICES & PAYMENTS (Money IN) ───
   {
     id: "INV-2026-003", type: "invoice", description: "Invoice for CT-2026-0003 (Blue Mountain Traders)", counterparty: "Blue Mountain Traders",
@@ -4921,33 +4966,74 @@ function FinancePage() {
   const [selectedTxn, setSelectedTxn] = useState<string | null>(null);
   const filters = ["All", "Receivables", "Payables", "Overdue", "This Month"];
 
+  // ─── Live data from backend ───
+  const [transactionsData, setTransactionsData] = useState<Transaction[] | null>(null);
+  const [apiStats, setApiStats] = useState<any>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/finance")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.transactions) && data.transactions.length > 0) {
+          setTransactionsData(data.transactions);
+          setApiStats(data.stats);
+        } else {
+          setTransactionsData(mockTransactionsData);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[FinancePage] API fetch failed, using mock data:", err);
+        setTransactionsData(mockTransactionsData);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const filterMap: Record<string, (t: Transaction) => boolean> = {
     "All": () => true,
     "Receivables": (t) => t.amount > 0,
     "Payables": (t) => t.amount < 0,
     "Overdue": (t) => t.status === "overdue",
-    "This Month": (t) => t.date.includes("Jul"),
+    "This Month": (t) => t.date.includes("Jul") || t.date.includes("2026"),
   };
+
+  // Loading state
+  if (!transactionsData) {
+    return (
+      <main className="p-8 max-w-[1200px] mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Finance</h1>
+            <p className="text-sm text-gray-500 mt-1">How much money have I made?</p>
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+          <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">Loading financial data from database…</p>
+        </div>
+      </main>
+    );
+  }
 
   const filtered = transactionsData.filter(filterMap[filter]);
 
-  // Calculate profit summary
-  const totalRevenue = transactionsData.filter(t => t.amount > 0 && t.status === "paid").reduce((s, t) => s + t.amount, 0);
-  const totalCosts = Math.abs(transactionsData.filter(t => t.amount < 0 && t.status === "paid").reduce((s, t) => s + t.amount, 0));
-  const netProfit = totalRevenue - totalCosts;
-  const marginPct = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+  // Use API stats if available, otherwise calculate from transactions
+  const totalRevenue = apiStats?.totalRevenue ?? transactionsData.filter(t => t.amount > 0 && t.status === "paid").reduce((s, t) => s + t.amount, 0);
+  const totalCosts = apiStats?.totalCosts ?? Math.abs(transactionsData.filter(t => t.amount < 0 && t.status === "paid").reduce((s, t) => s + t.amount, 0));
+  const netProfit = apiStats?.netProfit ?? totalRevenue - totalCosts;
+  const marginPct = apiStats?.marginPct ?? (totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0);
 
   // Cash position
-  const outstanding = transactionsData.filter(t => t.amount > 0 && (t.status === "pending" || t.status === "due_soon" || t.status === "overdue")).reduce((s, t) => s + t.amount, 0);
-  const overdue = transactionsData.filter(t => t.amount > 0 && t.status === "overdue").reduce((s, t) => s + t.amount, 0);
-  const dueThisWeek = transactionsData.filter(t => t.amount > 0 && t.status === "due_soon").reduce((s, t) => s + t.amount, 0);
-
-  // This month metrics
-  const monthRevenue = transactionsData.filter(t => t.amount > 0 && t.date.includes("Jul") && t.status === "paid").reduce((s, t) => s + t.amount, 0);
-  const monthCosts = Math.abs(transactionsData.filter(t => t.amount < 0 && t.date.includes("Jul") && t.status === "paid").reduce((s, t) => s + t.amount, 0));
+  const outstanding = apiStats?.outstanding ?? transactionsData.filter(t => t.amount > 0 && (t.status === "pending" || t.status === "due_soon" || t.status === "overdue")).reduce((s, t) => s + t.amount, 0);
+  const overdue = apiStats?.overdue ?? transactionsData.filter(t => t.amount > 0 && t.status === "overdue").reduce((s, t) => s + t.amount, 0);
+  const dueThisWeek = apiStats?.dueThisWeek ?? transactionsData.filter(t => t.amount > 0 && t.status === "due_soon").reduce((s, t) => s + t.amount, 0);
 
   // Cost breakdown
-  const costBreakdown = {
+  const costBreakdown = apiStats?.costBreakdown ?? {
     coffee: Math.abs(transactionsData.filter(t => t.type === "cost_coffee" && t.status === "paid").reduce((s, t) => s + t.amount, 0)),
     freight: Math.abs(transactionsData.filter(t => t.type === "cost_freight" && t.status === "paid").reduce((s, t) => s + t.amount, 0)),
     insurance: Math.abs(transactionsData.filter(t => t.type === "cost_insurance" && t.status === "paid").reduce((s, t) => s + t.amount, 0)),
@@ -6041,6 +6127,7 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
   const [supervisorFaults, setSupervisorFaults] = useState<any[]>([]);
   const [supervisorRunning, setSupervisorRunning] = useState(false);
   const [supervisorStats, setSupervisorStats] = useState<any>({});
+  const [liveApprovals, setLiveApprovals] = useState<any[]>([]);
 
   const fetchSupervisor = () => {
     fetch("/api/supervisor")
@@ -6054,6 +6141,11 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
         }
       })
       .catch((err) => console.warn("[AdminPage] Supervisor fetch failed:", err));
+    // Also fetch pending approvals
+    fetch("/api/approvals")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => { if (data.ok) setLiveApprovals(data.actions || []); })
+      .catch(() => {});
   };
 
   // ─── Pause/Resume handlers (REAL — calls backend API) ───
@@ -6064,6 +6156,16 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
   const handleResumeAgent = (agentId: string) => {
     fetch(`/api/agents/${encodeURIComponent(agentId)}/resume`, { method: "POST" })
       .then(() => fetchSupervisor()); // Refresh after resume
+  };
+
+  // ─── Approve/Reject handlers (REAL) ───
+  const handleApprove = (actionId: number) => {
+    fetch("/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: actionId, action: "approve" }) })
+      .then(() => fetchSupervisor());
+  };
+  const handleReject = (actionId: number) => {
+    fetch("/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: actionId, action: "reject" }) })
+      .then(() => fetchSupervisor());
   };
 
   useEffect(() => {
@@ -6583,23 +6685,33 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
             </div>
           )}
 
-          {/* Pending approvals */}
-          {approvalsData && approvalsData.length > 0 && (
-            <div className="rounded-xl border border-gray-200 bg-white p-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Pending AI Approvals</h3>
+          {/* Pending approvals — LIVE from /api/approvals with working buttons */}
+          {liveApprovals.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/30 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-900">Pending AI Actions — Approval Required</h3>
+                <span className="text-xs text-amber-600 font-medium">{liveApprovals.length} awaiting review</span>
+              </div>
               <div className="space-y-2">
-                {approvalsData.map((a) => (
-                  <div key={a.id} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50">
-                      <Bot className="h-3.5 w-3.5 text-indigo-600" strokeWidth={1.5} />
+                {liveApprovals.map((a) => (
+                  <div key={a.id} className={cn("rounded-lg border bg-white p-3 flex items-start gap-3", a.riskBorder)}>
+                    <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", a.riskBg)}>
+                      <Bot className={cn("h-4 w-4", a.riskText)} strokeWidth={1.5} />
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-900">{a.action}</p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">{a.agent} · {a.submittedAt}</p>
+                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                        <p className="text-sm font-medium text-gray-900">{a.description}</p>
+                        <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", a.riskBg, a.riskText)}>{a.riskLabel}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] text-gray-500">
+                        <span>Agent: <span className="font-medium text-gray-700">{a.agentId}</span></span>
+                        <span>Action: <span className="font-medium text-gray-700">{a.actionLabel}</span></span>
+                        <span>Submitted: <span className="font-medium text-gray-700">{a.submittedAt}</span></span>
+                      </div>
                     </div>
-                    <div className="flex gap-1.5 shrink-0">
-                      <button className="rounded-md bg-green-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-green-700 transition-colors">Approve</button>
-                      <button className="rounded-md border border-red-200 text-red-600 px-2.5 py-1 text-[11px] font-medium hover:bg-red-50 transition-colors">Reject</button>
+                    <div className="shrink-0 flex gap-1.5">
+                      <button onClick={() => handleApprove(a.id)} className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 transition-colors">Approve</button>
+                      <button onClick={() => handleReject(a.id)} className="rounded-lg border border-red-200 text-red-600 px-3 py-1.5 text-xs font-medium hover:bg-red-50 transition-colors">Reject</button>
                     </div>
                   </div>
                 ))}

@@ -350,7 +350,141 @@ class Supervisor {
     return { issuesFound, autoCorrected, totalPending };
   }
 
-  /** Run one complete tick: scheduler + supervisor */
+  /** Phase 4: Generate pending actions for risky operations */
+  generatePendingActions() {
+    // Find leads in ENRICHED state that don't have a pending action yet
+    // Agent 3 wants to start outreach (send first email) — needs admin approval
+    const enrichedLeads = this.db.prepare(`
+      SELECT l.lead_id, l.company_name, l.headquarters_country, l.priority_tier, l.outreach_language
+      FROM leads l
+      WHERE l.current_state = 'ENRICHED' AND l.deleted_ts IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM pending_agent_actions p
+        WHERE p.target_entity_id = l.lead_id AND p.status = 'pending'
+      )
+      LIMIT 5
+    `).all();
+
+    for (const lead of enrichedLeads) {
+      const riskLevel = lead.priority_tier === "S" ? "medium" : "low";
+      this.db.prepare(`
+        INSERT INTO pending_agent_actions (
+          agent_id, action_type, action_description,
+          target_entity_type, target_entity_id, payload,
+          risk_level, status, submitted_ts
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+      `).run(
+        "Agent 3",
+        "send_email",
+        `Send first outreach email to ${lead.company_name} (${lead.headquarters_country}) — ${lead.priority_tier} tier, ${lead.outreach_language}`,
+        "lead",
+        lead.lead_id,
+        JSON.stringify({ lead_id: lead.lead_id, company: lead.company_name, step: 1, language: lead.outreach_language }),
+        riskLevel,
+        nowISO()
+      );
+
+      this.logEvent("Agent 3", "PENDING_ACTION_CREATED", "info",
+        `Agent 3 queued outreach email for ${lead.company_name} — awaiting admin approval`,
+        "Action added to approval queue",
+        JSON.stringify({ leadId: lead.lead_id, riskLevel })
+      );
+    }
+
+    // Find leads in DECIDED_APPROVED state — Agent 5 wants to create a contract
+    const approvedLeads = this.db.prepare(`
+      SELECT l.lead_id, l.company_name, l.headquarters_country
+      FROM leads l
+      WHERE l.current_state = 'DECIDED_APPROVED' AND l.deleted_ts IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM pending_agent_actions p
+        WHERE p.target_entity_id = l.lead_id AND p.action_type = 'create_contract' AND p.status = 'pending'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM contracts c WHERE c.lead_id = l.lead_id AND c.deleted_ts IS NULL
+      )
+      LIMIT 3
+    `).all();
+
+    for (const lead of approvedLeads) {
+      this.db.prepare(`
+        INSERT INTO pending_agent_actions (
+          agent_id, action_type, action_description,
+          target_entity_type, target_entity_id, payload,
+          risk_level, status, submitted_ts
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+      `).run(
+        "Agent 5",
+        "create_contract",
+        `Create contract for ${lead.company_name} (${lead.headquarters_country}) — sample approved`,
+        "lead",
+        lead.lead_id,
+        JSON.stringify({ lead_id: lead.lead_id, company: lead.company_name }),
+        "high",
+        nowISO()
+      );
+
+      this.logEvent("Agent 5", "PENDING_ACTION_CREATED", "info",
+        `Agent 5 queued contract creation for ${lead.company_name} — awaiting admin approval`,
+        "Action added to approval queue (high risk)",
+        JSON.stringify({ leadId: lead.lead_id })
+      );
+    }
+
+    // Process approved actions — execute them
+    const approvedActions = this.db.prepare(`
+      SELECT * FROM pending_agent_actions WHERE status = 'approved'
+    `).all();
+
+    for (const action of approvedActions) {
+      const payload = JSON.parse(action.payload || "{}");
+
+      if (action.action_type === "send_email" && payload.lead_id) {
+        // Execute: advance lead from ENRICHED to IN_SEQUENCE
+        this.db.prepare(`
+          UPDATE leads SET current_state = 'IN_SEQUENCE', sequence_step = 1, updated_ts = ?
+          WHERE lead_id = ? AND current_state = 'ENRICHED'
+        `).run(nowISO(), payload.lead_id);
+
+        // Publish MESSAGE_SENT event
+        this.publishEvent("MESSAGE_SENT", "inbox_message", payload.lead_id, payload, "Agent 3");
+
+        this.logEvent("Agent 3", "ACTION_EXECUTED", "info",
+          `Outreach email sent to ${payload.company || payload.lead_id} (approved by admin)`,
+          "Lead advanced to IN_SEQUENCE",
+          JSON.stringify({ leadId: payload.lead_id })
+        );
+        log(`  ✅ Agent 3: Executed approved action — outreach email to ${payload.company || payload.lead_id}`);
+      }
+
+      if (action.action_type === "create_contract" && payload.lead_id) {
+        // Execute: create a contract record
+        const contractId = `CT-2026-${String(Math.floor(Math.random() * 9000) + 1000)}`;
+        this.db.prepare(`
+          INSERT INTO contracts (
+            contract_id, lead_id, contract_number, contract_date,
+            contract_template, incoterm, currency, total_volume_bags,
+            total_value, status, signed_ts, is_repeat,
+            created_ts, updated_ts, deleted_ts
+          ) VALUES (?, ?, ?, ?, 'ICC_ECE_7_21', 'FOB', 'USD', 100, 500, 'draft', NULL, 0, ?, ?, NULL)
+        `).run(contractId, payload.lead_id, contractId, nowISO().substring(0, 10), nowISO(), nowISO());
+
+        this.logEvent("Agent 5", "ACTION_EXECUTED", "info",
+          `Contract ${contractId} created for ${payload.company || payload.lead_id} (approved by admin)`,
+          "Contract inserted in draft status",
+          JSON.stringify({ contractId, leadId: payload.lead_id })
+        );
+        log(`  ✅ Agent 5: Executed approved action — contract ${contractId} for ${payload.company || payload.lead_id}`);
+      }
+
+      // Mark action as executed
+      this.db.prepare("UPDATE pending_agent_actions SET status = 'executed' WHERE id = ?").run(action.id);
+    }
+
+    return { created: enrichedLeads.length + approvedLeads.length, executed: approvedActions.length };
+  }
+
+  /** Run one complete tick: scheduler + supervisor + pending actions + heartbeat */
   tick() {
     this.tickCount++;
     log(`--- Tick #${this.tickCount} ---`);
@@ -366,7 +500,10 @@ class Supervisor {
     // Phase 2: Supervisor check
     const supervisorResult = this.runSupervisorCheck();
 
-    // Phase 3: Heartbeat (every 6 ticks = once per minute)
+    // Phase 3: Generate + process pending actions (approval queue)
+    const pendingResult = this.generatePendingActions();
+
+    // Phase 4: Heartbeat (every 6 ticks = once per minute)
     if (this.tickCount % 6 === 0) {
       this.logEvent(null, "HEARTBEAT", "info",
         `Supervisor heartbeat — tick #${this.tickCount}, ${totalProcessed} processed, ${supervisorResult.totalPending} pending`,
