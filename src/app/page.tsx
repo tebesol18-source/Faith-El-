@@ -1723,7 +1723,7 @@ function DealsPage() {
 // ═══════════════════════════════════════════════════════════
 // INVENTORY PAGE — "What coffee can I sell?"
 // ═══════════════════════════════════════════════════════════
-const lotsData = [
+const mockLotsData = [
   { id: "LOT-25-0001", region: "Yirgacheffe", station: "Konga Station", coop: "Konga Coop", process: "Washed", score: 87.5, screen: 14, stock: 85, cropYear: "25/26", eudr: "complete", certifications: ["Organic", "Fairtrade"], status: "active" },
   { id: "LOT-25-0002", region: "Yirgacheffe", station: "Biloya Station", coop: "Biloya Coop", process: "Natural", score: 88.0, screen: 15, stock: 60, cropYear: "25/26", eudr: "complete", certifications: ["Organic"], status: "active" },
   { id: "LOT-25-0003", region: "Guji", station: "Shakisso Station", coop: "Shakisso Coop", process: "Washed", score: 86.5, screen: 14, stock: 45, cropYear: "25/26", eudr: "complete", certifications: [], status: "active" },
@@ -1755,14 +1755,49 @@ const regionColors: Record<string, string> = {
 };
 
 function InventoryPage() {
+  // ─── Live data from backend ───
+  const [lotsData, setLotsData] = useState<typeof mockLotsData | null>(null);
   const [filterRegion, setFilterRegion] = useState("All");
   const [filterEudr, setFilterEudr] = useState("All");
-
   // ─── Inventory upload state ───
   const [showUpload, setShowUpload] = useState(false);
   const [csvText, setCsvText] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/inventory")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.lots) && data.lots.length > 0) {
+          setLotsData(data.lots);
+        } else {
+          setLotsData(mockLotsData);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[InventoryPage] API fetch failed, using mock data:", err);
+        setLotsData(mockLotsData);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Loading state
+  if (!lotsData) {
+    return (
+      <main className="p-8 max-w-[1200px] mx-auto">
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+          <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">Loading from database…</p>
+        </div>
+      </main>
+    );
+  }
 
   const regions = ["All", "Yirgacheffe", "Guji", "Sidamo", "Limu", "Harrar"];
   const eudrFilters = ["All", "Complete", "Partial", "Missing"];
@@ -2011,7 +2046,7 @@ Guji,Hambela Station,Hambela Co-op,Washed,15,86.8,25/26,60,organic;FT,complete,5
 // ═══════════════════════════════════════════════════════════
 // SAMPLES PAGE — "Which samples are moving?"
 // ═══════════════════════════════════════════════════════════
-const samplesData = [
+const mockSamplesData = [
   { id: "SR-2026-0001", lead: "Marcus Coffee GmbH", leadId: "L-2026-00501", lots: ["LOT-25-0001 (Yirgacheffe)", "LOT-25-0003 (Guji)"], type: "350g", status: "delivered", dispatched: "Jul 10", delivered: "Jul 14", feedback: "Yirgacheffe scored 87.5 — excellent. Guji pending.", score: 87.5, decision: "approved", budget: "used" },
   { id: "SR-2026-0002", lead: "Falcon Coffee UK", leadId: "L-2026-00502", lots: ["LOT-25-0002 (Yirgacheffe Natural)"], type: "350g", status: "dispatched", dispatched: "Jul 16", delivered: null, feedback: null, score: null, decision: null, budget: "used" },
   { id: "SR-2026-0003", lead: "Hashimoto Coffee", leadId: "L-2026-00503", lots: ["LOT-25-0005 (Sidamo)", "LOT-25-0007 (Limu)"], type: "350g", status: "dispatched", dispatched: "Jul 18", delivered: null, feedback: null, score: null, decision: null, budget: "used" },
@@ -2037,7 +2072,45 @@ const decisionConfig: Record<string, { label: string; bg: string; text: string }
 };
 
 function SamplesPage() {
+  // ─── Live data from backend ───
+  const [samplesData, setSamplesData] = useState<typeof mockSamplesData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/samples")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.samples) && data.samples.length > 0) {
+          setSamplesData(data.samples);
+        } else {
+          setSamplesData(mockSamplesData);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[SamplesPage] API fetch failed, using mock data:", err);
+        setSamplesData(mockSamplesData);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const [filter, setFilter] = useState("All");
+
+  // Loading state
+  if (!samplesData) {
+    return (
+      <main className="p-8 max-w-[1200px] mx-auto">
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+          <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">Loading from database…</p>
+        </div>
+      </main>
+    );
+  }
+
   const filters = ["All", "Pending", "Dispatched", "Delivered", "Feedback Due", "Decided"];
 
   const filteredSamples = filter === "All"
@@ -2261,7 +2334,7 @@ type Quote = {
   daysToExpiry: number | null;
 };
 
-const quotesData: Quote[] = [
+const mockQuotesData: Quote[] = [
   {
     id: "QU-2026-0004", lead: "Marcus Coffee GmbH", leadId: "L-2026-00501", version: 2,
     status: "pending_approval", incoterm: "CIF Hamburg", destination: "Hamburg, DE", currency: "USD",
@@ -2585,8 +2658,46 @@ function NegotiationSimulator({ quote }: { quote: Quote }) {
 }
 
 function QuotesPage() {
+  // ─── Live data from backend ───
+  const [quotesData, setQuotesData] = useState<typeof mockQuotesData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/quotes")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.quotes) && data.quotes.length > 0) {
+          setQuotesData(data.quotes);
+        } else {
+          setQuotesData(mockQuotesData);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[QuotesPage] API fetch failed, using mock data:", err);
+        setQuotesData(mockQuotesData);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const [filter, setFilter] = useState("All");
   const [selectedQuote, setSelectedQuote] = useState<string | null>(null);
+
+  // Loading state
+  if (!quotesData) {
+    return (
+      <main className="p-8 max-w-[1200px] mx-auto">
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+          <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">Loading from database…</p>
+        </div>
+      </main>
+    );
+  }
+
   const filters = ["All", "AI Drafts", "Needs Review", "Awaiting Approval", "Sent", "Accepted", "Rejected", "Expired"];
 
   const filterMap: Record<string, Quote["status"] | null> = {
@@ -3063,7 +3174,7 @@ const docStatusConfig: Record<DocStatus, { label: string; bg: string; text: stri
   expired: { label: "Expired", bg: "bg-red-100", text: "text-red-800", dot: "bg-red-600", border: "border-red-300", icon: AlertCircle },
 };
 
-const complianceShipments: ComplianceShipment[] = [
+const mockComplianceShipments: ComplianceShipment[] = [
   {
     id: "CT-2026-001", destination: "Hamburg, DE", flag: "🇩🇪", eta: "Jul 28", lots: ["LOT-25-0001", "LOT-25-0003"], contractValue: 84600, vessel: "MSC Hamburg",
     docs: [
@@ -3129,8 +3240,46 @@ function shipmentReadiness(s: ComplianceShipment): { approved: number; total: nu
 }
 
 function CompliancePage() {
+  // ─── Live data from backend ───
+  const [complianceShipments, setComplianceShipments] = useState<typeof mockComplianceShipments | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/compliance")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.complianceShipments) && data.complianceShipments.length > 0) {
+          setComplianceShipments(data.complianceShipments);
+        } else {
+          setComplianceShipments(mockComplianceShipments);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[CompliancePage] API fetch failed, using mock data:", err);
+        setComplianceShipments(mockComplianceShipments);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const [filter, setFilter] = useState("All");
   const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
+
+  // Loading state
+  if (!complianceShipments) {
+    return (
+      <main className="p-8 max-w-[1200px] mx-auto">
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+          <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">Loading from database…</p>
+        </div>
+      </main>
+    );
+  }
+
   const filters = ["All", "Blocked", "Expiring", "Ready to Ship"];
 
   const filtered = filter === "All"
@@ -3582,7 +3731,7 @@ const shipmentStatusConfig: Record<ShipmentStatus, { label: string; bg: string; 
   delivered: { label: "Delivered", bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
 };
 
-const shipmentsData: Shipment[] = [
+const mockShipmentsData: Shipment[] = [
   {
     id: "CT-2026-001", containerNo: "MSCU-7729340", sealNo: "SL-8847291", bookingRef: "MSC-2026-088234",
     vessel: "MSC Hamburg", voyage: "V.244W", originPort: "Djibouti", destinationPort: "Hamburg",
@@ -3768,8 +3917,46 @@ const shipmentsData: Shipment[] = [
 ];
 
 function ShipmentsPage() {
+  // ─── Live data from backend ───
+  const [shipmentsData, setShipmentsData] = useState<typeof mockShipmentsData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/shipments")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.shipments) && data.shipments.length > 0) {
+          setShipmentsData(data.shipments);
+        } else {
+          setShipmentsData(mockShipmentsData);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[ShipmentsPage] API fetch failed, using mock data:", err);
+        setShipmentsData(mockShipmentsData);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const [filter, setFilter] = useState("All");
   const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
+
+  // Loading state
+  if (!shipmentsData) {
+    return (
+      <main className="p-8 max-w-[1200px] mx-auto">
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+          <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+            <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-gray-700">Loading from database…</p>
+        </div>
+      </main>
+    );
+  }
+
   const filters = ["All", "In Transit", "At Port", "Loading", "Delayed", "Delivered"];
 
   const filterMap: Record<string, (s: Shipment) => boolean> = {

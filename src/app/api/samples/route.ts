@@ -1,0 +1,95 @@
+/**
+ * GET /api/samples
+ * Reads sample requests from the SQLite database.
+ * Maps sample_requests → frontend shape { id, lead, leadId, lots[], type, status, dispatched, delivered, feedback, score, decision, budget }
+ * Joins with sample_request_lots for lot info, leads for company name.
+ */
+import { NextResponse } from "next/server";
+import Database from "better-sqlite3";
+import path from "path";
+import fs from "fs";
+
+function getDbPath(): string {
+  const candidates = [
+    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
+    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
+    "/home/z/my-project/coffee_export/data/coffee_export.db",
+  ];
+  for (const p of candidates) { if (fs.existsSync(p)) return p; }
+  return candidates[candidates.length - 1];
+}
+
+function formatDate(ts: string | null): string | null {
+  if (!ts) return null;
+  try { return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return null; }
+}
+
+export async function GET() {
+  try {
+    const db = new Database(getDbPath(), { readonly: true });
+    try {
+      const rows = db.prepare(`
+        SELECT sr.sample_request_id, sr.lead_id, sr.sample_type, sr.status,
+               sr.dispatched_ts, sr.delivered_ts, sr.buyer_company,
+               sr.crop_year, sr.created_ts,
+               l.company_name
+        FROM sample_requests sr
+        LEFT JOIN leads l ON sr.lead_id = l.lead_id
+        WHERE sr.deleted_ts IS NULL
+        ORDER BY sr.created_ts DESC
+      `).all() as any[];
+
+      // For each sample, get its lots
+      const lotStmt = db.prepare(`
+        SELECT srl.lot_id, lt.region, lt.process
+        FROM sample_request_lots srl
+        LEFT JOIN lots lt ON srl.lot_id = lt.lot_id
+        WHERE srl.sample_request_id = ?
+      `);
+
+      // Get cupping scores
+      const scoreStmt = db.prepare(`
+        SELECT AVG(total_score) as avg_score FROM cupping_scores
+        WHERE sample_request_id = ? AND deleted_ts IS NULL
+      `);
+
+      // Get decision
+      const decisionStmt = db.prepare(`
+        SELECT decision FROM sample_decisions
+        WHERE sample_request_id = ? ORDER BY created_ts DESC LIMIT 1
+      `);
+
+      const samples = rows.map((r) => {
+        const lots = (lotStmt.all(r.sample_request_id) as any[]) || [];
+        const lotLabels = lots.map((l) => l.lot_id + (l.region ? ` (${l.region})` : ""));
+        const scoreRow = scoreStmt.get(r.sample_request_id) as any;
+        const decisionRow = decisionStmt.get(r.sample_request_id) as any;
+
+        // Map status: pending → pending, dispatched → dispatched, delivered → delivered, etc.
+        const statusMap: Record<string, string> = {
+          pending: "pending", dispatched: "dispatched", delivered: "delivered",
+          feedback_due: "feedback_due", decided: "decided",
+        };
+
+        return {
+          id: r.sample_request_id,
+          lead: r.company_name || r.buyer_company || "Unknown",
+          leadId: r.lead_id,
+          lots: lotLabels.length > 0 ? lotLabels : ["No lots assigned"],
+          type: r.sample_type || "350g",
+          status: statusMap[r.status] || r.status || "pending",
+          dispatched: formatDate(r.dispatched_ts),
+          delivered: formatDate(r.delivered_ts),
+          feedback: null,
+          score: scoreRow?.avg_score || null,
+          decision: decisionRow?.decision || null,
+          budget: "used",
+        };
+      });
+
+      return NextResponse.json({ ok: true, count: samples.length, samples });
+    } finally { db.close(); }
+  } catch (error: any) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+}
