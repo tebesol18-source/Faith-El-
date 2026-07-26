@@ -65,10 +65,10 @@ export async function GET() {
         const scoreRow = scoreStmt.get(r.sample_request_id) as any;
         const decisionRow = decisionStmt.get(r.sample_request_id) as any;
 
-        // Map status: pending → pending, dispatched → dispatched, delivered → delivered, etc.
+        // Map status: draft → pending (frontend expects "pending" not "draft")
         const statusMap: Record<string, string> = {
-          pending: "pending", dispatched: "dispatched", delivered: "delivered",
-          feedback_due: "feedback_due", decided: "decided",
+          draft: "pending", dispatched: "dispatched", delivered: "delivered",
+          feedback_due: "feedback_due", decided: "decided", ghosted: "decided", cancelled: "decided",
         };
 
         return {

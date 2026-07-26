@@ -3919,6 +3919,8 @@ const mockShipmentsData: Shipment[] = [
 function ShipmentsPage() {
   // ─── Live data from backend ───
   const [shipmentsData, setShipmentsData] = useState<typeof mockShipmentsData | null>(null);
+  const [filter, setFilter] = useState("All");
+  const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -3939,9 +3941,6 @@ function ShipmentsPage() {
       });
     return () => { cancelled = true; };
   }, []);
-
-  const [filter, setFilter] = useState("All");
-  const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
 
   // Loading state
   if (!shipmentsData) {

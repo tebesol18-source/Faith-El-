@@ -113,6 +113,9 @@ export async function GET() {
           insuranceValue: (r.total_value || 0) * 1.1,
           demurrageRisk: null,
           docReadiness: 100,
+          milestones: [],
+          tempLog: [],
+          events: [],
         };
       });
 
