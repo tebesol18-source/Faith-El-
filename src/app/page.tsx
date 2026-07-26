@@ -136,39 +136,186 @@ function Sidebar({ currentPage, onNavigate, expanded, onToggle, navGroups: group
   );
 }
 
-// ─── Top Header ────────────────────────────────────────────
+// ─── Top Header (with seller approval modal) ────────────────
 function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLogout: () => void }) {
+  const [showApprovals, setShowApprovals] = useState(false);
+  const [pendingActions, setPendingActions] = useState<any[]>([]);
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
+
+  const fetchApprovals = () => {
+    fetch("/api/approvals")
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((data) => { if (data.ok) setPendingActions(data.actions || []); })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    if (userRole === "seller") {
+      fetchApprovals();
+      const interval = setInterval(fetchApprovals, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [userRole]);
+
+  const handleApprove = (id: number) => {
+    setActionLoading(id);
+    fetch("/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action: "approve" }) })
+      .then(() => { fetchApprovals(); })
+      .finally(() => setActionLoading(null));
+  };
+
+  const handleReject = (id: number) => {
+    setActionLoading(id);
+    fetch("/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action: "reject" }) })
+      .then(() => { fetchApprovals(); })
+      .finally(() => setActionLoading(null));
+  };
+
+  const riskConfig: Record<string, { bg: string; text: string; border: string; label: string }> = {
+    low: { bg: "bg-green-50", text: "text-green-700", border: "border-green-200", label: "Low Risk" },
+    medium: { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200", label: "Medium Risk" },
+    high: { bg: "bg-red-50", text: "text-red-700", border: "border-red-200", label: "High Risk" },
+  };
+
+  const actionLabels: Record<string, string> = {
+    send_email: "Send Email to Buyer",
+    create_contract: "Create Contract",
+    dispatch_sample: "Dispatch Sample",
+    send_follow_up: "Send Follow-up",
+    send_breakup_email: "Send Breakup Email",
+    create_quote: "Create Quote",
+  };
+
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-gray-200 bg-white/80 px-8 backdrop-blur-sm">
-      <button className="p-2 rounded-lg hover:bg-gray-100"><Menu className="h-5 w-5 text-gray-600" strokeWidth={1.5} /></button>
-      <div className="flex items-center gap-3">
-        <span className={cn(
-          "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold",
-          userRole === "admin" ? "bg-[#4A3520] text-white" : "bg-blue-50 text-blue-700"
-        )}>
-          {userRole === "admin" ? <ShieldCheck className="h-3 w-3" /> : <Users className="h-3 w-3" />}
-          {userRole === "admin" ? "Admin" : "Seller"}
-        </span>
-        <button className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 hover:bg-gray-50 transition-colors">
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-50 text-xs font-bold text-red-600">4</span>
-          <span className="text-sm font-medium text-gray-700">High Priority</span>
-          <span className="text-sm text-gray-400">·</span>
-          <span className="text-sm text-gray-500">8 Normal</span>
-        </button>
-        <button className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 hover:bg-indigo-100 transition-colors">
-          <Bot className="h-4 w-4 text-indigo-600" strokeWidth={1.5} />
-          <span className="text-sm font-medium text-indigo-700">3 AI Suggestions</span>
-        </button>
-        <button
-          onClick={onLogout}
-          title="Sign out"
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 hover:text-red-600 transition-colors"
-        >
-          <LogOut className="h-4 w-4" strokeWidth={1.5} />
-        </button>
-        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#4A3520] to-[#6B4E33] flex items-center justify-center text-white font-semibold text-sm">AS</div>
-      </div>
-    </header>
+    <>
+      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-gray-200 bg-white/80 px-8 backdrop-blur-sm">
+        <button className="p-2 rounded-lg hover:bg-gray-100"><Menu className="h-5 w-5 text-gray-600" strokeWidth={1.5} /></button>
+        <div className="flex items-center gap-3">
+          <span className={cn(
+            "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold",
+            userRole === "admin" ? "bg-[#4A3520] text-white" : "bg-blue-50 text-blue-700"
+          )}>
+            {userRole === "admin" ? <ShieldCheck className="h-3 w-3" /> : <Users className="h-3 w-3" />}
+            {userRole === "admin" ? "Admin" : "Seller"}
+          </span>
+          <button className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 hover:bg-gray-50 transition-colors">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-50 text-xs font-bold text-red-600">4</span>
+            <span className="text-sm font-medium text-gray-700">High Priority</span>
+          </button>
+          {/* AI Suggestions button — only for sellers, shows real pending count */}
+          {userRole === "seller" && (
+            <button
+              onClick={() => { setShowApprovals(true); fetchApprovals(); }}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors",
+                pendingActions.length > 0
+                  ? "border-amber-300 bg-amber-50 hover:bg-amber-100 animate-pulse"
+                  : "border-indigo-100 bg-indigo-50 hover:bg-indigo-100"
+              )}
+            >
+              <Bot className="h-4 w-4 text-indigo-600" strokeWidth={1.5} />
+              <span className="text-sm font-medium text-indigo-700">
+                {pendingActions.length > 0 ? `${pendingActions.length} Pending Approval` : "AI Suggestions"}
+              </span>
+              {pendingActions.length > 0 && (
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-white">{pendingActions.length}</span>
+              )}
+            </button>
+          )}
+          <button onClick={onLogout} title="Sign out" className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-500 hover:text-red-600 transition-colors">
+            <LogOut className="h-4 w-4" strokeWidth={1.5} />
+          </button>
+          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#4A3520] to-[#6B4E33] flex items-center justify-center text-white font-semibold text-sm">AS</div>
+        </div>
+      </header>
+
+      {/* Seller Approval Modal — where sellers approve/reject AI-drafted actions */}
+      {showApprovals && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => setShowApprovals(false)}>
+          <div className="w-[560px] max-h-[80vh] rounded-xl bg-white shadow-xl flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100">
+                  <Bot className="h-5 w-5 text-indigo-600" strokeWidth={1.5} />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900">AI Agent Actions — Your Review</h3>
+                  <p className="text-xs text-gray-500">{pendingActions.length} action(s) drafted by AI agents, awaiting your approval</p>
+                </div>
+              </div>
+              <button onClick={() => setShowApprovals(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><XIcon className="h-4 w-4 text-gray-400" strokeWidth={1.5} /></button>
+            </div>
+
+            {/* Body — scrollable list of pending actions */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-3">
+              {pendingActions.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-full bg-green-100 mb-3">
+                    <CheckCircle2 className="h-6 w-6 text-green-600" strokeWidth={1.5} />
+                  </div>
+                  <p className="text-sm font-medium text-gray-700">All caught up!</p>
+                  <p className="text-xs text-gray-400 mt-1">No pending AI actions. Agents are working — check back later.</p>
+                </div>
+              ) : (
+                pendingActions.map((a) => {
+                  const rc = riskConfig[a.riskLevel] || riskConfig.medium;
+                  return (
+                    <div key={a.id} className={cn("rounded-lg border p-4", rc.border, rc.bg)}>
+                      <div className="flex items-start gap-3 mb-3">
+                        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white", rc.text)}>
+                          <Bot className="h-4 w-4" strokeWidth={1.5} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", rc.bg, rc.text)}>{rc.label}</span>
+                            <span className="text-[10px] text-gray-400">·</span>
+                            <span className="text-[10px] font-medium text-gray-500">{a.agentId}</span>
+                            <span className="text-[10px] text-gray-400">·</span>
+                            <span className="text-[10px] text-gray-500">{actionLabels[a.actionType] || a.actionType}</span>
+                          </div>
+                          <p className="text-sm font-medium text-gray-900">{a.description}</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">Submitted {a.submittedAt}</p>
+                        </div>
+                      </div>
+                      {/* Action buttons */}
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleReject(a.id)}
+                          disabled={actionLoading === a.id}
+                          className="rounded-lg border border-red-200 text-red-600 px-4 py-2 text-xs font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
+                        >
+                          {actionLoading === a.id ? "..." : "Reject"}
+                        </button>
+                        <button
+                          onClick={() => handleApprove(a.id)}
+                          disabled={actionLoading === a.id}
+                          className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white hover:bg-green-700 transition-colors disabled:opacity-50"
+                        >
+                          {actionLoading === a.id ? (
+                            <><div className="h-3 w-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Processing…</>
+                          ) : (
+                            <><CheckCircle2 className="h-3.5 w-3.5" /> Approve & Execute</>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-gray-100 px-6 py-3 shrink-0">
+              <p className="text-[11px] text-gray-400 text-center">
+                Approved actions are executed automatically by the supervisor within 10 seconds.
+                Rejected actions are discarded — the agent will not retry.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -6685,39 +6832,8 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
             </div>
           )}
 
-          {/* Pending approvals — LIVE from /api/approvals with working buttons */}
-          {liveApprovals.length > 0 && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50/30 p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-900">Pending AI Actions — Approval Required</h3>
-                <span className="text-xs text-amber-600 font-medium">{liveApprovals.length} awaiting review</span>
-              </div>
-              <div className="space-y-2">
-                {liveApprovals.map((a) => (
-                  <div key={a.id} className={cn("rounded-lg border bg-white p-3 flex items-start gap-3", a.riskBorder)}>
-                    <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", a.riskBg)}>
-                      <Bot className={cn("h-4 w-4", a.riskText)} strokeWidth={1.5} />
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                        <p className="text-sm font-medium text-gray-900">{a.description}</p>
-                        <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold", a.riskBg, a.riskText)}>{a.riskLabel}</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-[11px] text-gray-500">
-                        <span>Agent: <span className="font-medium text-gray-700">{a.agentId}</span></span>
-                        <span>Action: <span className="font-medium text-gray-700">{a.actionLabel}</span></span>
-                        <span>Submitted: <span className="font-medium text-gray-700">{a.submittedAt}</span></span>
-                      </div>
-                    </div>
-                    <div className="shrink-0 flex gap-1.5">
-                      <button onClick={() => handleApprove(a.id)} className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 transition-colors">Approve</button>
-                      <button onClick={() => handleReject(a.id)} className="rounded-lg border border-red-200 text-red-600 px-3 py-1.5 text-xs font-medium hover:bg-red-50 transition-colors">Reject</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* NOTE: Approval queue is now on the SELLER side (TopHeader modal).
+              Admin does not approve agent actions — sellers do. */}
 
           {/* Operators table */}
           {operatorsData && operatorsData.length > 0 && (
