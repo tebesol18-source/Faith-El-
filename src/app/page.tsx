@@ -6968,6 +6968,20 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
     healthySellers: sellersData.filter(s => s.riskLevel === "healthy").length,
   };
 
+  // ─── Analytics data ───
+  const [analytics, setAnalytics] = useState<any>(null);
+
+  const fetchAnalytics = () => {
+    fetch("/api/analytics")
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((data) => { if (data.ok) setAnalytics(data); })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchAnalytics();
+  }, []);
+
   const selected = sellersData.find(s => s.id === selectedSeller);
   const selectedDeals = selectedSeller ? (sellerDealsData[selectedSeller] || []) : [];
 
@@ -6976,6 +6990,7 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
     { id: "sellers" as const, label: "Sellers", icon: Users, count: totals.sellers },
     { id: "commission" as const, label: "Commission", icon: DollarSign },
     { id: "risk" as const, label: "Risk", icon: AlertTriangle, count: totals.atRiskSellers + totals.warningSellers },
+    { id: "analytics" as const, label: "Analytics", icon: TrendingUp },
     { id: "system" as const, label: "System", icon: Server },
   ];
 
@@ -7278,6 +7293,228 @@ function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) =
               })}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ═══ ANALYTICS TAB ═══ */}
+      {activeTab === "analytics" && (
+        <div className="space-y-6">
+          {!analytics ? (
+            <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
+              <div className="flex h-10 w-10 mx-auto items-center justify-center rounded-full bg-gray-100 mb-4">
+                <div className="h-5 w-5 border-2 border-gray-300 border-t-[#4A3520] rounded-full animate-spin" />
+              </div>
+              <p className="text-sm font-medium text-gray-700">Loading analytics…</p>
+            </div>
+          ) : (
+            <>
+              {/* KPI summary cards */}
+              <div className="grid grid-cols-4 gap-4">
+                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <p className="text-xs font-medium text-gray-500">Total Leads</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{analytics.pipeline_metrics.total_leads}</p>
+                  <p className="text-[11px] text-green-600 mt-0.5">{analytics.pipeline_metrics.qualification_rate}% qualified</p>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <p className="text-xs font-medium text-gray-500">Close Rate</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{analytics.pipeline_metrics.close_rate}%</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{analytics.pipeline_metrics.contracted} contracted</p>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <p className="text-xs font-medium text-gray-500">Email Response Rate</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{analytics.email_metrics.response_rate}%</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{analytics.email_metrics.total_sent} sent · {analytics.email_metrics.total_received} received</p>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <p className="text-xs font-medium text-gray-500">AI Approval Rate</p>
+                  <p className={cn("text-2xl font-bold mt-1", analytics.feedback_metrics.approval_rate >= 50 ? "text-green-600" : "text-amber-600")}>{analytics.feedback_metrics.approval_rate}%</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{analytics.feedback_metrics.approved} approved · {analytics.feedback_metrics.rejected} rejected</p>
+                </div>
+              </div>
+
+              {/* Agent Performance Table */}
+              <div className="rounded-xl border border-gray-200 bg-white p-5">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">Agent Performance</h3>
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Agent</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Runs</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Errors</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Error Rate</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">AI Calls</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">AI Success</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analytics.agent_performance.map((a: any) => (
+                      <tr key={a.agent_id} className="border-b border-gray-100 last:border-0">
+                        <td className="px-3 py-2">
+                          <p className="font-medium text-gray-900">{a.agent_id}</p>
+                          <p className="text-[11px] text-gray-400">{a.name}</p>
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium text-gray-900">{a.runs}</td>
+                        <td className="px-3 py-2 text-right text-gray-700">{a.errors}</td>
+                        <td className={cn("px-3 py-2 text-right font-medium", a.error_rate > 10 ? "text-red-600" : "text-gray-700")}>{a.error_rate}%</td>
+                        <td className="px-3 py-2 text-right text-gray-700">{a.ai_calls}</td>
+                        <td className={cn("px-3 py-2 text-right font-medium", a.ai_success_rate === 100 ? "text-green-600" : "text-amber-600")}>{a.ai_success_rate}%</td>
+                        <td className="px-3 py-2">
+                          <span className={cn("inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                            a.last_status === "success" ? "bg-green-50 text-green-700"
+                            : a.last_status === "never" ? "bg-gray-100 text-gray-500"
+                            : "bg-amber-50 text-amber-700"
+                          )}>{a.last_status || "never"}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pipeline + Financial side by side */}
+              <div className="grid grid-cols-2 gap-6">
+                {/* Pipeline funnel */}
+                <div className="rounded-xl border border-gray-200 bg-white p-5">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Pipeline Funnel</h3>
+                  <div className="space-y-2">
+                    {Object.entries(analytics.pipeline_metrics.state_distribution)
+                      .sort((a: any, b: any) => b[1] - a[1])
+                      .map(([state, count]: any) => {
+                        const max = Math.max(...Object.values(analytics.pipeline_metrics.state_distribution) as number[]);
+                        const pct = max > 0 ? (count / max) * 100 : 0;
+                        const colors: Record<string, string> = {
+                          NEW: "bg-gray-400", ENRICHED: "bg-blue-500", IN_SEQUENCE: "bg-amber-500",
+                          QUALIFIED: "bg-green-500", SAMPLE_DISPATCHED: "bg-purple-500",
+                          SAMPLE_FEEDBACK_DUE: "bg-purple-600", DECIDED_APPROVED: "bg-green-600",
+                          DECIDED_REJECTED: "bg-red-500", DECIDED_NEEDS_ANOTHER: "bg-amber-600",
+                          GHOSTED: "bg-red-400", CONTRACTED: "bg-emerald-500", NURTURE: "bg-lime-500", BLOCKED: "bg-gray-600",
+                        };
+                        return (
+                          <div key={state} className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-gray-600 w-32 truncate">{state.replace(/_/g, " ")}</span>
+                            <div className="flex-1 h-5 rounded bg-gray-100 overflow-hidden">
+                              <div className={cn("h-full flex items-center justify-end px-2", colors[state] || "bg-gray-400")} style={{ width: `${pct}%` }}>
+                                <span className="text-[10px] font-bold text-white">{count}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+
+                {/* Financial summary */}
+                <div className="rounded-xl border border-gray-200 bg-white p-5">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Financial Summary</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Total Revenue</span>
+                      <span className="text-sm font-bold text-gray-900">${(analytics.financial_metrics.total_revenue || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Avg Contract Value</span>
+                      <span className="text-sm font-bold text-gray-900">${(analytics.financial_metrics.avg_contract_value || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Commission Earned (2%)</span>
+                      <span className="text-sm font-bold text-[#4A3520]">${(analytics.financial_metrics.commission_earned || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Contracts Completed</span>
+                      <span className="text-sm font-bold text-gray-900">{analytics.financial_metrics.completed_contracts} / {analytics.financial_metrics.total_contracts}</span>
+                    </div>
+                    <div className="border-t border-gray-100 pt-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Feedback Learning</p>
+                      <div className="flex justify-between mb-1">
+                        <span className="text-xs text-gray-500">AI Draft Approval Rate</span>
+                        <span className={cn("text-xs font-bold", analytics.feedback_metrics.approval_rate >= 50 ? "text-green-600" : "text-amber-600")}>{analytics.feedback_metrics.approval_rate}%</span>
+                      </div>
+                      {analytics.feedback_metrics.top_reject_reasons.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-[10px] text-gray-400">Top reject reasons:</p>
+                          {analytics.feedback_metrics.top_reject_reasons.map((r: any, i: number) => (
+                            <div key={i} className="text-[11px] text-gray-600 flex justify-between">
+                              <span>{r.reason.replace(/_/g, " ")}</span>
+                              <span>{r.count}x</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lead Insights */}
+              <div className="grid grid-cols-2 gap-6">
+                <div className="rounded-xl border border-gray-200 bg-white p-5">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Leads by Country</h3>
+                  <div className="space-y-2">
+                    {analytics.lead_insights.by_country.map((c: any, i: number) => {
+                      const max = analytics.lead_insights.by_country[0]?.count || 1;
+                      return (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-600 w-32 truncate">{c.country || "Unknown"}</span>
+                          <div className="flex-1 h-4 rounded bg-gray-100 overflow-hidden">
+                            <div className="h-full bg-[#4A3520] flex items-center justify-end px-2" style={{ width: `${(c.count / max) * 100}%` }}>
+                              <span className="text-[10px] font-bold text-white">{c.count}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white p-5">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Leads by Tier</h3>
+                  <div className="space-y-2">
+                    {analytics.lead_insights.by_tier.map((t: any, i: number) => {
+                      const tierColors: Record<string, string> = { S: "bg-[#4A3520]", A: "bg-indigo-500", B: "bg-gray-400", C: "bg-gray-300" };
+                      const max = analytics.lead_insights.by_tier[0]?.count || 1;
+                      return (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-gray-600 w-8">{t.tier || "?"}</span>
+                          <div className="flex-1 h-4 rounded bg-gray-100 overflow-hidden">
+                            <div className={cn("h-full flex items-center justify-end px-2", tierColors[t.tier] || "bg-gray-400")} style={{ width: `${(t.count / max) * 100}%` }}>
+                              <span className="text-[10px] font-bold text-white">{t.count}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* System Health */}
+              <div className="rounded-xl border border-gray-200 bg-white p-5">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">System Health</h3>
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Event Processing</p>
+                    <p className="text-xl font-bold text-gray-900 mt-1">{analytics.system_metrics.events.processing_rate}%</p>
+                    <p className="text-[11px] text-gray-400">{analytics.system_metrics.events.consumed}/{analytics.system_metrics.events.total} consumed</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Supervisor Logs</p>
+                    <p className="text-xl font-bold text-gray-900 mt-1">{analytics.system_metrics.supervisor.total_log_entries}</p>
+                    <p className="text-[11px] text-gray-400">{analytics.system_metrics.supervisor.critical_faults} critical · {analytics.system_metrics.supervisor.warnings} warnings</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Auto-Restarts</p>
+                    <p className="text-xl font-bold text-green-600 mt-1">{analytics.system_metrics.supervisor.auto_restarts}</p>
+                    <p className="text-[11px] text-gray-400">agents recovered</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Compliance Rate</p>
+                    <p className="text-xl font-bold text-green-600 mt-1">{analytics.operational_metrics.compliance.compliance_rate}%</p>
+                    <p className="text-[11px] text-gray-400">{analytics.operational_metrics.compliance.approved_docs}/{analytics.operational_metrics.compliance.total_docs} docs approved</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
