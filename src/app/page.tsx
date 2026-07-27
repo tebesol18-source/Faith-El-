@@ -4255,6 +4255,7 @@ const mockShipmentsData: Shipment[] = [
 function ShipmentsPage() {
   // ─── Live data from backend ───
   const [shipmentsData, setShipmentsData] = useState<typeof mockShipmentsData | null>(null);
+  const [vesselTracking, setVesselTracking] = useState<any[]>([]);
   const [filter, setFilter] = useState("All");
   const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
 
@@ -4275,8 +4276,16 @@ function ShipmentsPage() {
         console.warn("[ShipmentsPage] API fetch failed, using mock data:", err);
         setShipmentsData(mockShipmentsData);
       });
+    // Fetch vessel tracking
+    fetch("/api/vessel-tracking")
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((data) => { if (!cancelled && data.ok) setVesselTracking(data.vessels || []); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+
+  // Helper: get vessel tracking for a shipment
+  const getVesselData = (shipmentId: string) => vesselTracking.find((v) => v.shipment_id === shipmentId);
 
   // Loading state
   if (!shipmentsData) {
@@ -4403,6 +4412,54 @@ function ShipmentsPage() {
           );
         })}
       </div>
+
+      {/* Vessel Tracking Live Banner */}
+      {vesselTracking.length > 0 && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100">
+                <Ship className="h-4 w-4 text-blue-600" strokeWidth={1.5} />
+              </div>
+              <h3 className="text-sm font-semibold text-gray-900">Live Vessel Tracking</h3>
+              <span className="text-xs text-gray-400">· {vesselTracking.length} vessel{vesselTracking.length > 1 ? "s" : ""} at sea</span>
+            </div>
+            <span className="text-[10px] text-gray-400">Simulated MarineTraffic feed · updates on refresh</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {vesselTracking.map((v) => {
+              const pos = v.current_position;
+              const weather = v.weather;
+              const hasAlerts = v.alerts && v.alerts.length > 0;
+              return (
+                <div key={v.shipment_id} className={cn(
+                  "rounded-lg border bg-white p-3",
+                  hasAlerts ? "border-amber-200" : "border-gray-200"
+                )}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-gray-900">{v.vessel_name}</span>
+                    <span className={cn(
+                      "text-[10px] font-medium px-1.5 py-0.5 rounded",
+                      pos.status === "Arrived" ? "bg-green-50 text-green-700"
+                      : pos.status === "Approaching Port" ? "bg-amber-50 text-amber-700"
+                      : "bg-blue-50 text-blue-700"
+                    )}>{pos.status}</span>
+                  </div>
+                  <div className="space-y-0.5 text-[11px] text-gray-500">
+                    <div>📍 {pos.nearest_land} ({pos.lat.toFixed(2)}°, {pos.lon.toFixed(2)}°)</div>
+                    <div>🚢 {v.speed_knots} kn · HDG {v.heading}° · IMO {v.imo}</div>
+                    <div>📊 Progress: {v.route_progress_pct}% · ETA {v.days_to_arrival}d</div>
+                    <div>🌤️ {weather.condition} · {weather.wind_knots}kt wind · {weather.wave_height_m.toFixed(1)}m waves</div>
+                    {hasAlerts && v.alerts.map((alert: string, i: number) => (
+                      <div key={i} className="text-amber-600 font-medium">⚠️ {alert}</div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Shipment cards — DECLUTTERED */}
       <div className="space-y-3">
