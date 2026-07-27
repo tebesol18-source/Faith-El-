@@ -425,6 +425,20 @@ function TopHeader({ userRole, onLogout }: { userRole: "admin" | "seller"; onLog
                               )}
                             </div>
                           )}
+                          {/* Buyer memory — "What I know about this buyer" */}
+                          {p.reasoning.buyer_memory_summary && p.reasoning.buyer_memory_summary.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-indigo-100">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">What I Know About This Buyer</p>
+                              <div className="space-y-0.5">
+                                {p.reasoning.buyer_memory_summary.map((item: string, i: number) => (
+                                  <div key={i} className="flex gap-1.5 text-[11px] text-gray-600">
+                                    <span className="text-indigo-400 shrink-0">•</span>
+                                    <span>{item}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           {/* Buyer memory — what Agent 3 knows about this buyer */}
                           {p.reasoning.buyer_memory && (
                             <div className="mt-2 pt-2 border-t border-indigo-100">

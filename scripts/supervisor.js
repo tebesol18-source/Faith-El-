@@ -445,6 +445,131 @@ class Supervisor {
     }
   }
 
+  /** Derive and store rich buyer memories from all available data sources */
+  deriveBuyerMemories(leadId) {
+    const now = nowISO();
+    const memories = [];
+
+    // 1. From contracts
+    const contracts = this.db.prepare(`
+      SELECT c.total_value, c.total_volume_bags, c.incoterm, c.payment_terms,
+             cli.lot_id, lt.region, lt.process, lt.cupping_score
+      FROM contracts c
+      LEFT JOIN contract_line_items cli ON c.contract_id = cli.contract_id AND cli.deleted_ts IS NULL
+      LEFT JOIN lots lt ON cli.lot_id = lt.lot_id
+      WHERE c.lead_id = ? AND c.deleted_ts IS NULL
+    `).all(leadId);
+
+    if (contracts.length > 0) {
+      const totalValue = contracts.reduce((s, c) => s + (c.total_value || 0), 0);
+      const totalBags = contracts.reduce((s, c) => s + (c.total_volume_bags || 0), 0);
+      const incoterms = [...new Set(contracts.map(c => c.incoterm).filter(Boolean))];
+      const paymentTerms = [...new Set(contracts.map(c => c.payment_terms).filter(Boolean))];
+      const regions = [...new Set(contracts.map(c => c.region).filter(Boolean))];
+      const processes = [...new Set(contracts.map(c => c.process).filter(Boolean))];
+
+      memories.push({ key: "total_contracts", value: String(contracts.length), type: "history", source: "contract", confidence: 1.0 });
+      memories.push({ key: "total_spent_usd", value: String(totalValue), type: "history", source: "contract", confidence: 1.0 });
+      memories.push({ key: "total_volume_bags", value: String(totalBags), type: "history", source: "contract", confidence: 1.0 });
+      if (incoterms.length > 0) memories.push({ key: "preferred_incoterm", value: incoterms.join(", "), type: "preference", source: "contract", confidence: 0.9 });
+      if (paymentTerms.length > 0) memories.push({ key: "preferred_payment_terms", value: paymentTerms.join(", "), type: "preference", source: "contract", confidence: 0.9 });
+      if (regions.length > 0) memories.push({ key: "purchased_origins", value: regions.join(", "), type: "preference", source: "contract", confidence: 0.9 });
+      if (processes.length > 0) memories.push({ key: "purchased_processes", value: processes.join(", "), type: "preference", source: "contract", confidence: 0.9 });
+    }
+
+    // 2. From samples
+    const samples = this.db.prepare(`
+      SELECT sr.status, sd.decision, cs.total_score
+      FROM sample_requests sr
+      LEFT JOIN sample_decisions sd ON sr.sample_request_id = sd.sample_request_id
+      LEFT JOIN cupping_scores cs ON sr.sample_request_id = cs.sample_request_id
+      WHERE sr.lead_id = ? AND sr.deleted_ts IS NULL
+    `).all(leadId);
+
+    if (samples.length > 0) {
+      const approved = samples.filter(s => s.decision === "approved").length;
+      const rejected = samples.filter(s => s.decision === "rejected").length;
+      memories.push({ key: "total_samples", value: String(samples.length), type: "history", source: "sample", confidence: 1.0 });
+      if (approved > 0) memories.push({ key: "samples_approved", value: String(approved), type: "history", source: "sample", confidence: 1.0 });
+      if (rejected > 0) memories.push({ key: "samples_rejected", value: String(rejected), type: "history", source: "sample", confidence: 1.0 });
+    }
+
+    // 3. From agent feedback
+    const feedback = this.db.prepare(`
+      SELECT decision, feedback_reason, seller_notes
+      FROM agent_feedback WHERE target_entity_id = ? ORDER BY created_ts DESC LIMIT 5
+    `).all(leadId);
+
+    if (feedback.length > 0) {
+      const rejects = feedback.filter(f => f.decision === "rejected");
+      if (rejects.length > 0) {
+        const reasons = [...new Set(rejects.map(r => r.feedback_reason).filter(Boolean))];
+        memories.push({ key: "seller_reject_reasons", value: reasons.join(", "), type: "feedback", source: "agent_feedback", confidence: 0.95 });
+        const notes = rejects.filter(r => r.seller_notes).map(r => r.seller_notes);
+        if (notes.length > 0) memories.push({ key: "seller_feedback_notes", value: notes.join(" | "), type: "feedback", source: "agent_feedback", confidence: 0.95 });
+      }
+    }
+
+    // 4. From inbox messages
+    const messages = this.db.prepare(`
+      SELECT im.direction FROM inbox_messages im
+      JOIN message_threads mt ON im.thread_id = mt.thread_id
+      WHERE mt.lead_id = ? AND im.direction = 'inbound'
+    `).all(leadId);
+
+    if (messages.length > 0) {
+      memories.push({ key: "has_responded", value: "true", type: "behavior", source: "inbox", confidence: 1.0 });
+      memories.push({ key: "inbound_message_count", value: String(messages.length), type: "behavior", source: "inbox", confidence: 1.0 });
+    }
+
+    // 5. From lead data
+    const lead = this.db.prepare("SELECT priority_tier, recommended_vp, outreach_language, headquarters_country, ghosted_count FROM leads WHERE lead_id = ?").get(leadId);
+    if (lead) {
+      if (lead.priority_tier) memories.push({ key: "buyer_tier", value: lead.priority_tier, type: "profile", source: "lead", confidence: 1.0 });
+      if (lead.recommended_vp) memories.push({ key: "recommended_vp", value: lead.recommended_vp, type: "profile", source: "lead", confidence: 1.0 });
+      if (lead.outreach_language) memories.push({ key: "communication_language", value: lead.outreach_language, type: "profile", source: "lead", confidence: 1.0 });
+      if (lead.headquarters_country) memories.push({ key: "buyer_country", value: lead.headquarters_country, type: "profile", source: "lead", confidence: 1.0 });
+      if (lead.ghosted_count > 0) memories.push({ key: "ghosted_count", value: String(lead.ghosted_count), type: "behavior", source: "lead", confidence: 1.0 });
+    }
+
+    // Upsert all memories
+    for (const m of memories) {
+      this.db.prepare(`
+        INSERT INTO buyer_memory (lead_id, memory_key, memory_value, memory_type, source, confidence, created_ts, updated_ts)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(lead_id, memory_type, memory_key) DO UPDATE SET
+          memory_value = excluded.memory_value,
+          source = excluded.source,
+          confidence = excluded.confidence,
+          updated_ts = excluded.updated_ts
+      `).run(leadId, m.key, m.value, m.type, m.source, m.confidence, now, now);
+    }
+
+    return memories;
+  }
+
+  /** Get all buyer memories for a lead as a structured summary */
+  getBuyerMemories(leadId) {
+    this.deriveBuyerMemories(leadId);
+    const rows = this.db.prepare(`SELECT memory_key, memory_value FROM buyer_memory WHERE lead_id = ?`).all(leadId);
+    const mem = {};
+    rows.forEach(r => { mem[r.memory_key] = r.memory_value; });
+
+    const summary = [];
+    if (mem.total_contracts) summary.push(`${mem.total_contracts} previous contract(s)`);
+    if (mem.total_spent_usd && parseInt(mem.total_spent_usd) > 0) summary.push(`$${parseInt(mem.total_spent_usd).toLocaleString()} total spent`);
+    if (mem.purchased_origins) summary.push(`Previously bought: ${mem.purchased_origins}`);
+    if (mem.purchased_processes) summary.push(`Preferred process: ${mem.purchased_processes}`);
+    if (mem.preferred_incoterm) summary.push(`Preferred incoterm: ${mem.preferred_incoterm}`);
+    if (mem.total_samples) summary.push(`${mem.total_samples} sample(s) sent`);
+    if (mem.samples_approved) summary.push(`${mem.samples_approved} approved`);
+    if (mem.has_responded === "true") summary.push("Has responded to outreach");
+    if (mem.ghosted_count && parseInt(mem.ghosted_count) > 0) summary.push(`Ghosted ${mem.ghosted_count}x`);
+    if (mem.seller_reject_reasons) summary.push(`Seller rejected drafts for: ${mem.seller_reject_reasons}`);
+
+    return { memories: mem, summary };
+  }
+
   /** Get VP rationale for reasoning panel */
   getVPRationale(vp) {
     const rationales = {
@@ -654,8 +779,10 @@ abi@coelrodan.com`;
       // Read past feedback to learn from seller preferences
       const feedback = this.getAgentFeedback("Agent 3", "send_email");
 
-      // Read buyer memory for personalization
+      // Derive fresh buyer memories from all data sources, then read them
+      this.deriveBuyerMemories(lead.lead_id);
       const buyerMemory = this.getBuyerMemory(lead.lead_id);
+      const buyerMemorySummary = this.getBuyerMemories(lead.lead_id);
 
       // Adapt email based on feedback
       let adaptedNotes = [];
@@ -755,6 +882,7 @@ abi@coelrodan.com`;
           latest_seller_note: buyerMemory.preferences.latest_seller_note?.value || buyerMemory.feedback?.latest_seller_note?.value || null,
           adaptations_from_memory: adaptedNotes.filter(n => n.includes("buyer memory")),
         } : null,
+        buyer_memory_summary: buyerMemorySummary.summary.length > 0 ? buyerMemorySummary.summary : null,
       };
 
       this.db.prepare(`
