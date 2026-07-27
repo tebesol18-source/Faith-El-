@@ -2947,6 +2947,7 @@ function NegotiationSimulator({ quote }: { quote: Quote }) {
 function QuotesPage() {
   // ─── Live data from backend ───
   const [quotesData, setQuotesData] = useState<typeof mockQuotesData | null>(null);
+  const [marketPrice, setMarketPrice] = useState<any>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2965,6 +2966,11 @@ function QuotesPage() {
         console.warn("[QuotesPage] API fetch failed, using mock data:", err);
         setQuotesData(mockQuotesData);
       });
+    // Fetch market prices
+    fetch("/api/market-prices")
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((data) => { if (!cancelled && data.ok) setMarketPrice(data); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
@@ -3025,6 +3031,49 @@ function QuotesPage() {
           <Sparkles className="h-4 w-4" /> New Quote (AI Draft)
         </button>
       </div>
+
+      {/* Market Price Ticker */}
+      {marketPrice && (
+        <div className={cn(
+          "rounded-xl border p-4 mb-6 flex items-center justify-between",
+          marketPrice.recommendations.margin_warning_level === "critical" ? "border-red-200 bg-red-50/50"
+          : marketPrice.recommendations.margin_warning_level === "caution" ? "border-amber-200 bg-amber-50/50"
+          : "border-green-200 bg-green-50/30"
+        )}>
+          <div className="flex items-center gap-6">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">ICE Coffee C</p>
+              <div className="flex items-baseline gap-2">
+                <span className="text-xl font-bold text-gray-900">{marketPrice.futures.current}<span className="text-xs font-normal text-gray-400">¢/lb</span></span>
+                <span className={cn("text-sm font-semibold", marketPrice.futures.change >= 0 ? "text-green-600" : "text-red-600")}>
+                  {marketPrice.futures.change >= 0 ? "▲" : "▼"} {Math.abs(marketPrice.futures.change)} ({marketPrice.futures.change_pct}%)
+                </span>
+              </div>
+            </div>
+            <div className="h-8 w-px bg-gray-200" />
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">USD/kg equiv.</p>
+              <p className="text-xl font-bold text-gray-900">${marketPrice.fob_pricing.current_ice_usd_per_kg}<span className="text-xs font-normal text-gray-400">/kg</span></p>
+            </div>
+            <div className="h-8 w-px bg-gray-200" />
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Yirgacheffe</p>
+              <p className="text-xl font-bold text-[#4A3520]">${marketPrice.ethiopian_premiums.usd_per_kg.yirgacheffe}<span className="text-xs font-normal text-gray-400">/kg</span></p>
+            </div>
+            <div className="h-8 w-px bg-gray-200" />
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">USD/ETB</p>
+              <p className="text-xl font-bold text-gray-900">{marketPrice.exchange_rate.usd_to_etb}</p>
+            </div>
+          </div>
+          <div className="text-right max-w-xs">
+            <p className={cn("text-xs font-semibold", marketPrice.recommendations.margin_warning_level === "critical" ? "text-red-700" : marketPrice.recommendations.margin_warning_level === "caution" ? "text-amber-700" : "text-green-700")}>
+              {marketPrice.recommendations.margin_warning_level === "critical" ? "⚠️ Critical" : marketPrice.recommendations.margin_warning_level === "caution" ? "⚡ Caution" : "✓ Normal"}
+            </p>
+            <p className="text-[11px] text-gray-500">{marketPrice.recommendations.recommendation.substring(0, 80)}…</p>
+          </div>
+        </div>
+      )}
 
       {/* AI Insight Banner */}
       <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-5 mb-6">
