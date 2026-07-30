@@ -98,15 +98,12 @@ let _asyncStorage: any = null;
 function getAsyncStorage(): any {
   if (_asyncStorage !== null) return _asyncStorage;
   try {
-    // Only attempt the require in Node runtime
-    if (typeof process !== "undefined" && process.versions?.node) {
-      const { AsyncLocalStorage } = require("async_hooks");
-      _asyncStorage = new AsyncLocalStorage();
-    } else {
-      _asyncStorage = false;  // Edge runtime — not available
-    }
+    // In Edge runtime, require() throws. In Node, it works.
+    // We catch the error and return false for Edge.
+    const { AsyncLocalStorage } = require("async_hooks");
+    _asyncStorage = new AsyncLocalStorage();
   } catch {
-    _asyncStorage = false;
+    _asyncStorage = false;  // Edge runtime — not available
   }
   return _asyncStorage;
 }
