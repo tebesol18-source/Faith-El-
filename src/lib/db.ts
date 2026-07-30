@@ -8,17 +8,35 @@ import fs from "fs";
 
 let dbPath: string | null = null;
 
-/** Resolve the database path once and cache it */
+/** Resolve the database path once and cache it.
+ *
+ *  Resolution order:
+ *    1. DATABASE_PATH env var (explicit override — use in production)
+ *    2. ../coffee_export/data/coffee_export.db (dev: project root + ../coffee_export)
+ *    3. ./coffee_export/data/coffee_export.db (alt dev layout)
+ *    4. /home/z/my-project/coffee_export/data/coffee_export.db (last-resort absolute)
+ */
 export function getDbPath(): string {
   if (dbPath) return dbPath;
-  const candidates = [
+
+  const candidates: string[] = [];
+
+  // 1. Env var override
+  if (process.env.DATABASE_PATH) {
+    candidates.push(process.env.DATABASE_PATH);
+  }
+
+  // 2-4. Default locations
+  candidates.push(
     path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
     path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
     "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
+  );
+
   for (const p of candidates) {
     if (fs.existsSync(p)) { dbPath = p; return p; }
   }
+  // None exist — return the last candidate so the error message is useful
   dbPath = candidates[candidates.length - 1];
   return dbPath;
 }

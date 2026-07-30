@@ -202,3 +202,75 @@ Stage Summary:
   - Admin has full visibility into who's logged in and what actions have been taken
 - **Tests**: 175 passing (added 22 new tests for Phase 3 features).
 - **Files added**: 1 Alembic migration, 2 lib files (audit, sessions), 4 new API routes (change-password, logout, audit-log, sessions + revoke), 1 page component (ChangePasswordPage), 1 test file.
+
+---
+Task ID: phase-4a
+Agent: main (super-z)
+Task: Phase 4A — Foundation + Safety (structured logging, health endpoint, env secrets, backups, cleanup)
+
+Work Log:
+- **Recovery**: Working directory was reset to pre-Phase-1 state. Recovered from `/tmp/my-project/download/coffee-export-erp-phase3.zip` — restored all src/, tests/, scripts/, migration files. Ran `alembic upgrade head` to bring DB from `a1b2c3d4e5f6` → `e6f7a8b9c0d1` (4 migrations). Created `scripts/seed-demo-operators.py` to add the missing admin-001 + exporter-002 operator accounts. Verified all 175 Phase 3 tests pass.
+- **Git baseline**: Committed restored state as `fd31b47` + tagged `v0.3-phase3`.
+- **Structured logger** (`src/lib/logger.ts`):
+  - 5 levels: debug, info, warn, error, fatal
+  - JSON output via `console.*` (works in both Node + Edge runtimes)
+  - Automatic redaction of sensitive fields (password, token, password_hash, etc.) — including nested + array elements
+  - Request ID propagation via `x-request-id` header + AsyncLocalStorage (with global fallback for Edge)
+  - `getRequestLogger(request)` helper for route handlers
+  - `LOG_LEVEL` env var controls minimum level (debug in dev, info in prod)
+- **Middleware update** (`src/middleware.ts`):
+  - Generates or accepts `x-request-id` header on every /api/* request
+  - Logs `request.start` with method, path, IP, user-agent
+  - Logs `request.rate_limited` when 429 is returned
+  - Echoes `x-request-id` back in the response
+- **Health endpoint** (`GET /api/health`):
+  - Rich JSON shape: `{ ok, status, database, supervisor, queueDepth, uptime, version, timestamp, checks, degraded? }`
+  - DB check: liveness probe + queue depth (pending events) + supervisor last-run timestamp
+  - Status logic: `healthy` (DB up + supervisor running + queue < 50), `degraded` (supervisor stopped or queue backed up), `down` (DB unreachable)
+  - Returns 200 for healthy/degraded, 503 for down
+  - Public (no auth) — safe for external monitors
+  - Best-effort disk space check via `fs.statfsSync`
+- **Env-based secrets** (`.env.example`):
+  - Documented all configurable env vars: `LOG_LEVEL`, `DATABASE_PATH`, `BCRYPT_COST`, `SESSION_LIFETIME_HOURS`, rate limit values, backup config, cleanup retention, demo credentials
+  - Updated `src/lib/db.ts` to honor `DATABASE_PATH` env var (first priority in resolution order)
+  - Updated `src/lib/password.ts` to honor `BCRYPT_COST` env var (default 10, validated 4-31)
+  - Updated `src/lib/sessions.ts` to honor `SESSION_LIFETIME_HOURS` env var (default 168 = 7 days)
+- **Backup script** (`scripts/backup-db.sh`):
+  - Online SQLite backup via `sqlite3 .backup` (safe under load), falls back to `cp` if sqlite3 CLI missing
+  - Integrity check on the backup file
+  - Gzip compression (saves ~60%)
+  - Retention policy (default 30 days, configurable via `BACKUP_RETENTION_DAYS`)
+  - Tested: created `coffee_export_20260730T082341Z.db.gz` (80K)
+- **Restore script** (`scripts/restore-db.sh`):
+  - Interactive confirmation (type 'RESTORE' to proceed)
+  - Creates safety backup of current DB before overwriting (`.pre-restore.bak`)
+  - Stops the running app first (best-effort)
+  - Handles both .gz and plain .db files
+  - Integrity check after restore
+- **Backup/restore docs** (`docs/backup-restore.md`):
+  - Cron + systemd timer setup instructions
+  - Manual backup + restore procedures
+  - What's included/excluded in backups
+  - Testing your backups (critical!)
+  - Offsite backup recommendations (S3, rsync)
+  - Disaster recovery runbook (15-30 min RTO)
+- **Cleanup script** (`scripts/cleanup.ts`):
+  - Deletes expired sessions (expires_ts in the past)
+  - Deletes revoked sessions older than `SESSION_CLEANUP_RETENTION_DAYS` (default 7)
+  - Archives old audit log entries to JSONL file before deleting (default 90 days)
+  - Runs VACUUM to reclaim free space
+  - Configurable via `AUDIT_LOG_RETENTION_DAYS` + `SESSION_CLEANUP_RETENTION_DAYS` env vars
+  - Tested: archived + deleted 1 old audit entry, deleted 1 old revoked session
+- **Tests**:
+  - `tests/lib/logger.test.ts` — 17 unit tests (levels, redaction, request context, generateRequestId)
+  - `tests/integration/health.test.ts` — 15 integration tests (JSON shape, status values, rate-limit headers, request ID propagation)
+- All 207 tests pass (175 from Phase 3 + 32 new). TypeScript clean.
+
+Stage Summary:
+- **Structured logging**: Every /api/* request now has a request ID + JSON log entries with redacted sensitive fields. Ready for ELK/Datadog/CloudWatch.
+- **Health endpoint**: `/api/health` returns rich JSON — usable by load balancers, uptime monitors, and the Admin UI.
+- **Env-based secrets**: No more hardcoded DB path or bcrypt cost. `.env.example` documents every option.
+- **Backups**: `scripts/backup-db.sh` creates online backups with integrity check + retention. `scripts/restore-db.sh` restores safely with confirmation + safety backup. `docs/backup-restore.md` covers setup + DR.
+- **Cleanup**: `scripts/cleanup.ts` keeps the sessions + audit_log tables from growing forever. Archives audit entries to JSONL before deleting.
+- **Tests**: 207 passing (added 32 for logger + health).
+- **Files added**: 1 lib file (logger), 1 API route (health), 1 .env.example, 2 shell scripts (backup + restore), 1 TypeScript script (cleanup), 1 docs file, 2 test files.

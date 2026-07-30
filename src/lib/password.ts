@@ -19,8 +19,14 @@ import bcrypt from "bcryptjs";
  *  12 = ~200ms per hash (better for public-facing apps)
  *  Changing this only affects NEW hashes — existing hashes retain their
  *  original cost factor and continue to verify correctly.
+ *
+ *  Override via BCRYPT_COST env var (see .env.example).
  */
-const BCRYPT_COST = 10;
+const BCRYPT_COST = (() => {
+  const env = parseInt(process.env.BCRYPT_COST || "10", 10);
+  if (isNaN(env) || env < 4 || env > 31) return 10;  // bcrypt limits: 4-31
+  return env;
+})();
 
 /** Minimum password length accepted by the login route.
  *  Passwords shorter than this are rejected up-front before bcrypt runs

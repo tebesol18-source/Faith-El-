@@ -20,8 +20,16 @@
 import crypto from "crypto";
 import { getWritableDb, getReadonlyDb } from "@/lib/db";
 
-/** Session lifetime in milliseconds (7 days). */
-export const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+/** Session lifetime in milliseconds.
+ *
+ *  Default: 7 days (168 hours).
+ *  Override via SESSION_LIFETIME_HOURS env var (see .env.example).
+ */
+export const SESSION_LIFETIME_MS = (() => {
+  const hours = parseInt(process.env.SESSION_LIFETIME_HOURS || "168", 10);
+  if (isNaN(hours) || hours < 1) return 7 * 24 * 60 * 60 * 1000;  // fallback: 7 days
+  return hours * 60 * 60 * 1000;
+})();
 
 export interface Session {
   id: string;
