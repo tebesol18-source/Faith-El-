@@ -74,12 +74,15 @@ pkill -f "next-server" 2>/dev/null && echo "  ✓ Stopped next-server" || echo "
 pkill -f "node.*supervisor" 2>/dev/null && echo "  ✓ Stopped supervisor" || echo "  · supervisor not running"
 sleep 2
 
-# ─── Safety backup of the current DB ───
+# ─── Safety backup of the current DB (if it exists) ───
+SAFETY_BAK=""
 if [ -f "$DB_PATH" ]; then
   SAFETY_BAK="${DB_PATH}.pre-restore.bak"
   echo "[$(date -u +%FT%TZ)] Creating safety backup: $SAFETY_BAK"
   cp "$DB_PATH" "$SAFETY_BAK"
   echo "  ✓ Safety backup created"
+else
+  echo "[$(date -u +%FT%TZ)] No existing DB to back up (fresh install)"
 fi
 
 # ─── Restore ───
@@ -105,7 +108,9 @@ if command -v sqlite3 >/dev/null 2>&1; then
     echo "  ✓ Integrity check passed"
   else
     echo "  ❌ Integrity check FAILED: $INTEGRITY" >&2
-    echo "  The safety backup is still available at: $SAFETY_BAK" >&2
+    if [ -n "$SAFETY_BAK" ]; then
+      echo "  The safety backup is still available at: $SAFETY_BAK" >&2
+    fi
     exit 1
   fi
 fi
@@ -115,6 +120,8 @@ SIZE=$(du -h "$DB_PATH" | cut -f1)
 echo ""
 echo "[$(date -u +%FT%TZ)] Restore complete."
 echo "  Database: $DB_PATH ($SIZE)"
-echo "  Safety backup: $SAFETY_BAK"
+if [ -n "$SAFETY_BAK" ]; then
+  echo "  Safety backup: $SAFETY_BAK"
+fi
 echo ""
 echo "You can now restart the app: npm run dev"
