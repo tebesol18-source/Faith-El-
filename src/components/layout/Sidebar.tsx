@@ -83,7 +83,7 @@ export function Sidebar({ currentPage, onNavigate, expanded, onToggle, navGroups
           {expanded && (
             <div className="flex-1 text-left overflow-hidden">
               <p className="text-sm font-semibold text-gray-900 truncate">Abi Solomon</p>
-              <p className="text-xs text-gray-400 truncate">Coelrodan PLC</p>
+              <p className="text-xs text-gray-400 truncate">Faith-El PLC</p>
             </div>
           )}
           {expanded && <ChevronDown className="h-4 w-4 text-gray-300 shrink-0" />}

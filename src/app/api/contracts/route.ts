@@ -180,7 +180,7 @@ export async function GET(request: NextRequest) {
           buyerCountry: row.buyer_country || "Unknown",
           buyerContact: row.contact_name || "—",
           buyerEmail: row.contact_email || "—",
-          seller: "Coelrodan PLC",
+          seller: "Faith-El PLC",
           sellerContact: "Abi Solomon",
           agent: "Coffee Trade Desk",
           commissionPct: 2,

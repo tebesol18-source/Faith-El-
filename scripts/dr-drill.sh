@@ -183,7 +183,7 @@ step_done
 # ─── Step 9: Verify login works ───
 step "Verify login with restored credentials"
 LOGIN_RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" \
-  -d '{"email":"admin@coelrodan.com","password":"admin123"}' \
+  -d '{"email":"admin@faithel.com","password":"admin123"}' \
   "http://localhost:$DR_PORT/api/auth/login")
 echo "  Response: $(echo "$LOGIN_RESPONSE" | head -c 200)..."
 

@@ -10,7 +10,7 @@ import { ADMIN_EMAIL, setAuthToken } from "@/lib/auth-client";
 export function LoginPage({ onLogin }: {
   onLogin: (data: { role: "admin" | "seller"; email: string; mustChangePassword?: boolean }) => void;
 }) {
-  const [email, setEmail] = useState("abi@coelrodan.com");
+  const [email, setEmail] = useState("abi@faithel.com");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -95,7 +95,7 @@ export function LoginPage({ onLogin }: {
           </div>
 
           <div className="text-xs text-white/40">
-            © 2026 Coelrodan PLC · Powered by Coffee Export ERP
+            © 2026 Faith-El PLC · Powered by Coffee Export ERP
           </div>
         </div>
       </div>
@@ -223,14 +223,14 @@ export function LoginPage({ onLogin }: {
               {/* Seller quick-fill */}
               <button
                 type="button"
-                onClick={() => { setEmail("abi@coelrodan.com"); setPassword("coffee123"); setError(""); }}
+                onClick={() => { setEmail("abi@faithel.com"); setPassword("coffee123"); setError(""); }}
                 className="w-full flex items-center justify-between rounded-md bg-white border border-gray-200 px-3 py-2 text-left hover:bg-gray-50 transition-colors"
               >
                 <div className="flex items-center gap-2">
                   <Users className="h-4 w-4 text-gray-500" />
                   <div>
                     <p className="text-xs font-semibold text-gray-900">Seller (Operator)</p>
-                    <p className="text-[11px] text-gray-500 font-mono">abi@coelrodan.com · coffee123</p>
+                    <p className="text-[11px] text-gray-500 font-mono">abi@faithel.com · coffee123</p>
                   </div>
                 </div>
                 <span className="text-[10px] text-gray-500 font-medium">Use →</span>

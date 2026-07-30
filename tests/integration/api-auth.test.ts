@@ -44,7 +44,7 @@ async function getAdminToken(): Promise<string> {
   const r = await fetch(`${BASE_URL}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-    body: JSON.stringify({ email: "admin@coelrodan.com", password: "admin123" }),
+    body: JSON.stringify({ email: "admin@faithel.com", password: "admin123" }),
   });
   const d = await r.json();
   if (!d.ok) throw new Error(`Admin login failed: ${d.error}`);
@@ -57,7 +57,7 @@ async function getSellerToken(): Promise<string> {
   const r = await fetch(`${BASE_URL}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-    body: JSON.stringify({ email: "abi@coelrodan.com", password: "coffee123" }),
+    body: JSON.stringify({ email: "abi@faithel.com", password: "coffee123" }),
   });
   const d = await r.json();
   if (!d.ok) throw new Error(`Seller login failed: ${d.error}`);
@@ -173,7 +173,7 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
           "Content-Type": "application/json",
           "x-forwarded-for": uniqueIp(),
         },
-        body: JSON.stringify({ email: "admin@coelrodan.com", password: "wrong" }),
+        body: JSON.stringify({ email: "admin@faithel.com", password: "wrong" }),
       });
       expect(r.status).toBe(401);
     });
@@ -197,7 +197,7 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
           "Content-Type": "application/json",
           "x-forwarded-for": uniqueIp(),
         },
-        body: JSON.stringify({ email: "admin@coelrodan.com", password: "admin123" }),
+        body: JSON.stringify({ email: "admin@faithel.com", password: "admin123" }),
       });
       expect(r.status).toBe(200);
       const body = await r.json();
@@ -215,7 +215,7 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
           "Content-Type": "application/json",
           "x-forwarded-for": uniqueIp(),
         },
-        body: JSON.stringify({ email: "abi@coelrodan.com", password: "demo" }),
+        body: JSON.stringify({ email: "abi@faithel.com", password: "demo" }),
       });
       expect(r.status).toBe(401);
     });
@@ -227,7 +227,7 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
           "Content-Type": "application/json",
           "x-forwarded-for": uniqueIp(),
         },
-        body: JSON.stringify({ email: "abi@coelrodan.com", password: "coffee123" }),
+        body: JSON.stringify({ email: "abi@faithel.com", password: "coffee123" }),
       });
       expect(r.status).toBe(200);
       const body = await r.json();
@@ -258,7 +258,7 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
           "Content-Type": "application/json",
           "x-forwarded-for": uniqueIp(),
         },
-        body: JSON.stringify({ email: "admin@coelrodan.com", password: "a".repeat(201) }),
+        body: JSON.stringify({ email: "admin@faithel.com", password: "a".repeat(201) }),
       });
       expect(r.status).toBe(401);
     });
@@ -308,7 +308,7 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
           "Content-Type": "application/json",
           "x-forwarded-for": uniqueIp(),
         },
-        body: JSON.stringify({ name: "Imposter", email: "abi@coelrodan.com" }),
+        body: JSON.stringify({ name: "Imposter", email: "abi@faithel.com" }),
       });
       expect(r.status).toBe(409);
       const body = await r.json();
@@ -389,7 +389,7 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
       const loginR = await fetch(`${BASE_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-        body: JSON.stringify({ email: "abi@coelrodan.com", password: "coffee123" }),
+        body: JSON.stringify({ email: "abi@faithel.com", password: "coffee123" }),
       });
       const loginD = await loginR.json();
       const token = loginD.token;

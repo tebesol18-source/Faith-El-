@@ -40,7 +40,7 @@ auth_client = '''"use client";
  * Used by every page component to send authenticated API requests.
  */
 
-export const ADMIN_EMAIL = "admin@coelrodan.com";
+export const ADMIN_EMAIL = "admin@faithel.com";
 
 let _authToken: string | null = null;
 

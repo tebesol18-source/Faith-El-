@@ -3,8 +3,8 @@
 Seed the demo operator accounts needed for the ERP.
 
 Creates (if they don't already exist):
-  - admin-001    (admin@coelrodan.com)       — admin role
-  - exporter-002 (abi@coelrodan.com)         — operator role
+  - admin-001    (admin@faithel.com)       — admin role
+  - exporter-002 (abi@faithel.com)         — operator role
 
 Each gets a bcrypt-hashed password (cost factor 10).
 
@@ -22,14 +22,14 @@ OPERATORS = [
     {
         "operator_id": "admin-001",
         "name": "System Administrator",
-        "email": "admin@coelrodan.com",
+        "email": "admin@faithel.com",
         "role": "admin",
         "password": "admin123",
     },
     {
         "operator_id": "exporter-002",
         "name": "Abi Solomon",
-        "email": "abi@coelrodan.com",
+        "email": "abi@faithel.com",
         "role": "operator",
         "password": "coffee123",
     },

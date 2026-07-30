@@ -5,9 +5,9 @@
  * This is a one-time script you run after applying the c4d5e6f7a8b9 migration.
  * It populates the `password_hash` column for:
  *
- *   - admin@coelrodan.com      → password: admin123       (role: admin)
+ *   - admin@faithel.com      → password: admin123       (role: admin)
  *   - exporter-001@...com      → password: exporter001    (role: operator)
- *   - abi@coelrodan.com        → password: demo           (role: operator)
+ *   - abi@faithel.com        → password: demo           (role: operator)
  *
  * After running this, the login route verifies the bcrypt hash —
  * "any password works" behavior is gone.
@@ -37,7 +37,7 @@ const SEED_ACCOUNTS = [
   {
     operator_id: "admin-001",
     name: "System Administrator",
-    email: "admin@coelrodan.com",
+    email: "admin@faithel.com",
     role: "admin",
     password: "admin123",
   },
@@ -51,7 +51,7 @@ const SEED_ACCOUNTS = [
   {
     operator_id: "exporter-002",
     name: "Abi Solomon",
-    email: "abi@coelrodan.com",
+    email: "abi@faithel.com",
     role: "operator",
     password: "exporter002",
   },

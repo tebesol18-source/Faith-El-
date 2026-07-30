@@ -9,7 +9,7 @@
  *      + the CSRF header on mutations
  *
  * Usage:
- *   const client = await createTestClient("admin@coelrodan.com", "admin123");
+ *   const client = await createTestClient("admin@faithel.com", "admin123");
  *   const r = await client.fetch("/api/admin/operators", { method: "POST", body: ... });
  */
 
@@ -39,7 +39,7 @@ function extractCookies(response: Response): Record<string, string> {
 }
 
 export async function createTestClient(
-  email: string = "admin@coelrodan.com",
+  email: string = "admin@faithel.com",
   password: string = "admin123",
   ip: string = "150.0.0.1"
 ): Promise<TestClient> {
@@ -121,7 +121,7 @@ let _sellerClient: Promise<TestClient> | null = null;
 /** Get a cached admin test client (creates one on first call). */
 export function getAdminClient(): Promise<TestClient> {
   if (!_adminClient) {
-    _adminClient = createTestClient("admin@coelrodan.com", "admin123", "150.0.0.10");
+    _adminClient = createTestClient("admin@faithel.com", "admin123", "150.0.0.10");
   }
   return _adminClient;
 }
@@ -129,7 +129,7 @@ export function getAdminClient(): Promise<TestClient> {
 /** Get a cached seller test client (creates one on first call). */
 export function getSellerClient(): Promise<TestClient> {
   if (!_sellerClient) {
-    _sellerClient = createTestClient("abi@coelrodan.com", "coffee123", "150.0.0.11");
+    _sellerClient = createTestClient("abi@faithel.com", "coffee123", "150.0.0.11");
   }
   return _sellerClient;
 }

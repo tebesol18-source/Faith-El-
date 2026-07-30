@@ -74,7 +74,7 @@ const contractStatusConfig: Record<ContractStatus, { label: string; bg: string; 
 const contractsData: Contract[] = [
   {
     id: "CT-2026-0003", quoteId: "QU-2026-0003", buyer: "Blue Mountain Traders", buyerCountry: "Germany",
-    buyerContact: "Hans Müller", buyerEmail: "h.mueller@bluemountain.de", seller: "Coelrodan PLC", sellerContact: "Abi Solomon",
+    buyerContact: "Hans Müller", buyerEmail: "h.mueller@bluemountain.de", seller: "Faith-El PLC", sellerContact: "Abi Solomon",
     agent: "Coffee Trade Desk", commissionPct: 2,
     status: "in_progress", incoterm: "CIF Hamburg", destinationPort: "Hamburg", destinationCity: "Hamburg", flag: "🇩🇪",
     currency: "USD", totalValue: 84600, weightKg: 16000,
@@ -95,7 +95,7 @@ const contractsData: Contract[] = [
   },
   {
     id: "CT-2026-0004", quoteId: "QU-2026-0004", buyer: "Marcus Coffee GmbH", buyerCountry: "Germany",
-    buyerContact: "Marcus Bauer", buyerEmail: "marcus@marcuscoffee.de", seller: "Coelrodan PLC", sellerContact: "Abi Solomon",
+    buyerContact: "Marcus Bauer", buyerEmail: "marcus@marcuscoffee.de", seller: "Faith-El PLC", sellerContact: "Abi Solomon",
     agent: "Coffee Trade Desk", commissionPct: 2,
     status: "pending_buyer_sig", incoterm: "CIF Hamburg", destinationPort: "Hamburg", destinationCity: "Hamburg", flag: "🇩🇪",
     currency: "USD", totalValue: 70500, weightKg: 10000,
@@ -117,7 +117,7 @@ const contractsData: Contract[] = [
   },
   {
     id: "CT-2026-0005", quoteId: "QU-2026-0006", buyer: "Hashimoto Coffee", buyerCountry: "Japan",
-    buyerContact: "Yuki Hashimoto", buyerEmail: "y.hashimoto@hashimoto-coffee.jp", seller: "Coelrodan PLC", sellerContact: "Abi Solomon",
+    buyerContact: "Yuki Hashimoto", buyerEmail: "y.hashimoto@hashimoto-coffee.jp", seller: "Faith-El PLC", sellerContact: "Abi Solomon",
     agent: "Coffee Trade Desk", commissionPct: 2,
     status: "pending_seller_sig", incoterm: "CIF Yokohama", destinationPort: "Yokohama", destinationCity: "Yokohama", flag: "🇯🇵",
     currency: "USD", totalValue: 67800, weightKg: 10000,
@@ -139,7 +139,7 @@ const contractsData: Contract[] = [
   },
   {
     id: "CT-2026-0002", quoteId: "QU-2026-0002", buyer: "Rösterei Berlin", buyerCountry: "Germany",
-    buyerContact: "Anna Schmidt", buyerEmail: "anna@roesterei-berlin.de", seller: "Coelrodan PLC", sellerContact: "Abi Solomon",
+    buyerContact: "Anna Schmidt", buyerEmail: "anna@roesterei-berlin.de", seller: "Faith-El PLC", sellerContact: "Abi Solomon",
     agent: "Coffee Trade Desk", commissionPct: 2,
     status: "cancelled", incoterm: "FOB Djibouti", destinationPort: "Hamburg", destinationCity: "Hamburg", flag: "🇩🇪",
     currency: "USD", totalValue: 39000, weightKg: 5000,
@@ -157,7 +157,7 @@ const contractsData: Contract[] = [
   },
   {
     id: "CT-2026-0007", quoteId: "QU-2026-0007", buyer: "Aurora Imports", buyerCountry: "USA",
-    buyerContact: "Sarah Chen", buyerEmail: "sarah@auroraimports.com", seller: "Coelrodan PLC", sellerContact: "Abi Solomon",
+    buyerContact: "Sarah Chen", buyerEmail: "sarah@auroraimports.com", seller: "Faith-El PLC", sellerContact: "Abi Solomon",
     agent: "Coffee Trade Desk", commissionPct: 2,
     status: "draft", incoterm: "CIF New York", destinationPort: "New York", destinationCity: "New York", flag: "🇺🇸",
     currency: "USD", totalValue: 22500, weightKg: 3000,
@@ -178,7 +178,7 @@ const contractsData: Contract[] = [
   },
   {
     id: "CT-2025-0195", quoteId: "QU-2025-0198", buyer: "Marcus Coffee GmbH", buyerCountry: "Germany",
-    buyerContact: "Marcus Bauer", buyerEmail: "marcus@marcuscoffee.de", seller: "Coelrodan PLC", sellerContact: "Abi Solomon",
+    buyerContact: "Marcus Bauer", buyerEmail: "marcus@marcuscoffee.de", seller: "Faith-El PLC", sellerContact: "Abi Solomon",
     agent: "Coffee Trade Desk", commissionPct: 2,
     status: "completed", incoterm: "CIF Hamburg", destinationPort: "Hamburg", destinationCity: "Hamburg", flag: "🇩🇪",
     currency: "USD", totalValue: 58900, weightKg: 8000,
@@ -197,7 +197,7 @@ const contractsData: Contract[] = [
   },
   {
     id: "CT-2026-0008", quoteId: "QU-2026-0008", buyer: "Seoul Coffee Lab", buyerCountry: "South Korea",
-    buyerContact: "Min-jun Park", buyerEmail: "park@seoulcoffee.kr", seller: "Coelrodan PLC", sellerContact: "Abi Solomon",
+    buyerContact: "Min-jun Park", buyerEmail: "park@seoulcoffee.kr", seller: "Faith-El PLC", sellerContact: "Abi Solomon",
     agent: "Coffee Trade Desk", commissionPct: 2,
     status: "executed", incoterm: "CIF Busan", destinationPort: "Busan", destinationCity: "Busan", flag: "🇰🇷",
     currency: "USD", totalValue: 27600, weightKg: 4000,

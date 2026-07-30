@@ -16,9 +16,9 @@ function makeSession(operatorId: string, email: string, role: "admin" | "seller"
 
 // Known operators from the seed data
 const ADMIN_OP_ID = "admin-001";
-const ADMIN_EMAIL = "admin@coelrodan.com";
+const ADMIN_EMAIL = "admin@faithel.com";
 const SELLER_OP_ID = "exporter-002";
-const SELLER_EMAIL = "abi@coelrodan.com";
+const SELLER_EMAIL = "abi@faithel.com";
 
 function makeRequest(token: string | null, path: string = "/api/test"): NextRequest {
   const headers: Record<string, string> = {};

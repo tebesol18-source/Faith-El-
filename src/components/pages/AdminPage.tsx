@@ -15,7 +15,7 @@ import { getCsrfToken } from "@/lib/auth-client";
 
 const sellersData: Seller[] = [
   {
-    id: "SEL-001", name: "Coelrodan PLC", contact: "Abi Solomon", email: "abi@coelrodan.com", region: "Yirgacheffe",
+    id: "SEL-001", name: "Faith-El PLC", contact: "Abi Solomon", email: "abi@faithel.com", region: "Yirgacheffe",
     dealsClosed: 18, dealsActive: 11, pipelineValue: 245000, revenueYTD: 84600,
     commissionEarned: 1692, commissionPending: 4900,
     riskLevel: "healthy", atRiskDeals: 1, overduePayments: 0, missingDocs: 0,
@@ -111,10 +111,10 @@ const sellerDealsData: Record<string, SellerDeal[]> = {
 
 
 const mockOperatorsData: Operator[] = [
-  { id: "OP-001", name: "Abi Solomon", email: "abi@coelrodan.com", role: "admin", status: "active", lastActive: "2 min ago", actionsToday: 47 },
-  { id: "OP-002", name: "Sara Bekele", email: "sara@coelrodan.com", role: "manager", status: "active", lastActive: "1h ago", actionsToday: 23 },
-  { id: "OP-003", name: "Dawit Tadesse", email: "dawit@coelrodan.com", role: "operator", status: "active", lastActive: "3h ago", actionsToday: 12 },
-  { id: "OP-004", name: "Helen Girma", email: "helen@coelrodan.com", role: "operator", status: "active", lastActive: "Yesterday", actionsToday: 0 },
+  { id: "OP-001", name: "Abi Solomon", email: "abi@faithel.com", role: "admin", status: "active", lastActive: "2 min ago", actionsToday: 47 },
+  { id: "OP-002", name: "Sara Bekele", email: "sara@faithel.com", role: "manager", status: "active", lastActive: "1h ago", actionsToday: 23 },
+  { id: "OP-003", name: "Dawit Tadesse", email: "dawit@faithel.com", role: "operator", status: "active", lastActive: "3h ago", actionsToday: 12 },
+  { id: "OP-004", name: "Helen Girma", email: "helen@faithel.com", role: "operator", status: "active", lastActive: "Yesterday", actionsToday: 0 },
   { id: "OP-005", name: "Marcus Bauer", email: "marcus@external.com", role: "viewer", status: "active", lastActive: "2 days ago", actionsToday: 0 },
   { id: "OP-006", name: "Yuki Hashimoto", email: "yuki@external.com", role: "viewer", status: "disabled", lastActive: "2 weeks ago", actionsToday: 0 },
 ];

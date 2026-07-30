@@ -89,10 +89,10 @@ describe("Admin user management (integration)", () => {
 
     itOrSkip("returns 409 for duplicate email", async () => {
       const client = await getAdminClient();
-      // abi@coelrodan.com already exists
+      // abi@faithel.com already exists
       const r = await client.fetch("/api/admin/operators", {
         method: "POST",
-        body: JSON.stringify({ name: "Dup", email: "abi@coelrodan.com", password: "Password1" }),
+        body: JSON.stringify({ name: "Dup", email: "abi@faithel.com", password: "Password1" }),
       });
       expect(r.status).toBe(409);
     });

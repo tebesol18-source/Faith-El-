@@ -27,7 +27,7 @@ export function getCsrfToken(): string | null {
 // ─── Backward-compat no-ops (the server manages cookies now) ───
 // These are kept so existing imports don't break. They do nothing.
 
-export const ADMIN_EMAIL = "admin@coelrodan.com";
+export const ADMIN_EMAIL = "admin@faithel.com";
 
 /** No-op — session is stored in httpOnly cookie, not localStorage. */
 export function setAuthToken(_token: string) {

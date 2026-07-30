@@ -705,16 +705,16 @@ class Supervisor {
 
     // Subject line
     const subjects = {
-      EN: `Ethiopian 25/26 coffee — available lots from Coelrodan PLC`,
-      DE: `Äthiopischer Kaffee 25/26 — verfügbare Lots von Coelrodan PLC`,
-      JA: `エチオピア 25/26 産コーヒー — Coelrodan PLCからのご案内`,
-      FR: `Café éthiopien 25/26 — lots disponibles de Coelrodan PLC`,
-      IT: `Caffè etiope 25/26 — lotti disponibili da Coelrodan PLC`,
-      KO: `에티오피아 25/26 커피 — Coelrodan PLC의 가용 로트`,
-      ZH: `埃塞俄比亚 25/26 咖啡 — Coelrodan PLC 可供批次`,
-      AR: `قهوة إثيوبية 25/26 — أ lots متاحة من Coelrodan PLC`,
-      TR: `Etiyopya 25/26 kahvesi — Coelrodan PLC'den mevcut partiler`,
-      RU: `Эфиопский кофе 25/26 — доступные лоты от Coelrodan PLC`,
+      EN: `Ethiopian 25/26 coffee — available lots from Faith-El PLC`,
+      DE: `Äthiopischer Kaffee 25/26 — verfügbare Lots von Faith-El PLC`,
+      JA: `エチオピア 25/26 産コーヒー — Faith-El PLCからのご案内`,
+      FR: `Café éthiopien 25/26 — lots disponibles de Faith-El PLC`,
+      IT: `Caffè etiope 25/26 — lotti disponibili da Faith-El PLC`,
+      KO: `에티오피아 25/26 커피 — Faith-El PLC의 가용 로트`,
+      ZH: `埃塞俄比亚 25/26 咖啡 — Faith-El PLC 可供批次`,
+      AR: `قهوة إثيوبية 25/26 — أ lots متاحة من Faith-El PLC`,
+      TR: `Etiyopya 25/26 kahvesi — Faith-El PLC'den mevcut partiler`,
+      RU: `Эфиопский кофе 25/26 — доступные лоты от Faith-El PLC`,
     };
 
     const subject = subjects[lang] || subjects.EN;
@@ -723,7 +723,7 @@ class Supervisor {
 
     const body = `${greeting}
 
-I hope this message finds you well. I'm reaching out from Coelrodan PLC, an Ethiopian coffee export company based in Addis Ababa.
+I hope this message finds you well. I'm reaching out from Faith-El PLC, an Ethiopian coffee export company based in Addis Ababa.
 
 ${vpMsg}${lotMention}
 
@@ -731,11 +731,11 @@ ${cta}
 
 ${signoff},
 Abi Solomon
-Coelrodan PLC
+Faith-El PLC
 Addis Ababa, Ethiopia
-abi@coelrodan.com`;
+abi@faithel.com`;
 
-    return { subject, body, to: `${contactName ? contactName.toLowerCase().replace(/[^a-z]/g, ".") : "info"}@${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`, from: "abi@coelrodan.com" };
+    return { subject, body, to: `${contactName ? contactName.toLowerCase().replace(/[^a-z]/g, ".") : "info"}@${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`, from: "abi@faithel.com" };
   }
 
   /** Draft contract terms based on lead tier + available lots */

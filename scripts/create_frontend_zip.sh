@@ -59,11 +59,11 @@ npm run dev
 ## Demo Credentials
 
 **Admin (Portfolio Manager):**
-- Email: `admin@coelrodan.com`
+- Email: `admin@faithel.com`
 - Password: `admin123`
 
 **Seller (Operator):**
-- Email: `abi@coelrodan.com`
+- Email: `abi@faithel.com`
 - Password: `seller123`
 
 ## What's Included

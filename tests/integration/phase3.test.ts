@@ -80,7 +80,7 @@ describe("Phase 3 — audit log + sessions + change password", () => {
         e.action === "operator.create" && e.targetEmail === uniqueEmail
       );
       expect(createEntry).toBeDefined();
-      expect(createEntry.actorEmail).toBe("admin@coelrodan.com");
+      expect(createEntry.actorEmail).toBe("admin@faithel.com");
 
       // Cleanup
       await client.fetch(`/api/admin/operators/${createD.operator.operator_id}`, {
@@ -107,7 +107,7 @@ describe("Phase 3 — audit log + sessions + change password", () => {
       // The admin's own session should be in the list
       const ownSession = d.sessions.find((s: any) => s.id === client.token);
       expect(ownSession).toBeDefined();
-      expect(ownSession.operatorEmail).toBe("admin@coelrodan.com");
+      expect(ownSession.operatorEmail).toBe("admin@faithel.com");
       expect(ownSession.operatorRole).toBe("admin");
     });
   });
@@ -117,7 +117,7 @@ describe("Phase 3 — audit log + sessions + change password", () => {
       const adminClient = await getAdminClient();
 
       // Login as a seller (creates a separate session)
-      const sellerClient = await createTestClient("abi@coelrodan.com", "coffee123", uniqueIp());
+      const sellerClient = await createTestClient("abi@faithel.com", "coffee123", uniqueIp());
 
       // Verify seller can access /api/dashboard
       const beforeR = await sellerClient.fetch("/api/dashboard");
@@ -269,7 +269,7 @@ describe("Phase 3 — audit log + sessions + change password", () => {
   describe("POST /api/auth/logout", () => {
     itOrSkip("logout revokes the current session", async () => {
       // Login as a seller (fresh session, not the cached one)
-      const sellerClient = await createTestClient("abi@coelrodan.com", "coffee123", uniqueIp());
+      const sellerClient = await createTestClient("abi@faithel.com", "coffee123", uniqueIp());
 
       // Verify token works
       const r1 = await sellerClient.fetch("/api/dashboard");

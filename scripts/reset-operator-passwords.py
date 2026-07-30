@@ -5,7 +5,7 @@ Reset ALL operator passwords to known defaults.
 Sets:
   - exporter-001 (Marcus Bell)        → password "coffee123"
   - exporter-002 (Abi Solomon)        → password "coffee123"
-  - admin-001    (admin@coelrodan.com) → password "admin123"
+  - admin-001    (admin@faithel.com) → password "admin123"
 
 This is a one-time reset for development. After running, communicate the
 password to each operator out-of-band. They should change it on first login
