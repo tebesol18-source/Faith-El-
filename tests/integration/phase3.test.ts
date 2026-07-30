@@ -147,13 +147,15 @@ describe("Phase 3 — audit log + sessions + change password", () => {
   });
 
   describe("POST /api/auth/change-password", () => {
-    itOrSkip("returns 401 without auth", async () => {
+    itOrSkip("returns 403 without auth (CSRF middleware rejects before auth check)", async () => {
+      // Phase 4B: POST without CSRF token is rejected at the middleware layer (403)
+      // before the route handler can check auth (which would return 401).
       const r = await fetch(`${BASE_URL}/api/auth/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ oldPassword: "x", newPassword: "y" }),
       });
-      expect(r.status).toBe(401);
+      expect(r.status).toBe(403);
     });
 
     itOrSkip("returns 400 for missing fields", async () => {

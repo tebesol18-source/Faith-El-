@@ -13,6 +13,7 @@
  * Each test uses a unique x-forwarded-for IP to avoid shared rate-limit buckets.
  */
 import { describe, it, expect, beforeAll } from "vitest";
+import { getAdminClient, createTestClient } from "./helpers";
 
 const BASE_URL = "http://localhost:3000";
 
@@ -136,7 +137,9 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
   });
 
   describe("POST routes also require authentication", () => {
-    itOrSkip("/api/approvals POST → 401 without token", async () => {
+    itOrSkip("/api/approvals POST → 403 without CSRF token (Phase 4B)", async () => {
+      // Phase 4B: POST without CSRF token is rejected at the middleware layer (403)
+      // before the route handler can check auth (which would return 401).
       const r = await fetch(`${BASE_URL}/api/approvals`, {
         method: "POST",
         headers: {
@@ -145,10 +148,11 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
         },
         body: JSON.stringify({ id: 99999, action: "approve" }),
       });
-      expect(r.status).toBe(401);
+      expect(r.status).toBe(403);
     });
 
-    itOrSkip("/api/agents/research-leads POST → 401 without token", async () => {
+    itOrSkip("/api/agents/research-leads POST → 403 without CSRF token (Phase 4B)", async () => {
+      // Phase 4B: POST without CSRF token is rejected at the middleware layer (403)
       const r = await fetch(`${BASE_URL}/api/agents/research-leads`, {
         method: "POST",
         headers: {
@@ -157,7 +161,7 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
         },
         body: JSON.stringify({ country: "Germany", segment: "roaster", count: 1 }),
       });
-      expect(r.status).toBe(401);
+      expect(r.status).toBe(403);
     });
   });
 
@@ -414,15 +418,10 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
   describe("Phase 3 — must_change_password gate", () => {
     itOrSkip("account with must_change_password=1 cannot access non-auth endpoints", async () => {
       // Create an operator with must_change_password=1
-      const adminToken = await getAdminToken();
+      const adminClient = await getAdminClient();
       const uniqueEmail = `mustchange-${Date.now()}@test.com`;
-      const createR = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const createR = await adminClient.fetch("/api/admin/operators", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": adminToken,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({
           name: "Must Change Test",
           email: uniqueEmail,
@@ -434,41 +433,26 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
       expect(createD.operator.must_change_password).toBe(true);
 
       // Login as the new operator
-      const loginR = await fetch(`${BASE_URL}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-        body: JSON.stringify({ email: uniqueEmail, password: "TempPass123" }),
-      });
-      const loginD = await loginR.json();
-      expect(loginD.ok).toBe(true);
-      expect(loginD.mustChangePassword).toBe(true);
-      const token = loginD.token;
+      const opClient = await createTestClient(uniqueEmail, "TempPass123", uniqueIp());
+      expect(opClient).toBeTruthy();
 
-      // Try to access /api/dashboard — should be 403
-      const r = await fetch(`${BASE_URL}/api/dashboard`, {
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
-      });
+      // Try to access /api/dashboard — should be 403 (mustChangePassword gate)
+      const r = await opClient.fetch("/api/dashboard");
       expect(r.status).toBe(403);
       const body = await r.json();
       expect(body.mustChangePassword).toBe(true);
 
       // Cleanup: delete the operator
-      await fetch(`${BASE_URL}/api/admin/operators/${createD.operator.operator_id}`, {
+      await adminClient.fetch(`/api/admin/operators/${createD.operator.operator_id}`, {
         method: "DELETE",
-        headers: { "x-auth-token": adminToken, "x-forwarded-for": uniqueIp() },
       });
     });
 
     itOrSkip("must_change_password account CAN access /api/auth/change-password", async () => {
-      const adminToken = await getAdminToken();
+      const adminClient = await getAdminClient();
       const uniqueEmail = `mustchange2-${Date.now()}@test.com`;
-      const createR = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const createR = await adminClient.fetch("/api/admin/operators", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": adminToken,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({
           name: "Must Change Test 2",
           email: uniqueEmail,
@@ -477,18 +461,12 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
       });
       const createD = await createR.json();
 
-      const loginR = await fetch(`${BASE_URL}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-        body: JSON.stringify({ email: uniqueEmail, password: "TempPass123" }),
-      });
-      const loginD = await loginR.json();
-      const token = loginD.token;
+      // Login as the new operator — createTestClient handles cookies + CSRF
+      const opClient = await createTestClient(uniqueEmail, "TempPass123", uniqueIp());
 
       // Try to change password — should work even with must_change_password=1
-      const changeR = await fetch(`${BASE_URL}/api/auth/change-password`, {
+      const changeR = await opClient.fetch("/api/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": token, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ oldPassword: "TempPass123", newPassword: "NewPass456" }),
       });
       expect(changeR.status).toBe(200);
@@ -497,15 +475,12 @@ describe("API authentication (integration, Phase 3 sessions)", () => {
       expect(changeD.mustChangePassword).toBe(false);
 
       // Now try to access /api/dashboard — should work
-      const r = await fetch(`${BASE_URL}/api/dashboard`, {
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
-      });
+      const r = await opClient.fetch("/api/dashboard");
       expect(r.status).toBe(200);
 
       // Cleanup
-      await fetch(`${BASE_URL}/api/admin/operators/${createD.operator.operator_id}`, {
+      await adminClient.fetch(`/api/admin/operators/${createD.operator.operator_id}`, {
         method: "DELETE",
-        headers: { "x-auth-token": adminToken, "x-forwarded-for": uniqueIp() },
       });
     });
   });
