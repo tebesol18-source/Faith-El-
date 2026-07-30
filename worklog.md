@@ -274,3 +274,55 @@ Stage Summary:
 - **Cleanup**: `scripts/cleanup.ts` keeps the sessions + audit_log tables from growing forever. Archives audit entries to JSONL before deleting.
 - **Tests**: 207 passing (added 32 for logger + health).
 - **Files added**: 1 lib file (logger), 1 API route (health), 1 .env.example, 2 shell scripts (backup + restore), 1 TypeScript script (cleanup), 1 docs file, 2 test files.
+
+---
+Task ID: phase-4b
+Agent: main (super-z)
+Task: Phase 4B — Security hardening (httpOnly cookies, CSRF, password history, HTTPS)
+
+Work Log:
+- **DR Drill** (before starting Phase 4B): Created `scripts/dr-drill.sh` — simulates recovering on a fresh machine from source zip + backup file. Validates all 9 steps: extract, install deps, restore DB, migrate, start server, health check, login, admin API, unit tests. First run found a bug in `restore-db.sh` (SAFETY_BAK unbound on fresh install) — fixed. **DRILL PASSED in 42 seconds** (target: < 30 minutes).
+- **Alembic migration** `f7a8b9c0d1e2_add_password_history.py` — creates `password_history` table (id, operator_id, password_hash, created_ts) with indexes. Stores the last 5 password hashes per operator.
+- **httpOnly session cookies** (`src/lib/auth.ts` + `src/app/api/auth/login/route.ts`):
+  - Login route now sets two cookies: `session` (httpOnly=true, SameSite=Lax, Secure in prod) + `csrf-token` (httpOnly=false so JS can read it)
+  - `auth.ts` `extractToken()` reads from cookie (preferred) or x-auth-token header (backward compat for tests/API clients)
+  - Logout route clears both cookies
+  - JavaScript can no longer read the session token — XSS can't steal it
+- **CSRF protection** (`src/middleware.ts`):
+  - Double-submit pattern: middleware validates that `x-csrf-token` header matches `csrf-token` cookie on POST/PATCH/PUT/DELETE
+  - Login + request-access + logout are exempt (public or idempotent endpoints)
+  - Returns 403 with clear error if CSRF token missing or mismatched
+  - Combined with SameSite=Lax on the session cookie, provides defense-in-depth
+- **Password history** (`src/app/api/auth/change-password/route.ts`):
+  - Before accepting a new password, checks it against the last 5 hashes in `password_history`
+  - If match found: returns 400 "Cannot reuse a recent password"
+  - Stores the old hash in `password_history` before updating to the new one
+- **HTTPS enforcement** (`src/middleware.ts`):
+  - In production: adds `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
+  - Adds `X-Content-Type-Options: nosniff` (prevents MIME sniffing)
+  - Adds `X-Frame-Options: DENY` (prevents clickjacking)
+- **Frontend updates**:
+  - `src/lib/auth-client.ts` — removed localStorage token management, added `getCsrfToken()` helper that reads from the non-httpOnly cookie, updated `apiFetch()` to automatically add CSRF header on mutations
+  - `src/components/pages/AdminPage.tsx` — all 10 `localStorage.getItem("coffee_erp_token")` calls replaced with `getCsrfToken()`
+  - `src/components/pages/ChangePasswordPage.tsx` — same replacement
+  - `src/app/page.tsx` — logout uses `getCsrfToken()` instead of localStorage
+- **Test helper** (`tests/integration/helpers.ts`):
+  - `createTestClient(email, password, ip)` — logs in, extracts session + CSRF cookies from Set-Cookie response, returns a `client.fetch()` wrapper that automatically sends cookies + CSRF header
+  - `getAdminClient()` / `getSellerClient()` — cached singletons for repeated use
+  - `getAdminToken()` / `getSellerToken()` — for GET-only tests (backward compat)
+- **Test updates**:
+  - `tests/integration/admin-users.test.ts` — all POST/PATCH/DELETE now use `client.fetch()` instead of raw `fetch` with `x-auth-token` header
+  - `tests/integration/phase3.test.ts` — same pattern; fresh operator sessions use `createTestClient()`
+  - `tests/integration/api-auth.test.ts` — must_change_password gate tests updated to use cookie-aware client; unauthenticated POST tests updated to expect 403 (CSRF) instead of 401
+- **DR drill re-run** with Phase 4B zip: **PASSED in 40 seconds** — all 9 checks green.
+- All 207 tests pass. TypeScript clean.
+
+Stage Summary:
+- **XSS resistance**: Session token is in an httpOnly cookie — JavaScript can't read it, so XSS attacks can't steal it.
+- **CSRF protection**: Double-submit token pattern — attackers on a different origin can't forge mutations because they can't read the CSRF cookie.
+- **Password history**: Users can't reuse their last 5 passwords — common compliance requirement.
+- **HTTPS enforcement**: HSTS + security headers in production — prevents protocol downgrade + MIME sniffing + clickjacking.
+- **Backward compat**: x-auth-token header still works for API clients and integration tests that don't use cookies.
+- **DR validated**: Recovery from backup tested twice (Phase 4A: 42s, Phase 4B: 40s) — well within the 30-minute target.
+- **Tests**: 207 passing (no new tests — existing tests updated for cookie/CSRF pattern).
+- **Files changed**: 13 files modified, 1 migration added, 1 test helper added.
