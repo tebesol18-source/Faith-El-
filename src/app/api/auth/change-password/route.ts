@@ -105,6 +105,29 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // ─── Phase 4B: Check password history (prevent reusing last 5) ───
+      const recentHashes = db.prepare(`
+        SELECT password_hash FROM password_history
+        WHERE operator_id = ?
+        ORDER BY created_ts DESC
+        LIMIT 5
+      `).all(user.operatorId) as { password_hash: string }[];
+
+      for (const row of recentHashes) {
+        if (verifyPassword(newPassword, row.password_hash)) {
+          return NextResponse.json(
+            { ok: false, error: "Cannot reuse a recent password — please choose a different one" },
+            { status: 400 }
+          );
+        }
+      }
+
+      // ─── Store old hash in history BEFORE updating ───
+      db.prepare(`
+        INSERT INTO password_history (operator_id, password_hash, created_ts)
+        VALUES (?, ?, ?)
+      `).run(user.operatorId, op.password_hash, nowISO());
+
       // ─── Hash the new password + update ───
       const newHash = hashPassword(newPassword);
       db.prepare(`

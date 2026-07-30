@@ -9,10 +9,14 @@
  *   - POST /api/admin/access-requests/[id]/approve (approve request + create account)
  *   - POST /api/admin/access-requests/[id]/reject (reject request)
  *
- * Each test uses a unique x-forwarded-for IP to avoid shared rate-limit buckets.
+ * Phase 4B: switched to cookie-based auth via the shared `./helpers` module
+ * so POST/PATCH/DELETE requests automatically include the CSRF token.
+ * Fresh test-operator logins still use a unique x-forwarded-for IP to avoid
+ * shared rate-limit buckets on /api/auth/login.
  * Creates + cleans up test operators so the test run is idempotent.
  */
 import { describe, it, expect } from "vitest";
+import { getAdminClient, getSellerClient } from "./helpers";
 
 const BASE_URL = "http://localhost:3000";
 
@@ -27,163 +31,77 @@ const serverAvailable = await (async () => {
 
 const itOrSkip = serverAvailable ? it : it.skip;
 
-function makeToken(email: string, role: "admin" | "seller"): string {
-  const payload = JSON.stringify({ email, role, ts: Date.now() });
-  return Buffer.from(payload).toString("base64");
-}
-
-const ADMIN_TOKEN = makeToken("admin@coelrodan.com", "admin");
-const SELLER_TOKEN = makeToken("seller@example.com", "seller");
-
 let ipCounter = 200;
 function uniqueIp(): string {
   ipCounter += 1;
   return `70.0.0.${ipCounter}`;
 }
 
-function adminHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  return {
-    "x-auth-token": ADMIN_TOKEN,
-    "x-forwarded-for": uniqueIp(),
-    ...extra,
-  };
-}
-
-async function adminLogin(): Promise<string> {
-  // Get a real admin token from /api/auth/login (so it's actually valid)
-  const r = await fetch(`${BASE_URL}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-    body: JSON.stringify({ email: "admin@coelrodan.com", password: "admin123" }),
-  });
-  const d = await r.json();
-  return d.token;
-}
-
-// Use this in tests that need a real verified token (not a synthetic one)
-let _realAdminToken: string | undefined;
-async function realAdminToken(): Promise<string> {
-  if (_realAdminToken) return _realAdminToken;
-  _realAdminToken = await adminLogin();
-  return _realAdminToken;
-}
-
-// Phase 3: get a real seller session token
-let _realSellerToken: string | undefined;
-async function realSellerToken(): Promise<string> {
-  if (_realSellerToken) return _realSellerToken;
-  const r = await fetch(`${BASE_URL}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-    body: JSON.stringify({ email: "abi@coelrodan.com", password: "coffee123" }),
-  });
-  const d = await r.json();
-  _realSellerToken = d.token as string;
-  return _realSellerToken;
-}
-
-function realAdminHeaders(extra: Record<string, string> = {}): Record<string, string> {
-  // Note: we can't await here, so tests that need the real token should
-  // fetch it explicitly at the start.
-  return {
-    "x-auth-token": ADMIN_TOKEN,  // synthetic — only works if the route doesn't verify against DB
-    "x-forwarded-for": uniqueIp(),
-    ...extra,
-  };
-}
-
 describe("Admin user management (integration)", () => {
   describe("POST /api/admin/operators — create operator", () => {
-    itOrSkip("returns 401 without auth", async () => {
+    itOrSkip("returns 403 without auth (CSRF middleware rejects before auth check)", async () => {
+      // Phase 4B: POST without CSRF token is rejected at the middleware layer (403)
+      // before the route handler can check auth (which would return 401).
+      // This is the intended behavior — don't reveal whether the endpoint exists.
       const r = await fetch(`${BASE_URL}/api/admin/operators`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ name: "Test", email: "test@test.com", password: "Password1" }),
       });
-      expect(r.status).toBe(401);
+      expect(r.status).toBe(403);
     });
 
     itOrSkip("returns 403 for seller tokens (admin-only)", async () => {
-      const token = await realSellerToken();
-      const r = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const sellerClient = await getSellerClient();
+      const r = await sellerClient.fetch("/api/admin/operators", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({ name: "Test", email: "test@test.com", password: "Password1" }),
       });
       expect(r.status).toBe(403);
     });
 
     itOrSkip("returns 400 for missing name", async () => {
-      const token = await realAdminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/operators", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({ email: "test@test.com", password: "Password1" }),
       });
       expect(r.status).toBe(400);
     });
 
     itOrSkip("returns 400 for weak password (< 8 chars)", async () => {
-      const token = await realAdminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/operators", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({ name: "Test User", email: `weak-${Date.now()}@test.com`, password: "abc1" }),
       });
       expect(r.status).toBe(400);
     });
 
     itOrSkip("returns 400 for password with no digit", async () => {
-      const token = await realAdminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/operators", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({ name: "Test User", email: `noDigit-${Date.now()}@test.com`, password: "abcdefgh" }),
       });
       expect(r.status).toBe(400);
     });
 
     itOrSkip("returns 409 for duplicate email", async () => {
-      const token = await realAdminToken();
+      const client = await getAdminClient();
       // abi@coelrodan.com already exists
-      const r = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const r = await client.fetch("/api/admin/operators", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({ name: "Dup", email: "abi@coelrodan.com", password: "Password1" }),
       });
       expect(r.status).toBe(409);
     });
 
     itOrSkip("returns 201 for valid create + creates a real loggable account", async () => {
-      const token = await realAdminToken();
+      const client = await getAdminClient();
       const uniqueEmail = `phase2-${Date.now()}@test.com`;
-      const r = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const r = await client.fetch("/api/admin/operators", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({
           name: "Phase 2 Test",
           email: uniqueEmail,
@@ -213,42 +131,27 @@ describe("Admin user management (integration)", () => {
 
   describe("PATCH /api/admin/operators/[id] — update role/status", () => {
     itOrSkip("returns 404 for non-existent operator", async () => {
-      const token = await realAdminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/operators/nonexistent-999`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/operators/nonexistent-999", {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({ role: "manager" }),
       });
       expect(r.status).toBe(404);
     });
 
     itOrSkip("returns 400 when no fields provided", async () => {
-      const token = await realAdminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/operators/exporter-002`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/operators/exporter-002", {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({}),
       });
       expect(r.status).toBe(400);
     });
 
     itOrSkip("returns 400 for invalid role", async () => {
-      const token = await realAdminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/operators/exporter-002`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/operators/exporter-002", {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({ role: "superuser" }),
       });
       expect(r.status).toBe(400);
@@ -257,43 +160,28 @@ describe("Admin user management (integration)", () => {
 
   describe("POST /api/admin/operators/[id]/reset-password", () => {
     itOrSkip("returns 404 for non-existent operator", async () => {
-      const token = await realAdminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/operators/nonexistent-999/reset-password`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/operators/nonexistent-999/reset-password", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({}),
       });
       expect(r.status).toBe(404);
     });
 
     itOrSkip("returns 400 for weak custom password", async () => {
-      const token = await realAdminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/operators/exporter-002/reset-password`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/operators/exporter-002/reset-password", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({ newPassword: "weak" }),
       });
       expect(r.status).toBe(400);
     });
 
     itOrSkip("generates a random password when none provided + new password works for login", async () => {
-      const token = await realAdminToken();
+      const client = await getAdminClient();
       // Create a fresh operator to test on (don't mess with the demo accounts)
-      const createR = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const createR = await client.fetch("/api/admin/operators", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({
           name: "Reset Pwd Test",
           email: `reset-${Date.now()}@test.com`,
@@ -305,13 +193,8 @@ describe("Admin user management (integration)", () => {
       const opEmail = createD.operator.email;
 
       // Now reset the password (auto-generated)
-      const resetR = await fetch(`${BASE_URL}/api/admin/operators/${opId}/reset-password`, {
+      const resetR = await client.fetch(`/api/admin/operators/${opId}/reset-password`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({}),
       });
       expect(resetR.status).toBe(200);
@@ -337,33 +220,26 @@ describe("Admin user management (integration)", () => {
       expect(newLoginR.status).toBe(200);
 
       // Cleanup: delete the test operator
-      await fetch(`${BASE_URL}/api/admin/operators/${opId}`, {
+      await client.fetch(`/api/admin/operators/${opId}`, {
         method: "DELETE",
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
       });
     });
   });
 
   describe("DELETE /api/admin/operators/[id]", () => {
     itOrSkip("returns 404 for non-existent operator", async () => {
-      const token = await realAdminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/operators/nonexistent-999`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/operators/nonexistent-999", {
         method: "DELETE",
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
       });
       expect(r.status).toBe(404);
     });
 
     itOrSkip("deletes an operator + they can no longer log in", async () => {
-      const token = await realAdminToken();
+      const client = await getAdminClient();
       // Create a fresh operator to delete
-      const createR = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const createR = await client.fetch("/api/admin/operators", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({
           name: "Delete Test",
           email: `delete-${Date.now()}@test.com`,
@@ -383,9 +259,8 @@ describe("Admin user management (integration)", () => {
       expect(loginR1.status).toBe(200);
 
       // Delete them
-      const delR = await fetch(`${BASE_URL}/api/admin/operators/${opId}`, {
+      const delR = await client.fetch(`/api/admin/operators/${opId}`, {
         method: "DELETE",
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
       });
       expect(delR.status).toBe(200);
 
@@ -401,21 +276,16 @@ describe("Admin user management (integration)", () => {
 
   describe("POST /api/admin/access-requests/[id]/approve + reject", () => {
     itOrSkip("returns 404 for non-existent request", async () => {
-      const token = await realAdminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/access-requests/99999/approve`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/access-requests/99999/approve", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({}),
       });
       expect(r.status).toBe(404);
     });
 
-    itOrSkip("approves a request → creates operator + request status flips to approved", async () => {
-      const token = await realAdminToken();
+    itOrSkip("approves a request → creates operator + request status flips on approved", async () => {
+      const client = await getAdminClient();
       // Submit a fresh request via the public endpoint
       const uniqueEmail = `approve-${Date.now()}@test.com`;
       const submitR = await fetch(`${BASE_URL}/api/auth/request-access`, {
@@ -432,13 +302,8 @@ describe("Admin user management (integration)", () => {
       const requestId = submitD.requestId;
 
       // Approve it
-      const approveR = await fetch(`${BASE_URL}/api/admin/access-requests/${requestId}/approve`, {
+      const approveR = await client.fetch(`/api/admin/access-requests/${requestId}/approve`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({ role: "operator" }),
       });
       expect(approveR.status).toBe(200);
@@ -458,26 +323,20 @@ describe("Admin user management (integration)", () => {
       expect(loginR.status).toBe(200);
 
       // Try to approve the same request again → should get 409
-      const reApproveR = await fetch(`${BASE_URL}/api/admin/access-requests/${requestId}/approve`, {
+      const reApproveR = await client.fetch(`/api/admin/access-requests/${requestId}/approve`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({}),
       });
       expect(reApproveR.status).toBe(409);
 
       // Cleanup: delete the created operator
-      await fetch(`${BASE_URL}/api/admin/operators/${approveD.operator.operator_id}`, {
+      await client.fetch(`/api/admin/operators/${approveD.operator.operator_id}`, {
         method: "DELETE",
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
       });
     });
 
     itOrSkip("rejects a request → status flips to rejected", async () => {
-      const token = await realAdminToken();
+      const client = await getAdminClient();
       // Submit a fresh request
       const uniqueEmail = `reject-${Date.now()}@test.com`;
       const submitR = await fetch(`${BASE_URL}/api/auth/request-access`, {
@@ -489,13 +348,8 @@ describe("Admin user management (integration)", () => {
       const requestId = submitD.requestId;
 
       // Reject it
-      const rejectR = await fetch(`${BASE_URL}/api/admin/access-requests/${requestId}/reject`, {
+      const rejectR = await client.fetch(`/api/admin/access-requests/${requestId}/reject`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({ notes: "Test rejection" }),
       });
       expect(rejectR.status).toBe(200);
@@ -504,13 +358,8 @@ describe("Admin user management (integration)", () => {
       expect(rejectD.status).toBe("rejected");
 
       // Try to reject again → should get 409
-      const reRejectR = await fetch(`${BASE_URL}/api/admin/access-requests/${requestId}/reject`, {
+      const reRejectR = await client.fetch(`/api/admin/access-requests/${requestId}/reject`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-          "x-forwarded-for": uniqueIp(),
-        },
         body: JSON.stringify({}),
       });
       expect(reRejectR.status).toBe(409);

@@ -2,38 +2,56 @@
  * Shared authentication module.
  * Validates session tokens for API routes.
  *
- * Phase 3: replaced the stateless base64 token with DB-backed sessions
- * (see src/lib/sessions.ts). Old tokens are rejected — all users must
- * log in again after the Phase 3 migration.
+ * Phase 4B: Session ID is now sent via httpOnly cookie (preferred) or
+ * x-auth-token header (backward compat for tests + API clients).
  *
- * Token format: 32-char hex session ID, sent via x-auth-token header
- * (or Authorization: Bearer <sessionId>).
+ * Cookie-based auth is more secure because:
+ *   - JavaScript can't read the session cookie (XSS can't steal it)
+ *   - SameSite=Lax prevents cross-site request forgery on mutations
+ *   - Secure flag (in production) prevents transmission over HTTP
+ *
+ * The x-auth-token header fallback is kept for:
+ *   - Integration tests (easier to set headers than cookies in fetch())
+ *   - API clients (curl, scripts) that don't have cookie jars
+ *   - Backward compatibility during the transition period
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { validateSession, type SessionUser } from "@/lib/sessions";
 
-const ADMIN_EMAIL = "admin@coelrodan.com";
+/** Cookie names used for session + CSRF. */
+export const SESSION_COOKIE = "session";
+export const CSRF_COOKIE = "csrf-token";
+export const CSRF_HEADER = "x-csrf-token";
 
 /**
- * Extract the session ID from request headers.
- * Accepts either:
- *   - Authorization: Bearer <sessionId>
- *   - x-auth-token: <sessionId>
+ * Extract the session ID from the request.
+ *
+ * Priority:
+ *   1. httpOnly `session` cookie (set by /api/auth/login)
+ *   2. `x-auth-token` header (backward compat)
+ *   3. `Authorization: Bearer <sessionId>` header (backward compat)
  */
 export function extractToken(request: NextRequest): string | null {
+  // 1. Cookie (preferred — Phase 4B)
+  const cookieToken = request.cookies.get(SESSION_COOKIE)?.value;
+  if (cookieToken) return cookieToken;
+
+  // 2. x-auth-token header (backward compat)
+  const headerToken = request.headers.get("x-auth-token");
+  if (headerToken) return headerToken;
+
+  // 3. Authorization: Bearer header (backward compat)
   const auth = request.headers.get("authorization");
   if (auth && auth.startsWith("Bearer ")) {
     return auth.substring(7);
   }
-  return request.headers.get("x-auth-token");
+
+  return null;
 }
 
 /**
  * Check if the request is authenticated. Returns the user or null.
- *
- * Phase 3: now validates against the sessions table instead of decoding
- * a base64 token. The session ID is opaque; user info comes from the DB.
  */
 export function checkAuth(request: NextRequest): SessionUser | null {
   const sessionId = extractToken(request);
@@ -102,5 +120,5 @@ export function requireAdmin(request: NextRequest):
   return result;
 }
 
-// Re-export for backward compatibility with code that imports from @/lib/auth
+// Re-export for backward compatibility
 export type { SessionUser };

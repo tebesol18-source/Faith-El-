@@ -1,14 +1,15 @@
 /**
  * POST /api/auth/logout
  *
- * Revokes the current session. The session ID becomes invalid immediately.
+ * Revokes the current session + clears the session and CSRF cookies.
+ * The session ID becomes invalid immediately.
  *
  * Body: (none)
  * Response: { ok: true }
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { checkAuth } from "@/lib/auth";
+import { checkAuth, SESSION_COOKIE, CSRF_COOKIE } from "@/lib/auth";
 import { revokeSession } from "@/lib/sessions";
 
 export async function POST(request: NextRequest) {
@@ -17,10 +18,31 @@ export async function POST(request: NextRequest) {
     if (user) {
       revokeSession(user.sessionId, "self (logout)");
     }
-    return NextResponse.json({ ok: true });
+
+    // Clear both cookies
+    const response = NextResponse.json({ ok: true });
+    response.cookies.set(SESSION_COOKIE, "", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,  // immediately expires
+    });
+    response.cookies.set(CSRF_COOKIE, "", {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    });
+
+    return response;
   } catch (error: any) {
     console.error("[/api/auth/logout] Error:", error);
     // Even if revoke fails, tell the client to clear the token
-    return NextResponse.json({ ok: true });
+    const response = NextResponse.json({ ok: true });
+    response.cookies.set(SESSION_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+    response.cookies.set(CSRF_COOKIE, "", { httpOnly: false, path: "/", maxAge: 0 });
+    return response;
   }
 }

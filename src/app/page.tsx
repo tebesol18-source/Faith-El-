@@ -23,6 +23,7 @@ import { CoachPage } from "@/components/pages/CoachPage";
 import { AdminPage } from "@/components/pages/AdminPage";
 import { LoginPage } from "@/components/pages/LoginPage";
 import { ChangePasswordPage } from "@/components/pages/ChangePasswordPage";
+import { getCsrfToken } from "@/lib/auth-client";
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -48,7 +49,7 @@ export default function App() {
     // Best-effort: tell the server to revoke the session
     fetch("/api/auth/logout", {
       method: "POST",
-      headers: { "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+      headers: { "x-csrf-token": getCsrfToken() || "" },
     }).catch(() => {});
     clearAuthToken();
     setIsLoggedIn(false);

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AIAgent, ApprovalItem, AuditEntry, Contract, Operator, OperatorRole, Page, Quote, Seller, SellerDeal, SellerRisk, Shipment } from "@/lib/types";
+import { getCsrfToken } from "@/lib/auth-client";
 
 
 
@@ -268,14 +269,14 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
 
     // Phase 3: fetch audit log + active sessions in parallel
     fetch("/api/admin/audit-log?limit=50", {
-      headers: { "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+      headers: { "x-csrf-token": getCsrfToken() || "" },
     })
       .then((r) => r.json())
       .then((d) => { if (d.ok) setAuditLog(d.entries || []); })
       .catch(() => {});
 
     fetch("/api/admin/sessions", {
-      headers: { "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+      headers: { "x-csrf-token": getCsrfToken() || "" },
     })
       .then((r) => r.json())
       .then((d) => { if (d.ok) setActiveSessions(d.sessions || []); })
@@ -1077,7 +1078,7 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
                                 try {
                                   const r = await fetch(`/api/admin/operators/${encodeURIComponent(op.id)}`, {
                                     method: "PATCH",
-                                    headers: { "Content-Type": "application/json", "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+                                    headers: { "Content-Type": "application/json", "x-csrf-token": getCsrfToken() || "" },
                                     body: JSON.stringify({ status: newStatus }),
                                   });
                                   const d = await r.json();
@@ -1111,7 +1112,7 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
                                 try {
                                   const r = await fetch(`/api/admin/operators/${encodeURIComponent(op.id)}`, {
                                     method: "DELETE",
-                                    headers: { "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+                                    headers: { "x-csrf-token": getCsrfToken() || "" },
                                   });
                                   const d = await r.json();
                                   if (!d.ok) {
@@ -1204,7 +1205,7 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
                                 try {
                                   const r = await fetch(`/api/admin/access-requests/${req.id}/approve`, {
                                     method: "POST",
-                                    headers: { "Content-Type": "application/json", "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+                                    headers: { "Content-Type": "application/json", "x-csrf-token": getCsrfToken() || "" },
                                     body: JSON.stringify({ role: "operator" }),
                                   });
                                   const d = await r.json();
@@ -1242,7 +1243,7 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
                                 try {
                                   const r = await fetch(`/api/admin/access-requests/${req.id}/reject`, {
                                     method: "POST",
-                                    headers: { "Content-Type": "application/json", "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+                                    headers: { "Content-Type": "application/json", "x-csrf-token": getCsrfToken() || "" },
                                     body: JSON.stringify({ notes: notes || null }),
                                   });
                                   const d = await r.json();
@@ -1332,7 +1333,7 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
                             try {
                               const r = await fetch(`/api/admin/sessions/${encodeURIComponent(s.id)}/revoke`, {
                                 method: "POST",
-                                headers: { "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+                                headers: { "x-csrf-token": getCsrfToken() || "" },
                               });
                               const d = await r.json();
                               if (!d.ok) {
@@ -1613,7 +1614,7 @@ function CreateOperatorModal({ onClose, onCreated }: { onClose: () => void; onCr
     try {
       const r = await fetch("/api/admin/operators", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+        headers: { "Content-Type": "application/json", "x-csrf-token": getCsrfToken() || "" },
         body: JSON.stringify({ name: name.trim(), email: email.trim().toLowerCase(), password, role, status }),
       });
       const d = await r.json();
@@ -1713,7 +1714,7 @@ function EditOperatorModal({ operator, onClose, onSaved }: { operator: Operator;
       }
       const r = await fetch(`/api/admin/operators/${encodeURIComponent(operator.id)}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+        headers: { "Content-Type": "application/json", "x-csrf-token": getCsrfToken() || "" },
         body: JSON.stringify(body),
       });
       const d = await r.json();
@@ -1795,7 +1796,7 @@ function ResetPasswordModal({ operator, onClose, onDone }: { operator: Operator;
       const body = mode === "custom" ? { newPassword: customPassword } : {};
       const r = await fetch(`/api/admin/operators/${encodeURIComponent(operator.id)}/reset-password`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": localStorage.getItem("coffee_erp_token") || "" },
+        headers: { "Content-Type": "application/json", "x-csrf-token": getCsrfToken() || "" },
         body: JSON.stringify(body),
       });
       const d = await r.json();

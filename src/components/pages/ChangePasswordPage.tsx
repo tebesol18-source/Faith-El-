@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowRight, Coffee, KeyRound, Lock, Eye, EyeOff, CheckCircle2, AlertCircle } from "lucide-react";
 import { clearAuthToken } from "@/lib/auth-client";
+import { getCsrfToken } from "@/lib/auth-client";
 
 export function ChangePasswordPage({ userEmail, onDone }: { userEmail: string; onDone: () => void }) {
   const [oldPassword, setOldPassword] = useState("");
@@ -52,7 +53,7 @@ export function ChangePasswordPage({ userEmail, onDone }: { userEmail: string; o
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-auth-token": localStorage.getItem("coffee_erp_token") || "",
+          "x-csrf-token": getCsrfToken() || "",
         },
         body: JSON.stringify({ oldPassword, newPassword }),
       });

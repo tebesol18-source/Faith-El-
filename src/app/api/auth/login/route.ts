@@ -25,6 +25,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getReadonlyDb } from "@/lib/db";
 import { verifyPassword, MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from "@/lib/password";
 import { createSession } from "@/lib/sessions";
+import { SESSION_COOKIE, CSRF_COOKIE } from "@/lib/auth";
+import crypto from "crypto";
 
 export async function POST(request: NextRequest) {
   try {
@@ -111,15 +113,49 @@ export async function POST(request: NextRequest) {
         userAgent,
       });
 
-      return NextResponse.json({
+      // ─── Generate CSRF token (double-submit pattern) ───
+      // This is a random value that the frontend reads from the non-httpOnly
+      // cookie and sends back as x-csrf-token header on mutations.
+      // An attacker on a different origin can't read this cookie, so they
+      // can't forge the header.
+      const csrfToken = crypto.randomBytes(16).toString("hex");
+
+      // ─── Build the response ───
+      const isProduction = process.env.NODE_ENV === "production";
+      const response = NextResponse.json({
         ok: true,
-        token: sessionId,
+        token: sessionId,  // still returned for API clients / tests that use headers
         role,
         email: operator.email,
         name: operator.name,
         operatorId: operator.operator_id,
         mustChangePassword: operator.must_change_password === 1,
       });
+
+      // ─── Set httpOnly session cookie ───
+      // JavaScript can't read this — immune to XSS token theft.
+      // SameSite=Lax allows top-level navigations but blocks cross-site POST.
+      // Secure=true in production (HTTPS only).
+      response.cookies.set(SESSION_COOKIE, sessionId, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60,  // 7 days (matches session lifetime)
+      });
+
+      // ─── Set CSRF token cookie (readable by JS) ───
+      // Frontend reads this via document.cookie and sends it as x-csrf-token
+      // header on POST/PATCH/DELETE.
+      response.cookies.set(CSRF_COOKIE, csrfToken, {
+        httpOnly: false,  // JS MUST be able to read this
+        secure: isProduction,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60,
+      });
+
+      return response;
     } finally {
       db.close();
     }

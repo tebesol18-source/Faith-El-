@@ -6,9 +6,15 @@
  *   - Change password endpoint (POST /api/auth/change-password)
  *   - Logout endpoint (POST /api/auth/logout)
  *   - must_change_password flag is set correctly on operator create + reset
+ *
+ * Phase 4B: switched to cookie-based auth via the shared `./helpers` module
+ * so POST/PATCH/DELETE requests automatically include the CSRF token.
+ * Fresh test-operator logins still use a unique x-forwarded-for IP to avoid
+ * shared rate-limit buckets on /api/auth/login.
  */
 
 import { describe, it, expect } from "vitest";
+import { getAdminClient, createTestClient } from "./helpers";
 
 const BASE_URL = "http://localhost:3000";
 
@@ -29,19 +35,6 @@ function uniqueIp(): string {
   return `90.0.0.${ipCounter}`;
 }
 
-let _adminToken: string | undefined;
-async function adminToken(): Promise<string> {
-  if (_adminToken) return _adminToken;
-  const r = await fetch(`${BASE_URL}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-    body: JSON.stringify({ email: "admin@coelrodan.com", password: "admin123" }),
-  });
-  const d = await r.json();
-  _adminToken = d.token as string;
-  return _adminToken;
-}
-
 describe("Phase 3 — audit log + sessions + change password", () => {
   describe("GET /api/admin/audit-log", () => {
     itOrSkip("returns 401 without auth", async () => {
@@ -52,10 +45,8 @@ describe("Phase 3 — audit log + sessions + change password", () => {
     });
 
     itOrSkip("returns audit log entries for admin", async () => {
-      const token = await adminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/audit-log?limit=10`, {
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
-      });
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/audit-log?limit=10");
       expect(r.status).toBe(200);
       const d = await r.json();
       expect(d.ok).toBe(true);
@@ -71,22 +62,19 @@ describe("Phase 3 — audit log + sessions + change password", () => {
     });
 
     itOrSkip("audit log includes operator.create entry after creating an operator", async () => {
-      const token = await adminToken();
+      const client = await getAdminClient();
       const uniqueEmail = `audit-${Date.now()}@test.com`;
 
       // Create an operator
-      const createR = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const createR = await client.fetch("/api/admin/operators", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": token, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ name: "Audit Test", email: uniqueEmail, password: "TestPass123" }),
       });
       const createD = await createR.json();
       expect(createD.ok).toBe(true);
 
       // Fetch audit log
-      const auditR = await fetch(`${BASE_URL}/api/admin/audit-log?limit=20`, {
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
-      });
+      const auditR = await client.fetch("/api/admin/audit-log?limit=20");
       const auditD = await auditR.json();
       const createEntry = auditD.entries.find((e: any) =>
         e.action === "operator.create" && e.targetEmail === uniqueEmail
@@ -95,9 +83,8 @@ describe("Phase 3 — audit log + sessions + change password", () => {
       expect(createEntry.actorEmail).toBe("admin@coelrodan.com");
 
       // Cleanup
-      await fetch(`${BASE_URL}/api/admin/operators/${createD.operator.operator_id}`, {
+      await client.fetch(`/api/admin/operators/${createD.operator.operator_id}`, {
         method: "DELETE",
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
       });
     });
   });
@@ -111,16 +98,14 @@ describe("Phase 3 — audit log + sessions + change password", () => {
     });
 
     itOrSkip("returns active sessions for admin (includes the admin's own session)", async () => {
-      const token = await adminToken();
-      const r = await fetch(`${BASE_URL}/api/admin/sessions`, {
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
-      });
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/admin/sessions");
       expect(r.status).toBe(200);
       const d = await r.json();
       expect(d.ok).toBe(true);
       expect(Array.isArray(d.sessions)).toBe(true);
       // The admin's own session should be in the list
-      const ownSession = d.sessions.find((s: any) => s.id === token);
+      const ownSession = d.sessions.find((s: any) => s.id === client.token);
       expect(ownSession).toBeDefined();
       expect(ownSession.operatorEmail).toBe("admin@coelrodan.com");
       expect(ownSession.operatorRole).toBe("admin");
@@ -129,45 +114,33 @@ describe("Phase 3 — audit log + sessions + change password", () => {
 
   describe("POST /api/admin/sessions/[id]/revoke", () => {
     itOrSkip("admin can revoke another user's session", async () => {
-      const adminTok = await adminToken();
+      const adminClient = await getAdminClient();
 
       // Login as a seller (creates a separate session)
-      const sellerLoginR = await fetch(`${BASE_URL}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-        body: JSON.stringify({ email: "abi@coelrodan.com", password: "coffee123" }),
-      });
-      const sellerLoginD = await sellerLoginR.json();
-      const sellerToken = sellerLoginD.token;
+      const sellerClient = await createTestClient("abi@coelrodan.com", "coffee123", uniqueIp());
 
       // Verify seller can access /api/dashboard
-      const beforeR = await fetch(`${BASE_URL}/api/dashboard`, {
-        headers: { "x-auth-token": sellerToken, "x-forwarded-for": uniqueIp() },
-      });
+      const beforeR = await sellerClient.fetch("/api/dashboard");
       expect(beforeR.status).toBe(200);
 
       // Admin revokes the seller's session
-      const revokeR = await fetch(`${BASE_URL}/api/admin/sessions/${sellerToken}/revoke`, {
+      const revokeR = await adminClient.fetch(`/api/admin/sessions/${sellerClient.token}/revoke`, {
         method: "POST",
-        headers: { "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
       });
       expect(revokeR.status).toBe(200);
       const revokeD = await revokeR.json();
       expect(revokeD.ok).toBe(true);
 
       // Verify seller can no longer access /api/dashboard
-      const afterR = await fetch(`${BASE_URL}/api/dashboard`, {
-        headers: { "x-auth-token": sellerToken, "x-forwarded-for": uniqueIp() },
-      });
+      const afterR = await sellerClient.fetch("/api/dashboard");
       expect(afterR.status).toBe(401);
     });
 
     itOrSkip("returns 404 for non-existent session", async () => {
-      const token = await adminToken();
+      const client = await getAdminClient();
       const fakeSessionId = "a".repeat(32);
-      const r = await fetch(`${BASE_URL}/api/admin/sessions/${fakeSessionId}/revoke`, {
+      const r = await client.fetch(`/api/admin/sessions/${fakeSessionId}/revoke`, {
         method: "POST",
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
       });
       expect(r.status).toBe(404);
     });
@@ -184,20 +157,18 @@ describe("Phase 3 — audit log + sessions + change password", () => {
     });
 
     itOrSkip("returns 400 for missing fields", async () => {
-      const adminTok = await adminToken();
-      const r = await fetch(`${BASE_URL}/api/auth/change-password`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({}),
       });
       expect(r.status).toBe(400);
     });
 
     itOrSkip("returns 401 for wrong old password", async () => {
-      const adminTok = await adminToken();
-      const r = await fetch(`${BASE_URL}/api/auth/change-password`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ oldPassword: "wrongPassword", newPassword: "NewPass123" }),
       });
       expect(r.status).toBe(401);
@@ -206,10 +177,9 @@ describe("Phase 3 — audit log + sessions + change password", () => {
     });
 
     itOrSkip("returns 400 when new password == old password", async () => {
-      const adminTok = await adminToken();
-      const r = await fetch(`${BASE_URL}/api/auth/change-password`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ oldPassword: "admin123", newPassword: "admin123" }),
       });
       expect(r.status).toBe(400);
@@ -218,29 +188,29 @@ describe("Phase 3 — audit log + sessions + change password", () => {
     });
 
     itOrSkip("returns 400 for weak new password", async () => {
-      const adminTok = await adminToken();
-      const r = await fetch(`${BASE_URL}/api/auth/change-password`, {
+      const client = await getAdminClient();
+      const r = await client.fetch("/api/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ oldPassword: "admin123", newPassword: "abc" }),
       });
       expect(r.status).toBe(400);
     });
 
     itOrSkip("full lifecycle: change password + old password fails + new password works", async () => {
-      const adminTok = await adminToken();
+      const adminClient = await getAdminClient();
 
       // Create a fresh operator for this test
       const uniqueEmail = `changepwd-${Date.now()}@test.com`;
-      const createR = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const createR = await adminClient.fetch("/api/admin/operators", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ name: "Change Pwd Test", email: uniqueEmail, password: "InitialPass1" }),
       });
       const createD = await createR.json();
       const opId = createD.operator.operator_id;
 
-      // Login
+      // First login (plain fetch) so we can inspect mustChangePassword in the
+      // login response. createTestClient doesn't expose the login body, so we
+      // do this separately. This session is not used for subsequent requests.
       const login1R = await fetch(`${BASE_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
@@ -248,12 +218,15 @@ describe("Phase 3 — audit log + sessions + change password", () => {
       });
       const login1D = await login1R.json();
       expect(login1D.mustChangePassword).toBe(true);
-      const token1 = login1D.token;
 
-      // Change password
-      const changeR = await fetch(`${BASE_URL}/api/auth/change-password`, {
+      // Create a cookie/CSRF-aware client for this operator (separate session).
+      // The operator's must_change_password flag is still set, but the
+      // change-password endpoint is always allowed (even when the flag is set).
+      const opClient = await createTestClient(uniqueEmail, "InitialPass1", uniqueIp());
+
+      // Change password using the operator's session
+      const changeR = await opClient.fetch("/api/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": token1, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ oldPassword: "InitialPass1", newPassword: "NewBetterPass456" }),
       });
       expect(changeR.status).toBe(200);
@@ -278,50 +251,36 @@ describe("Phase 3 — audit log + sessions + change password", () => {
       const login3D = await login3R.json();
       expect(login3D.mustChangePassword).toBe(false);  // flag cleared
 
-      // Current session (token1) STAYS alive — UX choice so the user doesn't
+      // Current session (opClient's) STAYS alive — UX choice so the user doesn't
       // get logged out immediately after changing their password.
       // Only OTHER sessions for this operator get revoked.
-      const sameSessionR = await fetch(`${BASE_URL}/api/dashboard`, {
-        headers: { "x-auth-token": token1, "x-forwarded-for": uniqueIp() },
-      });
+      const sameSessionR = await opClient.fetch("/api/dashboard");
       expect(sameSessionR.status).toBe(200);
 
       // Cleanup
-      await fetch(`${BASE_URL}/api/admin/operators/${opId}`, {
+      await adminClient.fetch(`/api/admin/operators/${opId}`, {
         method: "DELETE",
-        headers: { "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
       });
     });
   });
 
   describe("POST /api/auth/logout", () => {
     itOrSkip("logout revokes the current session", async () => {
-      // Login
-      const loginR = await fetch(`${BASE_URL}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-        body: JSON.stringify({ email: "abi@coelrodan.com", password: "coffee123" }),
-      });
-      const loginD = await loginR.json();
-      const token = loginD.token;
+      // Login as a seller (fresh session, not the cached one)
+      const sellerClient = await createTestClient("abi@coelrodan.com", "coffee123", uniqueIp());
 
       // Verify token works
-      const r1 = await fetch(`${BASE_URL}/api/dashboard`, {
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
-      });
+      const r1 = await sellerClient.fetch("/api/dashboard");
       expect(r1.status).toBe(200);
 
       // Logout
-      const logoutR = await fetch(`${BASE_URL}/api/auth/logout`, {
+      const logoutR = await sellerClient.fetch("/api/auth/logout", {
         method: "POST",
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
       });
       expect(logoutR.status).toBe(200);
 
       // Verify token no longer works
-      const r2 = await fetch(`${BASE_URL}/api/dashboard`, {
-        headers: { "x-auth-token": token, "x-forwarded-for": uniqueIp() },
-      });
+      const r2 = await sellerClient.fetch("/api/dashboard");
       expect(r2.status).toBe(401);
     });
 
@@ -336,11 +295,10 @@ describe("Phase 3 — audit log + sessions + change password", () => {
 
   describe("must_change_password flag", () => {
     itOrSkip("create operator sets must_change_password=true", async () => {
-      const adminTok = await adminToken();
+      const adminClient = await getAdminClient();
       const uniqueEmail = `mustflag-${Date.now()}@test.com`;
-      const createR = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const createR = await adminClient.fetch("/api/admin/operators", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ name: "Must Flag Test", email: uniqueEmail, password: "TestPass123" }),
       });
       const createD = await createR.json();
@@ -356,39 +314,32 @@ describe("Phase 3 — audit log + sessions + change password", () => {
       expect(loginD.mustChangePassword).toBe(true);
 
       // Cleanup
-      await fetch(`${BASE_URL}/api/admin/operators/${createD.operator.operator_id}`, {
+      await adminClient.fetch(`/api/admin/operators/${createD.operator.operator_id}`, {
         method: "DELETE",
-        headers: { "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
       });
     });
 
     itOrSkip("reset-password with auto-generated password sets must_change_password=true", async () => {
-      const adminTok = await adminToken();
+      const adminClient = await getAdminClient();
       const uniqueEmail = `resetmust-${Date.now()}@test.com`;
-      const createR = await fetch(`${BASE_URL}/api/admin/operators`, {
+      const createR = await adminClient.fetch("/api/admin/operators", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ name: "Reset Must Test", email: uniqueEmail, password: "InitialPass1" }),
       });
       const createD = await createR.json();
 
-      // First change the password to clear must_change_password (so we can test reset)
-      const loginR = await fetch(`${BASE_URL}/api/auth/login`, {
+      // First change the password to clear must_change_password (so we can test reset).
+      // Need a cookie/CSRF-aware client for this operator since /api/auth/change-password
+      // is a POST (CSRF-protected).
+      const opClient = await createTestClient(uniqueEmail, "InitialPass1", uniqueIp());
+      await opClient.fetch("/api/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-forwarded-for": uniqueIp() },
-        body: JSON.stringify({ email: uniqueEmail, password: "InitialPass1" }),
-      });
-      const loginD = await loginR.json();
-      await fetch(`${BASE_URL}/api/auth/change-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": loginD.token, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({ oldPassword: "InitialPass1", newPassword: "ChangedPass1" }),
       });
 
       // Now admin resets password (auto-generate)
-      const resetR = await fetch(`${BASE_URL}/api/admin/operators/${createD.operator.operator_id}/reset-password`, {
+      const resetR = await adminClient.fetch(`/api/admin/operators/${createD.operator.operator_id}/reset-password`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
         body: JSON.stringify({}),  // auto-generate
       });
       const resetD = await resetR.json();
@@ -406,9 +357,8 @@ describe("Phase 3 — audit log + sessions + change password", () => {
       expect(login2D.mustChangePassword).toBe(true);
 
       // Cleanup
-      await fetch(`${BASE_URL}/api/admin/operators/${createD.operator.operator_id}`, {
+      await adminClient.fetch(`/api/admin/operators/${createD.operator.operator_id}`, {
         method: "DELETE",
-        headers: { "x-auth-token": adminTok, "x-forwarded-for": uniqueIp() },
       });
     });
   });
