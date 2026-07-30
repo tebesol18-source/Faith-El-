@@ -145,17 +145,21 @@ export function middleware(request: NextRequest) {
     response.headers.set(k, v);
   }
 
-  // ─── HTTPS enforcement (production only) ───
-  if (process.env.NODE_ENV === "production") {
-    // HSTS: tell browsers to always use HTTPS for this site
+  // ─── Security headers ───
+  // X-Content-Type-Options + X-Frame-Options are safe on both HTTP + HTTPS.
+  // HSTS only makes sense on HTTPS — adding it on HTTP can cause issues
+  // (browsers ignore it, but it clutters the response).
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+
+  // HSTS only when actually on HTTPS
+  const isHttps = request.headers.get("x-forwarded-proto") === "https"
+              || request.nextUrl.protocol === "https:";
+  if (isHttps) {
     response.headers.set(
       "Strict-Transport-Security",
       "max-age=31536000; includeSubDomains; preload"
     );
-    // Prevent MIME-type sniffing
-    response.headers.set("X-Content-Type-Options", "nosniff");
-    // Prevent clickjacking
-    response.headers.set("X-Frame-Options", "DENY");
   }
 
   return response;

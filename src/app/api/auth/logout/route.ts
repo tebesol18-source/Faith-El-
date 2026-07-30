@@ -19,18 +19,22 @@ export async function POST(request: NextRequest) {
       revokeSession(user.sessionId, "self (logout)");
     }
 
+    // Use Secure flag only when the request is actually over HTTPS.
+    const isHttps = request.headers.get("x-forwarded-proto") === "https"
+                 || request.url.startsWith("https://");
+
     // Clear both cookies
     const response = NextResponse.json({ ok: true });
     response.cookies.set(SESSION_COOKIE, "", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isHttps,
       sameSite: "lax",
       path: "/",
       maxAge: 0,  // immediately expires
     });
     response.cookies.set(CSRF_COOKIE, "", {
       httpOnly: false,
-      secure: process.env.NODE_ENV === "production",
+      secure: isHttps,
       sameSite: "lax",
       path: "/",
       maxAge: 0,

@@ -121,7 +121,11 @@ export async function POST(request: NextRequest) {
       const csrfToken = crypto.randomBytes(16).toString("hex");
 
       // ─── Build the response ───
-      const isProduction = process.env.NODE_ENV === "production";
+      // Use Secure flag only when the request is actually over HTTPS.
+      // Checking NODE_ENV isn't enough — workspaces run in production mode
+      // but over HTTP, so Secure cookies would be dropped by the browser.
+      const isHttps = request.headers.get("x-forwarded-proto") === "https"
+                   || request.url.startsWith("https://");
       const response = NextResponse.json({
         ok: true,
         token: sessionId,  // still returned for API clients / tests that use headers
@@ -135,10 +139,10 @@ export async function POST(request: NextRequest) {
       // ─── Set httpOnly session cookie ───
       // JavaScript can't read this — immune to XSS token theft.
       // SameSite=Lax allows top-level navigations but blocks cross-site POST.
-      // Secure=true in production (HTTPS only).
+      // Secure=true only when actually on HTTPS (prevents cookie being dropped on HTTP).
       response.cookies.set(SESSION_COOKIE, sessionId, {
         httpOnly: true,
-        secure: isProduction,
+        secure: isHttps,
         sameSite: "lax",
         path: "/",
         maxAge: 7 * 24 * 60 * 60,  // 7 days (matches session lifetime)
@@ -149,7 +153,7 @@ export async function POST(request: NextRequest) {
       // header on POST/PATCH/DELETE.
       response.cookies.set(CSRF_COOKIE, csrfToken, {
         httpOnly: false,  // JS MUST be able to read this
-        secure: isProduction,
+        secure: isHttps,
         sameSite: "lax",
         path: "/",
         maxAge: 7 * 24 * 60 * 60,
