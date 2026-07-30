@@ -31,7 +31,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DR_DIR="/tmp/dr-drill"
-SOURCE_ZIP="$PROJECT_ROOT/download/coffee-export-erp-phase4a.zip"
+
+# Source zip: use env var, or first arg, or default to the latest phase zip
+SOURCE_ZIP="${SOURCE_ZIP:-}"
+if [ $# -ge 2 ]; then SOURCE_ZIP="$2"; fi
+if [ -z "$SOURCE_ZIP" ]; then
+  # Auto-detect the latest phase zip
+  SOURCE_ZIP=$(ls -t "$PROJECT_ROOT/download/coffee-export-erp-phase"*.zip 2>/dev/null | head -1)
+  if [ -z "$SOURCE_ZIP" ]; then
+    SOURCE_ZIP="$PROJECT_ROOT/download/coffee-export-erp-phase4a.zip"
+  fi
+fi
+
 BACKUP_DIR="$PROJECT_ROOT/coffee_export/data/backups"
 
 # Use provided backup or the most recent one
