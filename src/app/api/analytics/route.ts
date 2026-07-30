@@ -11,23 +11,16 @@
  */
 
 import { NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
+import { getReadonlyDb } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 
-function getDbPath(): string {
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) { if (fs.existsSync(p)) return p; }
-  return candidates[candidates.length - 1];
-}
+export async function GET(request: any) {
+  // Auth — analytics are available to any logged-in user
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
 
-export async function GET() {
   try {
-    const db = new Database(getDbPath(), { readonly: true });
+    const db = getReadonlyDb();
 
     try {
       // ═══ 1. AGENT PERFORMANCE ═══
@@ -137,7 +130,7 @@ export async function GET() {
           SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
           SUM(CASE WHEN status = 'decided' THEN 1 ELSE 0 END) as decided
         FROM sample_requests WHERE deleted_ts IS NULL
-      `).get() as any[];
+      `).get() as any;
 
       const shipmentStats = db.prepare(`
         SELECT
@@ -146,14 +139,14 @@ export async function GET() {
           SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
           SUM(CASE WHEN status = 'departed' THEN 1 ELSE 0 END) as departed
         FROM shipments WHERE deleted_ts IS NULL
-      `).get() as any[];
+      `).get() as any;
 
       const complianceStats = db.prepare(`
         SELECT
           COUNT(*) as total,
           SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved
         FROM compliance_documents WHERE deleted_ts IS NULL
-      `).get() as any[];
+      `).get() as any;
 
       // ═══ 7. EVENT PROCESSING METRICS ═══
       const eventStats = db.prepare(`
@@ -162,7 +155,7 @@ export async function GET() {
           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
           SUM(CASE WHEN status = 'consumed' THEN 1 ELSE 0 END) as consumed
         FROM events
-      `).get() as any[];
+      `).get() as any;
 
       const supervisorLogs = db.prepare(`
         SELECT
@@ -171,7 +164,7 @@ export async function GET() {
           SUM(CASE WHEN severity = 'warning' THEN 1 ELSE 0 END) as warning,
           SUM(CASE WHEN event_type = 'AUTO_RESTART' THEN 1 ELSE 0 END) as auto_restarts
         FROM supervisor_log
-      `).get() as any[];
+      `).get() as any;
 
       // ═══ 8. LEAD SOURCE METRICS ═══
       const leadsByCountry = db.prepare(`

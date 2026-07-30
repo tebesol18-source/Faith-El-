@@ -13,21 +13,8 @@
  */
 
 import { NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
-
-function getDbPath(): string {
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return candidates[candidates.length - 1];
-}
+import { getReadonlyDb } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 
 function relativeTime(ts: string | null): string {
   if (!ts) return "Never";
@@ -55,9 +42,13 @@ function formatDate(ts: string | null): string {
 type TxnType = "invoice" | "payment_in" | "cost_coffee" | "cost_freight" | "cost_insurance" | "cost_commission" | "cost_other";
 type TxnStatus = "paid" | "pending" | "overdue" | "due_soon";
 
-export async function GET() {
+export async function GET(request: any) {
+  // Auth — every GET route requires a valid session
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+
   try {
-    const db = new Database(getDbPath(), { readonly: true });
+    const db = getReadonlyDb();
 
     try {
       const contracts = db.prepare(`

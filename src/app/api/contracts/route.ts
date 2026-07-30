@@ -14,21 +14,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
-
-function getDbPath(): string {
-  const fs = require("fs");
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return candidates[candidates.length - 1];
-}
+import { getReadonlyDb } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 
 /**
  * Map backend contract status → frontend contract status.
@@ -122,12 +109,16 @@ function countryFlag(country: string | null): string {
 }
 
 export async function GET(request: NextRequest) {
+  // Auth — every GET route requires a valid session
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+
   try {
     const { searchParams } = new URL(request.url);
     const statusFilter = searchParams.get("status");
     const limit = Math.min(parseInt(searchParams.get("limit") || "500", 10), 1000);
 
-    const db = new Database(getDbPath(), { readonly: true, fileMustExist: true });
+    const db = getReadonlyDb();
 
     try {
       let query = `

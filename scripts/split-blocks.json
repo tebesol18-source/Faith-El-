@@ -1,0 +1,374 @@
+[
+  {
+    "start": 21,
+    "end": 21,
+    "kind": "const",
+    "name": "ADMIN_EMAIL"
+  },
+  {
+    "start": 22,
+    "end": 23,
+    "kind": "let",
+    "name": "_authToken"
+  },
+  {
+    "start": 24,
+    "end": 31,
+    "kind": "function",
+    "name": "getAuthToken"
+  },
+  {
+    "start": 32,
+    "end": 38,
+    "kind": "function",
+    "name": "setAuthToken"
+  },
+  {
+    "start": 39,
+    "end": 45,
+    "kind": "function",
+    "name": "clearAuthToken"
+  },
+  {
+    "start": 46,
+    "end": 58,
+    "kind": "function",
+    "name": "apiFetch"
+  },
+  {
+    "start": 59,
+    "end": 61,
+    "kind": "type",
+    "name": "Page"
+  },
+  {
+    "start": 62,
+    "end": 90,
+    "kind": "const",
+    "name": "navGroups"
+  },
+  {
+    "start": 91,
+    "end": 177,
+    "kind": "function",
+    "name": "Sidebar"
+  },
+  {
+    "start": 178,
+    "end": 688,
+    "kind": "function",
+    "name": "TopHeader"
+  },
+  {
+    "start": 689,
+    "end": 1018,
+    "kind": "function",
+    "name": "DashboardPage"
+  },
+  {
+    "start": 1019,
+    "end": 1260,
+    "kind": "function",
+    "name": "InboxPage"
+  },
+  {
+    "start": 1261,
+    "end": 1671,
+    "kind": "function",
+    "name": "LeadsPage"
+  },
+  {
+    "start": 1672,
+    "end": 2081,
+    "kind": "function",
+    "name": "DealsPage"
+  },
+  {
+    "start": 2082,
+    "end": 2398,
+    "kind": "function",
+    "name": "InventoryPage"
+  },
+  {
+    "start": 2399,
+    "end": 2626,
+    "kind": "function",
+    "name": "SamplesPage"
+  },
+  {
+    "start": 2627,
+    "end": 2636,
+    "kind": "type",
+    "name": "QuoteLineItem"
+  },
+  {
+    "start": 2637,
+    "end": 2778,
+    "kind": "type",
+    "name": "Quote"
+  },
+  {
+    "start": 2779,
+    "end": 2789,
+    "kind": "function",
+    "name": "quoteTotals"
+  },
+  {
+    "start": 2790,
+    "end": 2799,
+    "kind": "function",
+    "name": "marginTier"
+  },
+  {
+    "start": 2800,
+    "end": 2984,
+    "kind": "function",
+    "name": "NegotiationSimulator"
+  },
+  {
+    "start": 2985,
+    "end": 3505,
+    "kind": "function",
+    "name": "QuotesPage"
+  },
+  {
+    "start": 3506,
+    "end": 3506,
+    "kind": "type",
+    "name": "DocStatus"
+  },
+  {
+    "start": 3507,
+    "end": 3508,
+    "kind": "type",
+    "name": "DocType"
+  },
+  {
+    "start": 3509,
+    "end": 3519,
+    "kind": "type",
+    "name": "ComplianceDoc"
+  },
+  {
+    "start": 3520,
+    "end": 3607,
+    "kind": "type",
+    "name": "ComplianceShipment"
+  },
+  {
+    "start": 3608,
+    "end": 3615,
+    "kind": "function",
+    "name": "shipmentReadiness"
+  },
+  {
+    "start": 3616,
+    "end": 4032,
+    "kind": "function",
+    "name": "CompliancePage"
+  },
+  {
+    "start": 4033,
+    "end": 4033,
+    "kind": "type",
+    "name": "ShipmentStage"
+  },
+  {
+    "start": 4034,
+    "end": 4035,
+    "kind": "type",
+    "name": "ShipmentStatus"
+  },
+  {
+    "start": 4036,
+    "end": 4043,
+    "kind": "type",
+    "name": "ShipmentMilestone"
+  },
+  {
+    "start": 4044,
+    "end": 4049,
+    "kind": "type",
+    "name": "TempReading"
+  },
+  {
+    "start": 4050,
+    "end": 4292,
+    "kind": "type",
+    "name": "Shipment"
+  },
+  {
+    "start": 4293,
+    "end": 4819,
+    "kind": "function",
+    "name": "ShipmentsPage"
+  },
+  {
+    "start": 4820,
+    "end": 4821,
+    "kind": "type",
+    "name": "ContractStatus"
+  },
+  {
+    "start": 4822,
+    "end": 4830,
+    "kind": "type",
+    "name": "PaymentMilestone"
+  },
+  {
+    "start": 4831,
+    "end": 5025,
+    "kind": "type",
+    "name": "Contract"
+  },
+  {
+    "start": 5026,
+    "end": 5154,
+    "kind": "function",
+    "name": "ContractCard"
+  },
+  {
+    "start": 5155,
+    "end": 5401,
+    "kind": "function",
+    "name": "ContractDetailDrawer"
+  },
+  {
+    "start": 5402,
+    "end": 5578,
+    "kind": "function",
+    "name": "ContractsPage"
+  },
+  {
+    "start": 5579,
+    "end": 5579,
+    "kind": "type",
+    "name": "TxnType"
+  },
+  {
+    "start": 5580,
+    "end": 5581,
+    "kind": "type",
+    "name": "TxnStatus"
+  },
+  {
+    "start": 5582,
+    "end": 5737,
+    "kind": "type",
+    "name": "Transaction"
+  },
+  {
+    "start": 5738,
+    "end": 6131,
+    "kind": "function",
+    "name": "FinancePage"
+  },
+  {
+    "start": 6132,
+    "end": 6142,
+    "kind": "type",
+    "name": "Priority"
+  },
+  {
+    "start": 6143,
+    "end": 6149,
+    "kind": "type",
+    "name": "Insight"
+  },
+  {
+    "start": 6150,
+    "end": 6158,
+    "kind": "type",
+    "name": "RiskItem"
+  },
+  {
+    "start": 6159,
+    "end": 6166,
+    "kind": "type",
+    "name": "Opportunity"
+  },
+  {
+    "start": 6167,
+    "end": 6353,
+    "kind": "type",
+    "name": "AIAction"
+  },
+  {
+    "start": 6354,
+    "end": 6674,
+    "kind": "function",
+    "name": "CoachPage"
+  },
+  {
+    "start": 6675,
+    "end": 6676,
+    "kind": "type",
+    "name": "SellerRisk"
+  },
+  {
+    "start": 6677,
+    "end": 6700,
+    "kind": "type",
+    "name": "Seller"
+  },
+  {
+    "start": 6701,
+    "end": 6803,
+    "kind": "type",
+    "name": "SellerDeal"
+  },
+  {
+    "start": 6804,
+    "end": 6805,
+    "kind": "type",
+    "name": "OperatorRole"
+  },
+  {
+    "start": 6806,
+    "end": 6815,
+    "kind": "type",
+    "name": "Operator"
+  },
+  {
+    "start": 6816,
+    "end": 6826,
+    "kind": "type",
+    "name": "AIAgent"
+  },
+  {
+    "start": 6827,
+    "end": 6836,
+    "kind": "type",
+    "name": "ApprovalItem"
+  },
+  {
+    "start": 6837,
+    "end": 6888,
+    "kind": "type",
+    "name": "AuditEntry"
+  },
+  {
+    "start": 6889,
+    "end": 7865,
+    "kind": "function",
+    "name": "AdminPage"
+  },
+  {
+    "start": 7866,
+    "end": 8099,
+    "kind": "function",
+    "name": "LoginPage"
+  },
+  {
+    "start": 8100,
+    "end": 8118,
+    "kind": "function",
+    "name": "PlaceholderPage"
+  },
+  {
+    "start": 8119,
+    "end": 8196,
+    "kind": "function",
+    "name": "App"
+  }
+]

@@ -5,28 +5,21 @@
  * Joins with sample_request_lots for lot info, leads for company name.
  */
 import { NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
-
-function getDbPath(): string {
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) { if (fs.existsSync(p)) return p; }
-  return candidates[candidates.length - 1];
-}
+import { getReadonlyDb } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 
 function formatDate(ts: string | null): string | null {
   if (!ts) return null;
   try { return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return null; }
 }
 
-export async function GET() {
+export async function GET(request: any) {
+  // Auth — every GET route requires a valid session
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+
   try {
-    const db = new Database(getDbPath(), { readonly: true });
+    const db = getReadonlyDb();
     try {
       const rows = db.prepare(`
         SELECT sr.sample_request_id, sr.lead_id, sr.sample_type, sr.status,

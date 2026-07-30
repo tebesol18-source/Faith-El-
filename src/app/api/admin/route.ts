@@ -9,57 +9,9 @@
  */
 
 import { NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
-
-function getDbPath(): string {
-  const fs = require("fs");
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return candidates[candidates.length - 1];
-}
-
-function relativeTime(ts: string | null): string {
-  if (!ts) return "Never";
-  try {
-    const then = new Date(ts).getTime();
-    const now = Date.now();
-    const diffMs = now - then;
-    if (diffMs < 0) return "Just now";
-    const minutes = Math.floor(diffMs / 60000);
-    if (minutes < 1) return "Just now";
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    return `${Math.floor(days / 7)}w ago`;
-  } catch {
-    return "—";
-  }
-}
-
-function formatTimestamp(ts: string | null): string {
-  if (!ts) return "—";
-  try {
-    const d = new Date(ts);
-    return d.toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
-  } catch {
-    return "—";
-  }
-}
+import { getReadonlyDb } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
+import { relativeTime, formatTimestamp } from "@/lib/format";
 
 type FrontendOperator = {
   id: string;
@@ -93,9 +45,13 @@ type FrontendAuditEntry = {
   entityId: string;
 };
 
-export async function GET() {
+export async function GET(request: any) {
+  // Admin-only — system data (operators, agents, audit log)
+  const auth = requireAdmin(request);
+  if ("error" in auth) return auth.error;
+
   try {
-    const db = new Database(getDbPath(), { readonly: true, fileMustExist: true });
+    const db = getReadonlyDb();
 
     try {
       // ─── Operators ───
@@ -181,6 +137,21 @@ export async function GET() {
         entityId: row.agent_id || "—",
       }));
 
+      // ─── Pending access requests (from /api/auth/request-access) ───
+      let accessRequests: any[] = [];
+      try {
+        accessRequests = db.prepare(`
+          SELECT id, name, email, company, job_title, phone, message, status, submitted_ts
+          FROM account_requests
+          WHERE status = 'pending'
+          ORDER BY submitted_ts DESC
+          LIMIT 50
+        `).all() as any[];
+      } catch {
+        // Table might not exist on older DBs — return empty array
+        accessRequests = [];
+      }
+
       return NextResponse.json({
         ok: true,
         source: "sqlite",
@@ -189,6 +160,7 @@ export async function GET() {
         audit,
         // No approvals data in backend — return empty array (frontend will show "no pending approvals")
         approvals: [],
+        accessRequests,
         stats: {
           operatorCount: operators.length,
           activeOperators: operators.filter((o) => o.status === "active").length,
@@ -196,6 +168,7 @@ export async function GET() {
           activeAgents: agents.filter((a) => a.status === "active").length,
           auditCount: audit.length,
           pendingApprovals: 0,
+          pendingAccessRequests: accessRequests.length,
         },
       });
     } finally {

@@ -3,21 +3,8 @@
  * Resumes a paused agent — the supervisor will process its events on subsequent ticks.
  */
 import { NextRequest, NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
-
-function getDbPath(): string {
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return candidates[candidates.length - 1];
-}
+import { requireAuth } from "@/lib/auth";
+import { getWritableDb } from "@/lib/db";
 
 function nowISO() {
   return new Date().toISOString().replace("Z", "+03:00");
@@ -28,8 +15,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = requireAuth(request);
+    if ("error" in auth) return auth.error;
+
     const { id: agentId } = await params;
-    const db = new Database(getDbPath());
+    const db = getWritableDb();
 
     try {
       const result = db.prepare(`

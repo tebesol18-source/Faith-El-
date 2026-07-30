@@ -5,32 +5,9 @@
  * Each contract becomes a "shipment" with its documents mapped to the 8 doc types.
  */
 import { NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
-
-function getDbPath(): string {
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) { if (fs.existsSync(p)) return p; }
-  return candidates[candidates.length - 1];
-}
-
-function formatDate(ts: string | null): string | null {
-  if (!ts) return null;
-  try { return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return null; }
-}
-
-function daysUntil(dateStr: string | null): number | null {
-  if (!dateStr) return null;
-  try {
-    const diff = new Date(dateStr).getTime() - Date.now();
-    return Math.ceil(diff / 86400000);
-  } catch { return null; }
-}
+import { getReadonlyDb } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
+import { formatDate, daysUntil } from "@/lib/format";
 
 const DOC_TYPES = ["phytosanitary", "ecx_grade", "export_permit", "certificate_of_origin", "ico_certificate", "fumigation", "quality_inspection", "bill_of_lading"] as const;
 
@@ -45,9 +22,13 @@ const DOC_LABELS: Record<string, string> = {
   bill_of_lading: "Bill of Lading",
 };
 
-export async function GET() {
+export async function GET(request: any) {
+  // Auth — every GET route requires a valid session
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+
   try {
-    const db = new Database(getDbPath(), { readonly: true });
+    const db = getReadonlyDb();
     try {
       // Get all contracts with their compliance docs
       const contracts = db.prepare(`

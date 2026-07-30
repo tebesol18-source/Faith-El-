@@ -17,39 +17,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
-
-function getDbPath(): string {
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return candidates[candidates.length - 1];
-}
+import { getReadonlyDb, getWritableDb } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
+import { relativeTime } from "@/lib/format";
 
 function nowISO() {
   return new Date().toISOString();
-}
-
-function relativeTime(ts: string | null): string {
-  if (!ts) return "Never";
-  try {
-    const then = new Date(ts).getTime();
-    const now = Date.now();
-    const diffSec = Math.floor((now - then) / 1000);
-    if (diffSec < 60) return `${diffSec}s ago`;
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-    return `${Math.floor(diffSec / 86400)}d ago`;
-  } catch {
-    return "—";
-  }
 }
 
 const RISK_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
@@ -68,9 +41,13 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   create_quote: "Create Quote",
 };
 
-export async function GET() {
+export async function GET(request: any) {
+  // Auth — every GET route requires a valid session
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+
   try {
-    const db = new Database(getDbPath(), { readonly: true });
+    const db = getReadonlyDb();
 
     try {
       const rows = db.prepare(`
@@ -117,6 +94,11 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    // Auth check — any logged-in user (admin or seller) can approve/reject
+    const auth = requireAuth(request);
+    if ("error" in auth) return auth.error;
+    const user = auth.user;
+
     const body = await request.json();
     const { id, action, reviewer, notes, feedback_reason, edited_fields, seller_notes } = body;
 
@@ -127,7 +109,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const db = new Database(getDbPath());
+    const db = getWritableDb();
 
     try {
       const pending = db.prepare("SELECT * FROM pending_agent_actions WHERE id = ? AND status = 'pending'").get(id) as any;

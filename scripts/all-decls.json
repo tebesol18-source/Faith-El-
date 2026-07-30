@@ -1,0 +1,692 @@
+[
+  {
+    "kind": "const",
+    "name": "ADMIN_EMAIL",
+    "start": 21,
+    "end": 21
+  },
+  {
+    "kind": "let",
+    "name": "_authToken",
+    "start": 22,
+    "end": 22
+  },
+  {
+    "kind": "function",
+    "name": "getAuthToken",
+    "start": 24,
+    "end": 30
+  },
+  {
+    "kind": "function",
+    "name": "setAuthToken",
+    "start": 32,
+    "end": 37
+  },
+  {
+    "kind": "function",
+    "name": "clearAuthToken",
+    "start": 39,
+    "end": 44
+  },
+  {
+    "kind": "function",
+    "name": "apiFetch",
+    "start": 46,
+    "end": 56
+  },
+  {
+    "kind": "type",
+    "name": "Page",
+    "start": 59,
+    "end": 59
+  },
+  {
+    "kind": "const",
+    "name": "navGroups",
+    "start": 62,
+    "end": 88
+  },
+  {
+    "kind": "function",
+    "name": "Sidebar",
+    "start": 91,
+    "end": 175
+  },
+  {
+    "kind": "function",
+    "name": "TopHeader",
+    "start": 178,
+    "end": 645
+  },
+  {
+    "kind": "const",
+    "name": "mockPriorities",
+    "start": 651,
+    "end": 656
+  },
+  {
+    "kind": "const",
+    "name": "mockStages",
+    "start": 658,
+    "end": 666
+  },
+  {
+    "kind": "const",
+    "name": "mockKpis",
+    "start": 668,
+    "end": 673
+  },
+  {
+    "kind": "const",
+    "name": "mockActivities",
+    "start": 675,
+    "end": 681
+  },
+  {
+    "kind": "const",
+    "name": "mockShipments",
+    "start": 683,
+    "end": 687
+  },
+  {
+    "kind": "function",
+    "name": "DashboardPage",
+    "start": 689,
+    "end": 999
+  },
+  {
+    "kind": "const",
+    "name": "mockConversations",
+    "start": 1005,
+    "end": 1012
+  },
+  {
+    "kind": "const",
+    "name": "mockMessages",
+    "start": 1014,
+    "end": 1017
+  },
+  {
+    "kind": "function",
+    "name": "InboxPage",
+    "start": 1019,
+    "end": 1218
+  },
+  {
+    "kind": "const",
+    "name": "mockLeadsData",
+    "start": 1225,
+    "end": 1236
+  },
+  {
+    "kind": "const",
+    "name": "stateColors",
+    "start": 1238,
+    "end": 1252
+  },
+  {
+    "kind": "const",
+    "name": "tierColors",
+    "start": 1254,
+    "end": 1259
+  },
+  {
+    "kind": "function",
+    "name": "LeadsPage",
+    "start": 1261,
+    "end": 1638
+  },
+  {
+    "kind": "const",
+    "name": "mockDealsData",
+    "start": 1644,
+    "end": 1653
+  },
+  {
+    "kind": "const",
+    "name": "stageConfig",
+    "start": 1655,
+    "end": 1664
+  },
+  {
+    "kind": "const",
+    "name": "healthConfig",
+    "start": 1666,
+    "end": 1670
+  },
+  {
+    "kind": "function",
+    "name": "DealsPage",
+    "start": 1672,
+    "end": 2046
+  },
+  {
+    "kind": "const",
+    "name": "mockLotsData",
+    "start": 2051,
+    "end": 2060
+  },
+  {
+    "kind": "const",
+    "name": "eudrConfig",
+    "start": 2062,
+    "end": 2066
+  },
+  {
+    "kind": "const",
+    "name": "statusConfig",
+    "start": 2068,
+    "end": 2072
+  },
+  {
+    "kind": "const",
+    "name": "regionColors",
+    "start": 2074,
+    "end": 2080
+  },
+  {
+    "kind": "function",
+    "name": "InventoryPage",
+    "start": 2082,
+    "end": 2369
+  },
+  {
+    "kind": "const",
+    "name": "mockSamplesData",
+    "start": 2374,
+    "end": 2383
+  },
+  {
+    "kind": "const",
+    "name": "sampleStatusConfig",
+    "start": 2385,
+    "end": 2391
+  },
+  {
+    "kind": "const",
+    "name": "decisionConfig",
+    "start": 2393,
+    "end": 2397
+  },
+  {
+    "kind": "function",
+    "name": "SamplesPage",
+    "start": 2399,
+    "end": 2622
+  },
+  {
+    "kind": "type",
+    "name": "QuoteLineItem",
+    "start": 2627,
+    "end": 2635
+  },
+  {
+    "kind": "type",
+    "name": "Quote",
+    "start": 2637,
+    "end": 2660
+  },
+  {
+    "kind": "const",
+    "name": "mockQuotesData",
+    "start": 2662,
+    "end": 2766
+  },
+  {
+    "kind": "const",
+    "name": "quoteStatusConfig",
+    "start": 2768,
+    "end": 2777
+  },
+  {
+    "kind": "function",
+    "name": "quoteTotals",
+    "start": 2779,
+    "end": 2788
+  },
+  {
+    "kind": "function",
+    "name": "marginTier",
+    "start": 2790,
+    "end": 2794
+  },
+  {
+    "kind": "function",
+    "name": "NegotiationSimulator",
+    "start": 2800,
+    "end": 2983
+  },
+  {
+    "kind": "function",
+    "name": "QuotesPage",
+    "start": 2985,
+    "end": 3501
+  },
+  {
+    "kind": "type",
+    "name": "DocStatus",
+    "start": 3506,
+    "end": 3506
+  },
+  {
+    "kind": "type",
+    "name": "DocType",
+    "start": 3507,
+    "end": 3507
+  },
+  {
+    "kind": "type",
+    "name": "ComplianceDoc",
+    "start": 3509,
+    "end": 3518
+  },
+  {
+    "kind": "type",
+    "name": "ComplianceShipment",
+    "start": 3520,
+    "end": 3529
+  },
+  {
+    "kind": "const",
+    "name": "docTypeConfig",
+    "start": 3531,
+    "end": 3540
+  },
+  {
+    "kind": "const",
+    "name": "docStatusConfig",
+    "start": 3542,
+    "end": 3549
+  },
+  {
+    "kind": "const",
+    "name": "mockComplianceShipments",
+    "start": 3551,
+    "end": 3604
+  },
+  {
+    "kind": "const",
+    "name": "allDocTypes",
+    "start": 3606,
+    "end": 3606
+  },
+  {
+    "kind": "function",
+    "name": "shipmentReadiness",
+    "start": 3608,
+    "end": 3608
+  },
+  {
+    "kind": "function",
+    "name": "CompliancePage",
+    "start": 3616,
+    "end": 4028
+  },
+  {
+    "kind": "type",
+    "name": "ShipmentStage",
+    "start": 4033,
+    "end": 4033
+  },
+  {
+    "kind": "type",
+    "name": "ShipmentStatus",
+    "start": 4034,
+    "end": 4034
+  },
+  {
+    "kind": "type",
+    "name": "ShipmentMilestone",
+    "start": 4036,
+    "end": 4042
+  },
+  {
+    "kind": "type",
+    "name": "TempReading",
+    "start": 4044,
+    "end": 4048
+  },
+  {
+    "kind": "type",
+    "name": "Shipment",
+    "start": 4050,
+    "end": 4084
+  },
+  {
+    "kind": "const",
+    "name": "shipmentStageConfig",
+    "start": 4086,
+    "end": 4095
+  },
+  {
+    "kind": "const",
+    "name": "stageOrder",
+    "start": 4097,
+    "end": 4097
+  },
+  {
+    "kind": "const",
+    "name": "shipmentStatusConfig",
+    "start": 4099,
+    "end": 4106
+  },
+  {
+    "kind": "const",
+    "name": "mockShipmentsData",
+    "start": 4108,
+    "end": 4291
+  },
+  {
+    "kind": "function",
+    "name": "ShipmentsPage",
+    "start": 4293,
+    "end": 4815
+  },
+  {
+    "kind": "type",
+    "name": "ContractStatus",
+    "start": 4820,
+    "end": 4820
+  },
+  {
+    "kind": "type",
+    "name": "PaymentMilestone",
+    "start": 4822,
+    "end": 4829
+  },
+  {
+    "kind": "type",
+    "name": "Contract",
+    "start": 4831,
+    "end": 4865
+  },
+  {
+    "kind": "const",
+    "name": "contractStatusConfig",
+    "start": 4867,
+    "end": 4876
+  },
+  {
+    "kind": "const",
+    "name": "mockContractsData",
+    "start": 4880,
+    "end": 5024
+  },
+  {
+    "kind": "function",
+    "name": "ContractCard",
+    "start": 5026,
+    "end": 5153
+  },
+  {
+    "kind": "function",
+    "name": "ContractDetailDrawer",
+    "start": 5155,
+    "end": 5400
+  },
+  {
+    "kind": "function",
+    "name": "ContractsPage",
+    "start": 5402,
+    "end": 5573
+  },
+  {
+    "kind": "type",
+    "name": "TxnType",
+    "start": 5579,
+    "end": 5579
+  },
+  {
+    "kind": "type",
+    "name": "TxnStatus",
+    "start": 5580,
+    "end": 5580
+  },
+  {
+    "kind": "type",
+    "name": "Transaction",
+    "start": 5582,
+    "end": 5597
+  },
+  {
+    "kind": "const",
+    "name": "txnTypeConfig",
+    "start": 5599,
+    "end": 5607
+  },
+  {
+    "kind": "const",
+    "name": "txnStatusConfig",
+    "start": 5609,
+    "end": 5614
+  },
+  {
+    "kind": "const",
+    "name": "mockTransactionsData",
+    "start": 5617,
+    "end": 5736
+  },
+  {
+    "kind": "function",
+    "name": "FinancePage",
+    "start": 5738,
+    "end": 6127
+  },
+  {
+    "kind": "type",
+    "name": "Priority",
+    "start": 6132,
+    "end": 6141
+  },
+  {
+    "kind": "type",
+    "name": "Insight",
+    "start": 6143,
+    "end": 6148
+  },
+  {
+    "kind": "type",
+    "name": "RiskItem",
+    "start": 6150,
+    "end": 6157
+  },
+  {
+    "kind": "type",
+    "name": "Opportunity",
+    "start": 6159,
+    "end": 6165
+  },
+  {
+    "kind": "type",
+    "name": "AIAction",
+    "start": 6167,
+    "end": 6173
+  },
+  {
+    "kind": "const",
+    "name": "coachPriorities",
+    "start": 6175,
+    "end": 6226
+  },
+  {
+    "kind": "const",
+    "name": "coachInsights",
+    "start": 6228,
+    "end": 6253
+  },
+  {
+    "kind": "const",
+    "name": "coachRisks",
+    "start": 6255,
+    "end": 6288
+  },
+  {
+    "kind": "const",
+    "name": "coachOpportunities",
+    "start": 6290,
+    "end": 6312
+  },
+  {
+    "kind": "const",
+    "name": "coachAiActions",
+    "start": 6314,
+    "end": 6321
+  },
+  {
+    "kind": "const",
+    "name": "urgencyConfig",
+    "start": 6323,
+    "end": 6327
+  },
+  {
+    "kind": "const",
+    "name": "categoryConfig",
+    "start": 6329,
+    "end": 6334
+  },
+  {
+    "kind": "const",
+    "name": "insightTypeConfig",
+    "start": 6336,
+    "end": 6340
+  },
+  {
+    "kind": "const",
+    "name": "severityConfig",
+    "start": 6342,
+    "end": 6346
+  },
+  {
+    "kind": "const",
+    "name": "aiActionStatusConfig",
+    "start": 6348,
+    "end": 6352
+  },
+  {
+    "kind": "function",
+    "name": "CoachPage",
+    "start": 6354,
+    "end": 6668
+  },
+  {
+    "kind": "type",
+    "name": "SellerRisk",
+    "start": 6675,
+    "end": 6675
+  },
+  {
+    "kind": "type",
+    "name": "Seller",
+    "start": 6677,
+    "end": 6699
+  },
+  {
+    "kind": "type",
+    "name": "SellerDeal",
+    "start": 6701,
+    "end": 6708
+  },
+  {
+    "kind": "const",
+    "name": "sellersData",
+    "start": 6710,
+    "end": 6759
+  },
+  {
+    "kind": "const",
+    "name": "sellerRiskConfig",
+    "start": 6761,
+    "end": 6765
+  },
+  {
+    "kind": "const",
+    "name": "sellerDealsData",
+    "start": 6768,
+    "end": 6801
+  },
+  {
+    "kind": "type",
+    "name": "OperatorRole",
+    "start": 6804,
+    "end": 6804
+  },
+  {
+    "kind": "type",
+    "name": "Operator",
+    "start": 6806,
+    "end": 6814
+  },
+  {
+    "kind": "type",
+    "name": "AIAgent",
+    "start": 6816,
+    "end": 6825
+  },
+  {
+    "kind": "type",
+    "name": "ApprovalItem",
+    "start": 6827,
+    "end": 6835
+  },
+  {
+    "kind": "type",
+    "name": "AuditEntry",
+    "start": 6837,
+    "end": 6845
+  },
+  {
+    "kind": "const",
+    "name": "mockOperatorsData",
+    "start": 6847,
+    "end": 6854
+  },
+  {
+    "kind": "const",
+    "name": "mockAiAgentsData",
+    "start": 6856,
+    "end": 6864
+  },
+  {
+    "kind": "const",
+    "name": "mockApprovalsData",
+    "start": 6866,
+    "end": 6870
+  },
+  {
+    "kind": "const",
+    "name": "mockAuditData",
+    "start": 6872,
+    "end": 6879
+  },
+  {
+    "kind": "const",
+    "name": "operatorRoleConfig",
+    "start": 6881,
+    "end": 6886
+  },
+  {
+    "kind": "function",
+    "name": "AdminPage",
+    "start": 6889,
+    "end": 7860
+  },
+  {
+    "kind": "function",
+    "name": "LoginPage",
+    "start": 7866,
+    "end": 8097
+  },
+  {
+    "kind": "function",
+    "name": "PlaceholderPage",
+    "start": 8100,
+    "end": 8114
+  },
+  {
+    "kind": "function",
+    "name": "App",
+    "start": 8119,
+    "end": 8196
+  }
+]

@@ -22,8 +22,10 @@
 
 const Database = require("better-sqlite3");
 const path = require("path");
+const fs = require("fs");
 
 const DB_PATH = "/home/z/my-project/coffee_export/data/coffee_export.db";
+const PID_FILE = "/tmp/coffee-export-supervisor.pid";
 
 // ─── Event → Agent routing ───
 // Which agent handles which event type
@@ -67,13 +69,37 @@ function log(msg) {
 
 class Supervisor {
   constructor() {
+    this.db = null;
+    this.tickCount = 0;
+    this.connect();
+  }
+
+  /** Connect (or reconnect) to the database */
+  connect() {
+    if (this.db) {
+      try { this.db.close(); } catch {}
+    }
     this.db = new Database(DB_PATH);
     this.db.pragma("journal_mode = WAL");
-    this.tickCount = 0;
+    this.db.pragma("busy_timeout = 5000"); // Wait up to 5s if DB is locked
+  }
+
+  /** Ensure DB is open and healthy; reconnect if needed */
+  ensureDB() {
+    try {
+      // Quick health check
+      this.db.prepare("SELECT 1").get();
+    } catch {
+      log("  ⚠️  Database connection lost — reconnecting...");
+      this.connect();
+    }
   }
 
   close() {
-    this.db.close();
+    if (this.db) {
+      try { this.db.close(); } catch {}
+      this.db = null;
+    }
   }
 
   /** Write to supervisor_log table */
@@ -89,83 +115,105 @@ class Supervisor {
     return this.db.prepare("SELECT * FROM agent_controls ORDER BY agent_id").all();
   }
 
-  /** Get pending events for an agent */
-  getPendingEvents(agentId) {
+  /** Atomically claim and process pending events for an agent.
+   *  Uses a transaction to prevent race conditions —
+   *  events are claimed and processed atomically.
+   *  No 'processing' intermediate state (not in DB constraint).
+   */
+  claimAndProcessEvents(agentId) {
     const eventTypes = Object.entries(EVENT_ROUTING)
       .filter(([_, ag]) => ag === agentId)
       .map(([et]) => et);
-    if (eventTypes.length === 0) return [];
+    if (eventTypes.length === 0) return { processed: 0, errors: 0 };
 
     const placeholders = eventTypes.map(() => "?").join(",");
-    return this.db.prepare(`
+
+    // Fetch pending events (within transaction, they're locked)
+    const events = this.db.prepare(`
       SELECT * FROM events
       WHERE status = 'pending' AND event_type IN (${placeholders})
       ORDER BY published_ts ASC
       LIMIT 10
     `).all(...eventTypes);
-  }
 
-  /** Process one event as if the agent handled it */
-  processEvent(agentId, event) {
-    const payload = JSON.parse(event.payload || "{}");
+    if (events.length === 0) return { processed: 0, errors: 0 };
 
-    // Agent-specific processing logic
-    switch (agentId) {
-      case "Agent 2":
-        // Lead enrichment: mark lead as ENRICHED (if still NEW)
-        if (event.event_type === "LEAD_CREATED" && payload.lead_id) {
-          this.db.prepare(`
-            UPDATE leads SET current_state = 'ENRICHED', current_agent = 'Agent 3', updated_ts = ?
-            WHERE lead_id = ? AND current_state = 'NEW'
-          `).run(nowISO(), payload.lead_id);
-        }
-        break;
+    let processed = 0;
+    let errors = 0;
 
-      case "Agent 3":
-        // Outreach: advance sequence step or mark as IN_SEQUENCE
-        if (payload.lead_id) {
-          const lead = this.db.prepare("SELECT current_state, sequence_step FROM leads WHERE lead_id = ?").get(payload.lead_id);
-          if (lead && lead.current_state === "ENRICHED") {
-            this.db.prepare(`
-              UPDATE leads SET current_state = 'IN_SEQUENCE', sequence_step = 1, updated_ts = ?
-              WHERE lead_id = ?
-            `).run(nowISO(), payload.lead_id);
+    for (const event of events) {
+      try {
+        // Process each event in its own transaction
+        const processTxn = this.db.transaction(() => {
+          const payload = JSON.parse(event.payload || "{}");
+
+          // Agent-specific processing
+          switch (agentId) {
+            case "Agent 2":
+              if (event.event_type === "LEAD_CREATED" && payload.lead_id) {
+                this.db.prepare(`
+                  UPDATE leads SET current_state = 'ENRICHED', current_agent = 'Agent 3', updated_ts = ?
+                  WHERE lead_id = ? AND current_state = 'NEW'
+                `).run(nowISO(), payload.lead_id);
+              }
+              break;
+            case "Agent 3":
+              if (payload.lead_id) {
+                const lead = this.db.prepare("SELECT current_state FROM leads WHERE lead_id = ?").get(payload.lead_id);
+                if (lead && lead.current_state === "ENRICHED") {
+                  this.db.prepare(`
+                    UPDATE leads SET current_state = 'IN_SEQUENCE', sequence_step = 1, updated_ts = ?
+                    WHERE lead_id = ?
+                  `).run(nowISO(), payload.lead_id);
+                }
+              }
+              break;
+            case "Agent 4":
+              if (payload.lead_id) {
+                this.db.prepare(`
+                  UPDATE leads SET current_state = 'SAMPLE_DISPATCHED', updated_ts = ?
+                  WHERE lead_id = ? AND current_state IN ('QUALIFIED', 'IN_SEQUENCE')
+                `).run(nowISO(), payload.lead_id);
+              }
+              break;
           }
-        }
-        break;
 
-      case "Agent 1":
-        // Lot confirmation: just acknowledge
-        break;
-
-      case "Agent 4":
-        // Sample management: update lead to SAMPLE_DISPATCHED
-        if (payload.lead_id) {
+          // Mark event as consumed
           this.db.prepare(`
-            UPDATE leads SET current_state = 'SAMPLE_DISPATCHED', updated_ts = ?
-            WHERE lead_id = ? AND current_state IN ('QUALIFIED', 'IN_SEQUENCE')
-          `).run(nowISO(), payload.lead_id);
-        }
-        break;
+            UPDATE events SET status = 'consumed', consumed_ts = ?, consumed_by = ?
+            WHERE id = ? AND status = 'pending'
+          `).run(nowISO(), agentId, event.id);
 
-      case "Agent 7":
-        // Sales: handle nurture/qualify/ghost transitions
-        if (payload.lead_id) {
-          // Already handled by event type
-        }
-        break;
+          // Publish follow-up events
+          if (event.event_type === "LEAD_CREATED") {
+            this.db.prepare(`
+              INSERT INTO events (event_type, entity_type, entity_id, payload, published_by, published_ts, status)
+              VALUES (?, ?, ?, ?, ?, ?, 'pending')
+            `).run("LEAD_ENRICHED", "lead", payload.lead_id, JSON.stringify(payload), agentId, nowISO());
+          }
+        });
+
+        processTxn();
+        processed++;
+      } catch (err) {
+        errors++;
+        // Mark event as 'failed' so it's not retried indefinitely
+        try {
+          this.db.prepare(`
+            UPDATE events SET status = 'failed', consumed_ts = ?, consumed_by = ?
+            WHERE id = ? AND status = 'pending'
+          `).run(nowISO(), agentId, event.id);
+        } catch {}
+        this.logEvent(
+          agentId, "AGENT_ERROR", "error",
+          `Error processing event ${event.id} (${event.event_type}): ${err.message}. Event marked as 'failed'.`,
+          "Event moved to 'failed' status",
+          JSON.stringify({ eventId: event.id, error: err.message })
+        );
+      }
     }
 
-    // Mark event as consumed
-    this.db.prepare(`
-      UPDATE events SET status = 'consumed', consumed_ts = ?, consumed_by = ?
-      WHERE id = ?
-    `).run(nowISO(), agentId, event.id);
-
-    // Publish follow-up event if applicable
-    if (event.event_type === "LEAD_CREATED") {
-      this.publishEvent("LEAD_ENRICHED", "lead", payload.lead_id, payload, agentId);
-    }
+    return { processed, errors };
   }
 
   /** Publish a new event */
@@ -176,7 +224,7 @@ class Supervisor {
     `).run(eventType, entityType, entityId, JSON.stringify(payload), publishedBy, nowISO());
   }
 
-  /** Run one agent — process its pending events */
+  /** Run one agent — atomically claim and process its pending events */
   runAgent(agentId) {
     const controls = this.db.prepare("SELECT * FROM agent_controls WHERE agent_id = ?").get(agentId);
     if (!controls) return;
@@ -188,41 +236,20 @@ class Supervisor {
 
     // Check for too many consecutive errors
     if (controls.consecutive_errors >= controls.max_consecutive_errors) {
-      // Supervisor will handle this — skip for now
       return { skipped: true, reason: "too_many_errors" };
     }
 
-    const events = this.getPendingEvents(agentId);
-    if (events.length === 0) {
+    // Atomically claim and process events
+    const result = this.claimAndProcessEvents(agentId);
+
+    if (result.processed === 0 && result.errors === 0) {
       return { processed: 0 };
-    }
-
-    let processed = 0;
-    let errors = 0;
-
-    for (const event of events) {
-      try {
-        this.processEvent(agentId, event);
-        processed++;
-      } catch (err) {
-        errors++;
-        this.logEvent(
-          agentId,
-          "AGENT_ERROR",
-          "error",
-          `Error processing event ${event.id} (${event.event_type}): ${err.message}`,
-          null,
-          JSON.stringify({ eventId: event.id, error: err.message })
-        );
-      }
     }
 
     // Update agent controls
     const newRunCount = controls.run_count + 1;
-    const newErrorCount = controls.error_count + errors;
-    const newConsecutiveErrors = errors > 0 ? controls.consecutive_errors + errors : 0;
-    const lastError = errors > 0 ? "Processing error" : null;
-    const lastErrorTs = errors > 0 ? nowISO() : null;
+    const newErrorCount = controls.error_count + result.errors;
+    const newConsecutiveErrors = result.errors > 0 ? controls.consecutive_errors + result.errors : 0;
 
     this.db.prepare(`
       UPDATE agent_controls
@@ -231,21 +258,21 @@ class Supervisor {
       WHERE agent_id = ?
     `).run(
       nowISO(),
-      errors > 0 ? "partial_error" : "success",
+      result.errors > 0 ? "partial_error" : "success",
       newRunCount,
       newErrorCount,
       newConsecutiveErrors,
-      lastError,
-      lastErrorTs,
+      result.errors > 0 ? "Processing error" : null,
+      result.errors > 0 ? nowISO() : null,
       nowISO(),
       agentId
     );
 
-    if (processed > 0) {
-      log(`  ${agentId} (${AGENT_NAMES[agentId]}): processed ${processed} event(s)${errors > 0 ? `, ${errors} error(s)` : ""}`);
+    if (result.processed > 0) {
+      log(`  ${agentId} (${AGENT_NAMES[agentId]}): processed ${result.processed} event(s)${result.errors > 0 ? `, ${result.errors} error(s)` : ""}`);
     }
 
-    return { processed, errors };
+    return { processed: result.processed, errors: result.errors };
   }
 
   /** Supervisor check — monitor all agents for issues */
@@ -290,8 +317,19 @@ class Supervisor {
       }
 
       // Check 2: Agent hasn't run despite having pending events (stuck)
-      const pendingEvents = this.getPendingEvents(c.agent_id);
-      if (pendingEvents.length > 5 && !c.is_paused) {
+      // Count pending events for this agent's event types
+      const agentEventTypes = Object.entries(EVENT_ROUTING)
+        .filter(([_, ag]) => ag === c.agent_id)
+        .map(([et]) => et);
+      let pendingCount = 0;
+      if (agentEventTypes.length > 0) {
+        const placeholders = agentEventTypes.map(() => "?").join(",");
+        pendingCount = (this.db.prepare(`
+          SELECT COUNT(*) as n FROM events
+          WHERE status = 'pending' AND event_type IN (${placeholders})
+        `).get(...agentEventTypes) || {}).n || 0;
+      }
+      if (pendingCount > 5 && !c.is_paused) {
         const lastRunAge = c.last_run_ts ? (Date.now() - new Date(c.last_run_ts).getTime()) / 1000 : Infinity;
         if (lastRunAge > 60) {
           issuesFound++;
@@ -299,11 +337,11 @@ class Supervisor {
             c.agent_id,
             "AGENT_STUCK",
             "warning",
-            `${c.agent_id} has ${pendingEvents.length} pending events but hasn't run in ${Math.round(lastRunAge)}s`,
+            `${c.agent_id} has ${pendingCount} pending events but hasn't run in ${Math.round(lastRunAge)}s`,
             "Will retry on next tick",
-            JSON.stringify({ pendingCount: pendingEvents.length, lastRunAgeSec: Math.round(lastRunAge) })
+            JSON.stringify({ pendingCount, lastRunAgeSec: Math.round(lastRunAge) })
           );
-          log(`  ⚠️  SUPERVISOR: ${c.agent_id} stuck — ${pendingEvents.length} pending events, last run ${Math.round(lastRunAge)}s ago`);
+          log(`  ⚠️  SUPERVISOR: ${c.agent_id} stuck — ${pendingCount} pending events, last run ${Math.round(lastRunAge)}s ago`);
         }
       }
 
@@ -1110,6 +1148,9 @@ abi@coelrodan.com`;
 
   /** Run one complete tick: scheduler + supervisor + pending actions + heartbeat */
   tick() {
+    // Health check: ensure DB is connected
+    this.ensureDB();
+
     this.tickCount++;
     log(`--- Tick #${this.tickCount} ---`);
 
@@ -1147,30 +1188,68 @@ const runOnce = args.includes("--once");
 const intervalArg = args[args.indexOf("--interval") + 1];
 const interval = intervalArg ? parseInt(intervalArg) * 1000 : 10000; // default 10s
 
+// ─── Process lock: prevent duplicate supervisor instances ───
+if (!runOnce) {
+  if (fs.existsSync(PID_FILE)) {
+    const existingPid = fs.readFileSync(PID_FILE, "utf8").trim();
+    try {
+      process.kill(parseInt(existingPid), 0); // Check if process is still alive
+      console.error(`\n❌ Supervisor already running (PID ${existingPid}).`);
+      console.error(`   If this is an error, delete ${PID_FILE} and retry.`);
+      process.exit(1);
+    } catch {
+      // Process is dead — safe to take over
+      log(`   Stale PID file found (PID ${existingPid} not running) — taking over.`);
+    }
+  }
+  fs.writeFileSync(PID_FILE, process.pid.toString());
+}
+
+/** Clean up PID file on exit */
+function cleanup() {
+  try {
+    if (fs.existsSync(PID_FILE)) {
+      fs.unlinkSync(PID_FILE);
+    }
+  } catch {}
+}
+
 const supervisor = new Supervisor();
 
 // Log startup
-supervisor.logEvent(null, "SUPERVISOR_START", "info", "Agent Supervisor started", null, JSON.stringify({ interval, runOnce }));
+supervisor.logEvent(null, "SUPERVISOR_START", "info", "Agent Supervisor started", null, JSON.stringify({ interval, runOnce, pid: process.pid }));
 log("🚀 Agent Supervisor started");
 log(`   Mode: ${runOnce ? "single tick" : `continuous (every ${interval / 1000}s)`}`);
 log(`   Database: ${DB_PATH}`);
+log(`   PID: ${process.pid} (lock file: ${PID_FILE})`);
 log(`   Agents: 7 (Agent 1 through Agent 7)`);
 log("");
 
 if (runOnce) {
-  supervisor.tick();
+  try {
+    supervisor.tick();
+  } catch (err) {
+    log(`  🔴 FATAL: ${err.message}`);
+  }
   supervisor.logEvent(null, "SUPERVISOR_STOP", "info", "Agent Supervisor stopped (single tick)", null, null);
   supervisor.close();
   process.exit(0);
 }
 
-// Continuous mode
+// Continuous mode — with DB reconnection on failure
 const runLoop = () => {
   try {
     supervisor.tick();
   } catch (err) {
     log(`  🔴 FATAL: ${err.message}`);
-    supervisor.logEvent(null, "SUPERVISOR_ERROR", "critical", `Supervisor fatal error: ${err.message}`, "Will retry on next tick", err.stack);
+    try {
+      supervisor.logEvent(null, "SUPERVISOR_ERROR", "critical", `Supervisor fatal error: ${err.message}`, "Will reconnect DB and retry on next tick", err.stack);
+    } catch {
+      // If logging fails too, just reconnect
+      supervisor.connect();
+    }
+    // Force DB reconnection for next tick
+    supervisor.connect();
   }
 };
 
@@ -1179,18 +1258,29 @@ runLoop();
 const timer = setInterval(runLoop, interval);
 
 // Graceful shutdown
-process.on("SIGINT", () => {
-  log("\n🛑 Supervisor shutting down...");
-  supervisor.logEvent(null, "SUPERVISOR_STOP", "info", "Agent Supervisor stopped (SIGINT)", null, null);
+function shutdown(signal) {
+  log(`\n🛑 Supervisor received ${signal}, shutting down...`);
+  try {
+    supervisor.logEvent(null, "SUPERVISOR_STOP", "info", `Agent Supervisor stopped (${signal})`, null, null);
+  } catch {}
   clearInterval(timer);
   supervisor.close();
+  cleanup();
   process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+// Also clean up on uncaught exceptions
+process.on("uncaughtException", (err) => {
+  log(`  🔴 UNCAUGHT: ${err.message}`);
+  try { supervisor.logEvent(null, "SUPERVISOR_ERROR", "critical", `Uncaught exception: ${err.message}`, "Attempting recovery", err.stack); } catch {}
+  // Don't exit — try to recover on next tick
+  supervisor.connect();
 });
 
-process.on("SIGTERM", () => {
-  log("\n🛑 Supervisor received SIGTERM, shutting down...");
-  supervisor.logEvent(null, "SUPERVISOR_STOP", "info", "Agent Supervisor stopped (SIGTERM)", null, null);
-  clearInterval(timer);
-  supervisor.close();
-  process.exit(0);
+// Clean up PID file on any exit
+process.on("exit", () => {
+  cleanup();
 });

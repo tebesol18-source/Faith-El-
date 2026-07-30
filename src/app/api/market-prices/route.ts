@@ -24,6 +24,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth";
 
 // Deterministic pseudo-random based on date string
 function dateSeed(dateStr: string): number {
@@ -43,7 +44,11 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-export async function GET() {
+export async function GET(request: any) {
+  // Auth — every GET route requires a valid session
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+
   try {
     const today = new Date().toISOString().substring(0, 10);
     const seed = dateSeed(today);

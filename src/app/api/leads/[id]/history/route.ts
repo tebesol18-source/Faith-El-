@@ -9,21 +9,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
-
-function getDbPath(): string {
-  const fs = require("fs");
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return candidates[candidates.length - 1];
-}
+import { getReadonlyDb } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 
 function formatTs(ts: string | null): string {
   if (!ts) return "—";
@@ -44,7 +31,7 @@ export async function GET(
       );
     }
 
-    const db = new Database(getDbPath(), { readonly: true, fileMustExist: true });
+    const db = getReadonlyDb();
 
     try {
       const rows = db

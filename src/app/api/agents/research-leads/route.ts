@@ -20,22 +20,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
 import crypto from "crypto";
-
-function getDbPath(): string {
-  const fs = require("fs");
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return candidates[candidates.length - 1];
-}
+import { requireAuth } from "@/lib/auth";
+import { getWritableDb } from "@/lib/db";
 
 // ─── Agent 2 enrichment logic (ported from Python) ───
 // Extended to handle ANY country the seller types (not just a fixed list).
@@ -231,19 +218,31 @@ function nowAddisISO(): string {
 
 export async function POST(request: NextRequest) {
   try {
+    // Auth check
+    const auth = requireAuth(request);
+    if ("error" in auth) return auth.error;
+    const user = auth.user;
+
     const body = await request.json();
     const { country, segment, count } = body;
 
-    if (!country || !segment) {
+    // Input validation
+    if (!country || typeof country !== "string" || country.length > 100) {
       return NextResponse.json(
-        { ok: false, error: "Missing country or segment" },
+        { ok: false, error: "Invalid country — must be a string under 100 characters" },
+        { status: 400 }
+      );
+    }
+    if (!segment || !["Specialty Importer", "Commercial Importer", "Roaster", "Distributor"].includes(segment)) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid segment — must be one of: Specialty Importer, Commercial Importer, Roaster, Distributor" },
         { status: 400 }
       );
     }
 
     const leadCount = Math.min(Math.max(parseInt(count) || 5, 1), 20);
 
-    const db = new Database(getDbPath());
+    const db = getWritableDb();
 
     try {
       // Get the next lead ID

@@ -12,64 +12,17 @@
  */
 
 import { NextResponse } from "next/server";
-import Database from "better-sqlite3";
-import path from "path";
+import { getReadonlyDb } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
+import { relativeTime, messageTime } from "@/lib/format";
 
-function getDbPath(): string {
-  const fs = require("fs");
-  const candidates = [
-    path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
-    path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
-    "/home/z/my-project/coffee_export/data/coffee_export.db",
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return candidates[candidates.length - 1];
-}
+export async function GET(request: any) {
+  // Auth — every GET route requires a valid session
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
 
-function relativeTime(ts: string | null): string {
-  if (!ts) return "Never";
   try {
-    const then = new Date(ts).getTime();
-    const now = Date.now();
-    const diffMs = now - then;
-    if (diffMs < 0) return "Just now";
-    const minutes = Math.floor(diffMs / 60000);
-    if (minutes < 1) return "Just now";
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    return `${Math.floor(days / 7)}w ago`;
-  } catch {
-    return "—";
-  }
-}
-
-function formatTime(ts: string | null): string {
-  if (!ts) return "—";
-  try {
-    const d = new Date(ts);
-    const now = new Date();
-    const isToday = d.toDateString() === now.toDateString();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday = d.toDateString() === yesterday.toDateString();
-    if (isToday) {
-      return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-    }
-    if (isYesterday) return "Yesterday";
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  } catch {
-    return "—";
-  }
-}
-
-export async function GET() {
-  try {
-    const db = new Database(getDbPath(), { readonly: true, fileMustExist: true });
+    const db = getReadonlyDb();
 
     try {
       // ═══ PIPELINE STAGES (from leads table) ═══
@@ -199,7 +152,7 @@ export async function GET() {
           dot: "bg-gray-500",
         };
         return {
-          time: formatTime(e.published_ts),
+          time: messageTime(e.published_ts),
           text: config.text(payload),
           badge: config.badge,
           badgeBg: config.badgeBg,
