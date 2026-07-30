@@ -2,15 +2,15 @@
 
 import { useState } from "react";
 import {
-  ArrowRight, Bot, Coffee, Eye, EyeOff, Lock, Mail, ShieldCheck, Users,
+  ArrowRight, Coffee, Eye, EyeOff, Lock, Mail,
 } from "lucide-react";
 import type { Operator, Seller } from "@/lib/types";
-import { ADMIN_EMAIL, setAuthToken } from "@/lib/auth-client";
+import { setAuthToken } from "@/lib/auth-client";
 
 export function LoginPage({ onLogin }: {
   onLogin: (data: { role: "admin" | "seller"; email: string; mustChangePassword?: boolean }) => void;
 }) {
-  const [email, setEmail] = useState("abi@faithel.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -194,49 +194,6 @@ export function LoginPage({ onLogin }: {
               )}
             </button>
           </form>
-
-          {/* Demo credentials hint */}
-          <div className="mt-6 rounded-lg bg-indigo-50/50 border border-indigo-100 p-4">
-            <div className="flex items-start gap-2 mb-3">
-              <Bot className="h-4 w-4 text-indigo-500 mt-0.5 shrink-0" strokeWidth={1.5} />
-              <div className="text-xs">
-                <p className="font-semibold text-indigo-700">Demo Credentials</p>
-                <p className="text-gray-600 mt-0.5">Role is detected from the operator&apos;s <code className="text-[10px] bg-white/60 px-1 rounded">role</code> column in the DB. Passwords are bcrypt-hashed.</p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {/* Admin quick-fill */}
-              <button
-                type="button"
-                onClick={() => { setEmail(ADMIN_EMAIL); setPassword("admin123"); setError(""); }}
-                className="w-full flex items-center justify-between rounded-md bg-white border border-[#4A3520]/20 px-3 py-2 text-left hover:bg-[#4A3520]/5 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-[#4A3520]" />
-                  <div>
-                    <p className="text-xs font-semibold text-gray-900">Admin (Portfolio Manager)</p>
-                    <p className="text-[11px] text-gray-500 font-mono">{ADMIN_EMAIL} · admin123</p>
-                  </div>
-                </div>
-                <span className="text-[10px] text-[#4A3520] font-medium">Use →</span>
-              </button>
-              {/* Seller quick-fill */}
-              <button
-                type="button"
-                onClick={() => { setEmail("abi@faithel.com"); setPassword("coffee123"); setError(""); }}
-                className="w-full flex items-center justify-between rounded-md bg-white border border-gray-200 px-3 py-2 text-left hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4 text-gray-500" />
-                  <div>
-                    <p className="text-xs font-semibold text-gray-900">Seller (Operator)</p>
-                    <p className="text-[11px] text-gray-500 font-mono">abi@faithel.com · coffee123</p>
-                  </div>
-                </div>
-                <span className="text-[10px] text-gray-500 font-medium">Use →</span>
-              </button>
-            </div>
-          </div>
 
           <p className="text-center text-xs text-gray-400 mt-6">
             Don&apos;t have an account? <button onClick={() => setShowRequestAccess(true)} className="font-medium text-[#4A3520] hover:underline">Request access</button>
