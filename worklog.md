@@ -326,3 +326,41 @@ Stage Summary:
 - **DR validated**: Recovery from backup tested twice (Phase 4A: 42s, Phase 4B: 40s) — well within the 30-minute target.
 - **Tests**: 207 passing (no new tests — existing tests updated for cookie/CSRF pattern).
 - **Files changed**: 13 files modified, 1 migration added, 1 test helper added.
+
+---
+Task ID: oracle-deployment-kit
+Agent: main (super-z)
+Task: Build Oracle Cloud deployment kit (deploy script + docs + systemd services)
+
+Work Log:
+- Created `scripts/deploy-oracle.sh` — automated deployment script that:
+  - Installs Node.js 22, Python 3, Caddy, bun
+  - Creates system user (faithel) + app directory (/opt/faith-el-erp)
+  - Extracts source code from zip
+  - Installs Node + Python dependencies
+  - Runs Alembic migrations
+  - Seeds demo operators
+  - Builds Next.js for production
+  - Installs 3 systemd services (app + supervisor + keep-alive) with auto-start on boot
+  - Configures Caddy (reverse proxy + automatic Let's Encrypt HTTPS)
+  - Configures UFW firewall (SSH + HTTP + HTTPS)
+  - Verifies health endpoint
+- Created `docs/deployment-oracle.md` — step-by-step deployment guide covering:
+  - Oracle Cloud account signup + VM creation (ARM, 4 cores, 24 GB RAM — free)
+  - Firewall configuration (ports 22, 80, 443)
+  - DNS setup (A record pointing to VPS)
+  - Source code upload (scp)
+  - Running the deploy script
+  - Post-deployment: daily backups, password change, creating operators
+  - Streamlit dashboard setup (optional)
+  - Troubleshooting (502, connection refused, DB errors, Caddy/HTTPS)
+  - Updating the app
+  - Backup + restore
+  - Cost breakdown ($0/month on Oracle free tier)
+
+Stage Summary:
+- Deployment kit ready — user can deploy to Oracle Cloud in under 30 minutes
+- All services auto-start on boot via systemd
+- HTTPS is automatic via Caddy + Let's Encrypt
+- Daily backups via cron (documented)
+- Total cost: $0/month (Oracle Always Free) + ~$10/year for domain
