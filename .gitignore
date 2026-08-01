@@ -52,3 +52,12 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Database backups
+coffee_export/data/backups/
+# Tool results (temp)
+tool-results/
+*.png
+*.jpg
+*.jpeg
+tool-results/
+coffee_export/data/backups/

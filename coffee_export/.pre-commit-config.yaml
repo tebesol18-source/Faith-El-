@@ -1,0 +1,59 @@
+# ──────────────────────────────────────────────────────────────
+# Pre-commit hooks — runs automatically before every git commit
+# ──────────────────────────────────────────────────────────────
+# Install hooks:    pre-commit install
+# Run manually:     pre-commit run --all-files
+# Update hooks:     pre-commit autoupdate
+# ──────────────────────────────────────────────────────────────
+
+repos:
+  # ── Code formatting (black) ──
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3.12
+        args: ["--config=pyproject.toml"]
+
+  # ── Linting (ruff) ──
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.0
+    hooks:
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+
+  # ── General file checks ──
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Prevent giant files from being committed
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      # Ensure files end with a newline
+      - id: end-of-file-fixer
+      # Remove trailing whitespace
+      - id: trailing-whitespace
+      # Check YAML syntax
+      - id: check-yaml
+        args: ["--unsafe"]  # alembic.ini etc. have custom YAML
+      # Check TOML syntax (pyproject.toml)
+      - id: check-toml
+      # Check JSON syntax
+      - id: check-json
+      # Prevent committing to main branch directly (force feature branches)
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
+      # Check for merge conflict markers
+      - id: check-merge-conflict
+      # Detect private keys (prevent leaking secrets)
+      - id: detect-private-key
+      # Check that Python files have valid AST
+      - id: check-ast
+
+  # ── Detect secrets (API keys, passwords, etc.) ──
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+        exclude: "package-lock.json|requirements.txt"

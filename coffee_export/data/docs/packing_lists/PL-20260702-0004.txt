@@ -1,0 +1,42 @@
+==========================================================================================
+                    PACKING LIST
+==========================================================================================
+
+  Packing List No:  PL-20260702-0004
+  Date:             2026-07-02
+  Contract Number:  CT-2026-0004
+
+  ── SELLER ──
+  Ethiopian Coffee Export PLC
+  Bole Road, Addis Ababa, Ethiopia
+
+  ── BUYER ──
+  Invoice Test Buyer 368057
+  Germany
+
+  ── SHIPMENT ──
+  Commodity:        Green Coffee (Arabica)
+  Country of Origin: Ethiopia
+  Port of Loading:  Djibouti
+  Incoterm:         FOB
+
+  ── PACKAGE DETAILS ──
+  #   Lot ID               | Description                           |  Bags |   Net kg | Gross kg | Marks       
+  --------------------------------------------------------------------------------------
+  1. LOT-INV-368057-001   | Yirgacheffe Washed 25/26                          |   200 bags |  12000.0 kg |  12030.0 kg | ET-YIR--001
+  --------------------------------------------------------------------------------------
+  TOTALS:                                                            200 bags |  12000.0 kg |  12030.0 kg
+
+  ── PACKAGING ──
+  Bag Type:          Jute bags (60 kg standard)
+  Pallet:            No pallets (loose stow)
+  Container:         20' FCL (standard)
+
+  ── DECLARATION ──
+  We hereby certify that the above packing details are correct
+  and that the goods have been properly packed for export.
+
+  Authorized Signature: _______________________________
+  Date: 2026-07-02
+
+==========================================================================================

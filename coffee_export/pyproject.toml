@@ -1,0 +1,107 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coffee-export"
+version = "0.1.0"
+description = "Ethiopian green coffee export — multi-agent system"
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "Proprietary"}
+authors = [
+    {name = "Coffee Export Team"},
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "black>=24.0",
+    "pre-commit>=3.7",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["coffee_export*"]
+
+# ──────────────────────────────────────────────────────────────
+# pytest
+# ──────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+]
+
+# ──────────────────────────────────────────────────────────────
+# black — code formatter
+# ──────────────────────────────────────────────────────────────
+[tool.black]
+line-length = 100
+target-version = ["py311", "py312"]
+include = '\.pyi?$'
+# Exclude common directories from formatting
+extend-exclude = '''
+/(
+    \.git
+  | \.venv
+  | venv
+  | __pycache__
+  | build
+  | dist
+  | .*_migrations
+  | alembic/versions
+)/
+'''
+
+# ──────────────────────────────────────────────────────────────
+# ruff — fast linter (replaces flake8 + isort + pyupgrade)
+# ──────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    "venv",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "alembic/versions",
+]
+
+[tool.ruff.lint]
+# Enable rule sets:
+#   E  = pycodestyle errors
+#   W  = pycodestyle warnings
+#   F  = pyflakes (unused imports, undefined names)
+#   I  = isort (import sorting)
+#   N  = pep8-naming
+#   UP = pyupgrade (modernize syntax)
+#   B  = bugbear (common bugs)
+#   SIM = simplify (code simplification)
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = [
+    "E501",   # line too long (black handles formatting)
+    "B008",   # function call in default argument (common in FastAPI/Streamlit)
+]
+
+# Allow autofix for these rules
+fixable = ["E", "F", "W", "I", "UP", "B", "SIM"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["coffee_export"]
+force-single-line = false
+combine-as-imports = true
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]      # unused imports OK in __init__.py (re-exports)
+"tests/*" = ["B011"]          # allow assert False in tests
+"alembic/*" = ["E402"]        # module-level imports after alembic config

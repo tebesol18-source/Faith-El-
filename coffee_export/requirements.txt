@@ -1,0 +1,45 @@
+# ──────────────────────────────────────────────────────────────
+# Coffee Export — Python Dependencies
+# ──────────────────────────────────────────────────────────────
+# Install:  pip install -r requirements.txt
+# Update:   pip install --upgrade -r requirements.txt
+# ──────────────────────────────────────────────────────────────
+
+# ── Database / ORM ──
+SQLAlchemy>=2.0,<3.0          # ORM + models (step 2)
+# psycopg2-binary>=2.9        # PostgreSQL driver (uncomment for production)
+
+# ── Configuration ──
+python-dotenv>=1.0            # .env file loading
+
+# ── Task Queue / Scheduling ──
+APScheduler>=3.10,<4.0        # Background task scheduler (step 5)
+
+# ── Dashboard ──
+streamlit>=1.30               # Operator dashboard (step 11)
+
+# ── Data Handling ──
+pandas>=2.0                   # CSV/DataFrame manipulation (Agent 2 enrichment)
+openpyxl>=3.1                 # Excel export for reports
+
+# ── HTTP / External APIs ──
+requests>=2.31                # HTTP client (LinkedIn, email APIs)
+
+# ── Validation ──
+pydantic>=2.0                 # Data validation for agent inputs/outputs
+
+# ── Logging / Console ──
+rich>=13.0                    # Pretty console output + structured logging
+
+# ── Testing ──
+pytest>=7.0                   # Test framework
+pytest-cov>=4.0               # Coverage reporting
+
+# ── Database Migrations ──
+alembic>=1.13                 # Schema migrations (versioned, reversible)
+
+# ── Code Quality ──
+black>=24.0                   # Code formatter (auto-formats on save / commit)
+ruff>=0.4                     # Fast linter (replaces flake8, isort, pyupgrade)
+pre-commit>=3.7               # Runs black + ruff + checks before every commit
+psutil>=5.9

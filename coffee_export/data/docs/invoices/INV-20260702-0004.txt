@@ -1,0 +1,51 @@
+================================================================================
+                    COMMERCIAL INVOICE
+================================================================================
+
+  Invoice Number:    INV-20260702-0004
+  Invoice Date:      2026-07-02
+  Contract Number:   CT-2026-0004
+  Contract Date:     2026-07-02
+
+  ── SELLER (Exporter) ──
+  Ethiopian Coffee Export PLC
+  Bole Road, Addis Ababa, Ethiopia
+  Phone: +251 11 555 0100
+  Email: exports@coffeeexport.et
+  VAT: ET0001234567
+
+  ── BUYER (Importer) ──
+  Invoice Test Buyer 368057
+  Germany
+  Lead ID: L-2026-00004
+
+  ── SHIPMENT TERMS ──
+  Incoterm:          FOB (Djibouti)
+  Payment Terms:     LC at sight
+  Currency:          USD
+  Country of Origin: Ethiopia
+  Commodity:         Green Coffee (Arabica)
+
+  ── LINE ITEMS ──
+  #   Lot ID               | Description                                             |   Qty | Unit Price |        Total
+  ----------------------------------------------------------------------------
+  1. LOT-INV-368057-001   | Yirgacheffe Washed Screen 14 Score 87.5 Crop 25/26      |   200 bags | $   4.50/bag | $    900.00
+  ----------------------------------------------------------------------------
+  SUBTOTAL:                                                                           USD       900.00
+  FREIGHT & INSURANCE:                                                                USD (per Incoterm)
+  TOTAL INVOICE VALUE:                                                                USD       900.00
+
+  ── BANKING DETAILS ──
+  Bank: Commercial Bank of Ethiopia
+  SWIFT: CBETETAA
+  Account: 0100-0123-4567-8901
+  Beneficiary: Ethiopian Coffee Export PLC
+
+  ── DECLARATION ──
+  We hereby certify that the above mentioned goods are of
+  Ethiopian origin, and that the particulars stated are correct.
+
+  Authorized Signature: _______________________________
+  Date: 2026-07-02
+
+================================================================================
