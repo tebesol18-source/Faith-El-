@@ -151,7 +151,15 @@ export function middleware(request: NextRequest) {
   // (browsers ignore it, but it clutters the response).
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
-  response.headers.set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none';");
+  response.headers.set(
+    "Content-Security-Policy",
+    "default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self';"
+  );
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+  );
 
   // HSTS only when actually on HTTPS
   const isHttps = request.headers.get("x-forwarded-proto") === "https"
