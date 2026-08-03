@@ -24,9 +24,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Load .env file — must happen before any settings are read.
-# override=True so our .env takes precedence over any pre-existing
-# system env vars (e.g. a global DATABASE_URL from the host).
-load_dotenv(override=True)
+# override=False so we don't force-override system env vars or NextJS database vars.
+load_dotenv(override=False)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -104,7 +103,7 @@ class Settings:
 
     # ── Database ──
     DATABASE_URL: str = field(
-        default_factory=lambda: os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
+        default_factory=lambda: os.getenv("COFFEE_DATABASE_URL") or os.getenv("DATABASE_URL") or f"sqlite:///{DB_PATH}"
     )
 
     # ── Sample Budget (weekly caps) ──

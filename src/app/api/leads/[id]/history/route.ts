@@ -21,6 +21,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+
   try {
     const { id: leadId } = await params;
 

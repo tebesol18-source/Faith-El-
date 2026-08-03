@@ -151,6 +151,7 @@ export function middleware(request: NextRequest) {
   // (browsers ignore it, but it clutters the response).
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none';");
 
   // HSTS only when actually on HTTPS
   const isHttps = request.headers.get("x-forwarded-proto") === "https"

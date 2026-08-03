@@ -16,7 +16,7 @@ import bcrypt
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-DB_PATH = Path("/home/z/my-project/coffee_export/data/coffee_export.db")
+DB_PATH = Path("/app/coffee_export/data/coffee_export.db")
 
 OPERATORS = [
     {

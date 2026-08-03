@@ -22,6 +22,15 @@ export function getDbPath(): string {
   const candidates: string[] = [];
 
   // 1. Env var override
+  if (process.env.COFFEE_DATABASE_URL) {
+    const rawUrl = process.env.COFFEE_DATABASE_URL;
+    if (rawUrl.startsWith("sqlite:///")) {
+      candidates.push(path.resolve(process.cwd(), rawUrl.replace("sqlite:///", "")));
+    } else if (rawUrl.startsWith("sqlite://")) {
+      candidates.push(path.resolve(process.cwd(), rawUrl.replace("sqlite://", "")));
+    }
+  }
+
   if (process.env.DATABASE_PATH) {
     candidates.push(process.env.DATABASE_PATH);
   }
@@ -30,6 +39,7 @@ export function getDbPath(): string {
   candidates.push(
     path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
     path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
+    path.resolve(process.cwd(), "state", "coffee_export.db"),
     "/home/z/my-project/coffee_export/data/coffee_export.db",
   );
 

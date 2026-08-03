@@ -7,7 +7,7 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 
-DB = "/home/z/my-project/coffee_export/data/coffee_export.db"
+DB = "/app/coffee_export/data/coffee_export.db"
 now = datetime.now().isoformat() + "+03:00"
 
 conn = sqlite3.connect(DB)
