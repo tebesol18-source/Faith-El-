@@ -91,6 +91,7 @@ class Lot(Base):
     station_id: Mapped[str] = mapped_column(
         Text, ForeignKey("washing_stations.station_id"), nullable=False
     )
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     coop_id: Mapped[str] = mapped_column(Text, ForeignKey("coops.coop_id"), nullable=False)
     region: Mapped[str] = mapped_column(Text, nullable=False)
     washing_station_name: Mapped[str | None] = mapped_column(Text)  # denormalized

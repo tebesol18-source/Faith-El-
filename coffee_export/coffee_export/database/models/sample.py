@@ -21,6 +21,7 @@ class SampleRequest(Base):
 
     sample_request_id: Mapped[str] = mapped_column(Text, primary_key=True)
     lead_id: Mapped[str] = mapped_column(Text, ForeignKey("leads.lead_id"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     sample_type: Mapped[str] = mapped_column(Text, nullable=False)
     crop_year: Mapped[str] = mapped_column(Text, nullable=False)
     buyer_company: Mapped[str] = mapped_column(Text, nullable=False)

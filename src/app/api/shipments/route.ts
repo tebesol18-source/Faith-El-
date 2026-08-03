@@ -42,9 +42,9 @@ export async function GET(request: any) {
         FROM shipments s
         LEFT JOIN contracts c ON s.contract_id = c.contract_id
         LEFT JOIN leads l ON c.lead_id = l.lead_id
-        WHERE s.deleted_ts IS NULL
+        WHERE s.deleted_ts IS NULL AND s.organization_id = ?
         ORDER BY s.created_ts DESC
-      `).all() as any[];
+      `).all(auth.user.organizationId) as any[];
 
       // Get shipment items (lots)
       const itemsStmt = db.prepare(`

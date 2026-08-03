@@ -205,9 +205,9 @@ export async function GET(request: NextRequest) {
           (SELECT GROUP_CONCAT(tag, ', ') FROM lead_tags WHERE lead_id = l.lead_id) AS tags_csv
         FROM leads l
         LEFT JOIN lead_contacts lc ON l.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL
-        WHERE l.deleted_ts IS NULL
+        WHERE l.deleted_ts IS NULL AND l.organization_id = ?
       `;
-      const params: (string | number)[] = [];
+      const params: (string | number)[] = [auth.user.organizationId];
       const conditions: string[] = [];
       if (stateFilter) {
         conditions.push("l.current_state = ?");

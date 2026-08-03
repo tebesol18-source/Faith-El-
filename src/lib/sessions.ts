@@ -42,6 +42,7 @@ export interface Session {
   revoked_by: string | null;
   ip_address: string | null;
   user_agent: string | null;
+  organization_id: string;
 }
 
 export interface SessionUser {
@@ -50,6 +51,7 @@ export interface SessionUser {
   operatorId: string;
   mustChangePassword: boolean;
   sessionId: string;
+  organizationId: string;
 }
 
 function nowISO(): string {
@@ -79,11 +81,14 @@ export function createSession(opts: {
 
   const db = getWritableDb();
   try {
+    const op = db.prepare("SELECT organization_id FROM operators WHERE operator_id = ?").get(opts.operatorId) as { organization_id: string } | undefined;
+    const organizationId = op?.organization_id || "org-system";
+
     db.prepare(`
       INSERT INTO sessions (id, operator_id, operator_email, operator_role,
                             issued_ts, expires_ts, revoked_ts, revoked_by,
-                            ip_address, user_agent)
-      VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+                            ip_address, user_agent, organization_id)
+      VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
     `).run(
       sessionId,
       opts.operatorId,
@@ -92,7 +97,8 @@ export function createSession(opts: {
       now,
       expires,
       opts.ipAddress || null,
-      opts.userAgent || null
+      opts.userAgent || null,
+      organizationId
     );
     return sessionId;
   } finally {
@@ -117,16 +123,16 @@ export function validateSession(sessionId: string | null | undefined): SessionUs
   // Session IDs are 32-char hex strings
   if (!/^[a-f0-9]{32}$/.test(sessionId)) return null;
 
-  let session: Session | null = null;
+  let session: any = null;
   try {
     const db = getReadonlyDb();
     try {
       const row = db.prepare(`
         SELECT id, operator_id, operator_email, operator_role,
                issued_ts, expires_ts, revoked_ts, revoked_by,
-               ip_address, user_agent
+               ip_address, user_agent, organization_id
         FROM sessions WHERE id = ?
-      `).get(sessionId) as Session | undefined;
+      `).get(sessionId) as any;
       session = row || null;
     } finally {
       db.close();
@@ -149,12 +155,13 @@ export function validateSession(sessionId: string | null | undefined): SessionUs
     const db = getReadonlyDb();
     try {
       const op = db.prepare(`
-        SELECT status, password_hash, must_change_password
+        SELECT status, password_hash, must_change_password, organization_id
         FROM operators WHERE operator_id = ?
       `).get(session.operator_id) as {
         status: string;
         password_hash: string | null;
         must_change_password: number;
+        organization_id: string;
       } | undefined;
 
       if (!op) return null;  // operator deleted
@@ -167,6 +174,7 @@ export function validateSession(sessionId: string | null | undefined): SessionUs
         operatorId: session.operator_id,
         mustChangePassword: op.must_change_password === 1,
         sessionId: session.id,
+        organizationId: session.organization_id || op.organization_id || "org-system",
       };
     } finally {
       db.close();

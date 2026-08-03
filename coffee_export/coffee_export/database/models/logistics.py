@@ -22,6 +22,7 @@ class Shipment(Base):
     contract_id: Mapped[str] = mapped_column(
         Text, ForeignKey("contracts.contract_id"), nullable=False
     )
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     carrier: Mapped[str | None] = mapped_column(Text)
     vessel_name: Mapped[str | None] = mapped_column(Text)
     bill_of_lading_number: Mapped[str | None] = mapped_column(Text)
