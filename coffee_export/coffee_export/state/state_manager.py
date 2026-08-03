@@ -161,9 +161,10 @@ class StateManager:
       4. Returns result or raises
     """
 
-    def __init__(self) -> None:
+    def __init__(self, organization_id: str = "org-system") -> None:
         self.session: Session = SessionLocal()
-        log.debug("StateManager initialized")
+        self.organization_id = organization_id
+        log.debug(f"StateManager initialized with organization_id: {organization_id}")
 
     def __enter__(self) -> StateManager:
         return self
