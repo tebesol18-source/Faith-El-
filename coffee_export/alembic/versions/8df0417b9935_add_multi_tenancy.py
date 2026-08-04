@@ -45,7 +45,8 @@ def upgrade() -> None:
         "lots",
         "sample_requests",
         "compliance_documents",
-        "admin_audit_log"
+        "admin_audit_log",
+        "events"
     ]
 
     for table_name in target_tables:
@@ -60,6 +61,10 @@ def upgrade() -> None:
         )
         op.create_index(f"ix_{table_name}_org_id", table_name, ["organization_id"])
 
+    # Add agent_id and job_id to events table
+    op.add_column("events", sa.Column("agent_id", sa.TEXT(), nullable=True))
+    op.add_column("events", sa.Column("job_id", sa.TEXT(), nullable=True))
+
 
 def downgrade() -> None:
     """Downgrade schema."""
@@ -72,8 +77,12 @@ def downgrade() -> None:
         "lots",
         "sample_requests",
         "compliance_documents",
-        "admin_audit_log"
+        "admin_audit_log",
+        "events"
     ]
+
+    op.drop_column("events", "agent_id")
+    op.drop_column("events", "job_id")
 
     for table_name in target_tables:
         op.drop_index(f"ix_{table_name}_org_id", table_name=table_name)

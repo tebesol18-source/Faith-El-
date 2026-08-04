@@ -166,6 +166,19 @@ class StateManager:
         self.organization_id = organization_id
         log.debug(f"StateManager initialized with organization_id: {organization_id}")
 
+        # Initialize tenant-enforced repositories
+        from coffee_export.state.repositories import (
+            LeadRepository, LotRepository, ContractRepository,
+            ShipmentRepository, SampleRepository, ComplianceRepository, FinanceRepository
+        )
+        self.leads_repo = LeadRepository(self.session, self.organization_id)
+        self.lots_repo = LotRepository(self.session, self.organization_id)
+        self.contracts_repo = ContractRepository(self.session, self.organization_id)
+        self.shipments_repo = ShipmentRepository(self.session, self.organization_id)
+        self.samples_repo = SampleRepository(self.session, self.organization_id)
+        self.compliance_repo = ComplianceRepository(self.session, self.organization_id)
+        self.finance_repo = FinanceRepository(self.session, self.organization_id)
+
     def __enter__(self) -> StateManager:
         return self
 
@@ -264,6 +277,7 @@ class StateManager:
                 headquarters_city=headquarters_city.strip(),
                 website=website.strip(),
                 source_row_hash=source_row_hash,
+                organization_id=self.organization_id,
                 current_state="NEW",
                 current_agent="none",
                 last_touch_ts=now,
@@ -308,7 +322,7 @@ class StateManager:
 
     def get_lead(self, lead_id: str) -> dict[str, Any] | None:
         """Return lead as dict with tags, or None if not found."""
-        lead = self.session.get(Lead, lead_id)
+        lead = self.leads_repo.get_lead(lead_id)
         if not lead:
             return None
         result = {c.name: getattr(lead, c.name) for c in lead.__table__.columns}
@@ -532,7 +546,7 @@ class StateManager:
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         """List leads with optional filters."""
-        stmt = select(Lead)
+        stmt = select(Lead).where(Lead.organization_id == self.organization_id)
         if state:
             stmt = stmt.where(Lead.current_state == state)
         if agent:
@@ -617,6 +631,7 @@ class StateManager:
             station_id=lot_data.get("station_id", ""),
             coop_id=lot_data.get("coop_id", ""),
             region=lot_data.get("region", ""),
+            organization_id=self.organization_id,
             washing_station_name=lot_data.get("washing_station_name", ""),
             coop_name=lot_data.get("coop_name", ""),
             process=lot_data.get("process", ""),
@@ -667,7 +682,7 @@ class StateManager:
 
     def get_lot(self, lot_id: str) -> dict[str, Any] | None:
         """Return lot as dict, or None."""
-        lot = self.session.get(Lot, lot_id)
+        lot = self.lots_repo.get_lot(lot_id)
         if not lot:
             return None
         return {c.name: getattr(lot, c.name) for c in lot.__table__.columns}
@@ -731,7 +746,7 @@ class StateManager:
         min_score: float | None = None,
     ) -> list[dict[str, Any]]:
         """List lots with optional filters."""
-        stmt = select(Lot)
+        stmt = select(Lot).where(Lot.organization_id == self.organization_id)
         if region:
             stmt = stmt.where(Lot.region == region)
         if process:
@@ -1907,9 +1922,7 @@ class StateManager:
 
     def get_sample_request(self, sample_request_id: str) -> dict[str, Any] | None:
         """Return a sample request as dict, or None."""
-        from coffee_export.database.models import SampleRequest
-
-        sr = self.session.get(SampleRequest, sample_request_id)
+        sr = self.samples_repo.get_sample_request(sample_request_id)
         if not sr:
             return None
         result = {c.name: getattr(sr, c.name) for c in sr.__table__.columns}
@@ -2790,9 +2803,7 @@ class StateManager:
 
     def get_contract(self, contract_id: str) -> dict[str, Any] | None:
         """Return a contract as dict with line items, or None."""
-        from coffee_export.database.models import Contract
-
-        contract = self.session.get(Contract, contract_id)
+        contract = self.contracts_repo.get_contract(contract_id)
         if not contract:
             return None
         result = {c.name: getattr(contract, c.name) for c in contract.__table__.columns}
@@ -2846,7 +2857,12 @@ class StateManager:
         """List contracts with optional filters."""
         from coffee_export.database.models import Contract
 
-        stmt = select(Contract).order_by(Contract.created_ts.desc()).limit(limit)
+        stmt = (
+            select(Contract)
+            .where(Contract.organization_id == self.organization_id)
+            .order_by(Contract.created_ts.desc())
+            .limit(limit)
+        )
         if lead_id:
             stmt = stmt.where(Contract.lead_id == lead_id)
         if status:
@@ -2941,7 +2957,10 @@ class StateManager:
         rows = (
             self.session.execute(
                 select(ComplianceDocument)
-                .where(ComplianceDocument.contract_id == contract_id)
+                .where(
+                    ComplianceDocument.contract_id == contract_id,
+                    ComplianceDocument.organization_id == self.organization_id
+                )
                 .order_by(ComplianceDocument.id.asc())
             )
             .scalars()

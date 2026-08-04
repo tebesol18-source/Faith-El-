@@ -131,8 +131,8 @@ export function checkTenantOwnership(
   if (userOrgId !== resourceOrg) {
     return {
       error: NextResponse.json(
-        { ok: false, error: "Access Denied: Resource belongs to a different organization." },
-        { status: 403 }
+        { ok: false, error: "Resource not found" },
+        { status: 404 }
       ),
     };
   }
