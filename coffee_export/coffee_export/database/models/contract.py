@@ -21,6 +21,7 @@ class Contract(Base):
 
     contract_id: Mapped[str] = mapped_column(Text, primary_key=True)
     lead_id: Mapped[str] = mapped_column(Text, ForeignKey("leads.lead_id"), nullable=False)
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     sample_request_id: Mapped[str | None] = mapped_column(
         Text, ForeignKey("sample_requests.sample_request_id")
     )
@@ -110,6 +111,7 @@ class ComplianceDocument(Base):
     )
     document_type: Mapped[str] = mapped_column(Text, nullable=False)
     file_path: Mapped[str | None] = mapped_column(Text)
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     issued_date: Mapped[str | None] = mapped_column(Text)
     expiry_date: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="draft")

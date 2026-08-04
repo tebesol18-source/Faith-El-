@@ -120,5 +120,24 @@ export function requireAdmin(request: NextRequest):
   return result;
 }
 
+/**
+ * Guard utility for checking object-level tenant ownership (prevents IDOR).
+ */
+export function checkTenantOwnership(
+  userOrgId: string,
+  targetResourceOrgId: string | null | undefined
+): { error: NextResponse } | {} {
+  const resourceOrg = targetResourceOrgId || "org-system";
+  if (userOrgId !== resourceOrg) {
+    return {
+      error: NextResponse.json(
+        { ok: false, error: "Resource not found" },
+        { status: 404 }
+      ),
+    };
+  }
+  return {};
+}
+
 // Re-export for backward compatibility
 export type { SessionUser };

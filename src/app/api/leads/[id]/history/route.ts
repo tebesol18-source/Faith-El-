@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getReadonlyDb } from "@/lib/db";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, checkTenantOwnership } from "@/lib/auth";
 
 function formatTs(ts: string | null): string {
   if (!ts) return "—";
@@ -37,6 +37,15 @@ export async function GET(
     const db = getReadonlyDb();
 
     try {
+      // Fetch the lead to check tenant ownership (prevents IDOR)
+      const lead = db.prepare("SELECT organization_id FROM leads WHERE lead_id = ?").get(leadId) as { organization_id: string } | undefined;
+      if (lead) {
+        const ownership = checkTenantOwnership(auth.user.organizationId, lead.organization_id);
+        if ("error" in ownership) {
+          return ownership.error;
+        }
+      }
+
       const rows = db
         .prepare(
           `SELECT id, lead_id, from_state, to_state, agent_id, ts, notes

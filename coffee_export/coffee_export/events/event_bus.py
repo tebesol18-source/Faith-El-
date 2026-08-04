@@ -43,10 +43,11 @@ MAX_RETRIES: int = 3
 class EventBus:
     """Persistent event bus backed by the `events` table."""
 
-    def __init__(self) -> None:
+    def __init__(self, organization_id: str = "org-system") -> None:
         self.session = SessionLocal()
+        self.organization_id = organization_id
         self._subscribers: dict[str, list[Callable[[dict], None]]] = {}
-        log.debug("EventBus initialized")
+        log.debug(f"EventBus initialized with organization_id: {organization_id}")
 
     def __enter__(self) -> EventBus:
         return self
@@ -74,6 +75,9 @@ class EventBus:
         entity_id: str | None = None,
         payload: dict[str, Any] | None = None,
         published_by: str = "system",
+        organization_id: str | None = None,
+        agent_id: str | None = None,
+        job_id: str | None = None,
     ) -> int:
         """Publish an event to the bus. Returns the event ID."""
         if event_type not in ALL_EVENT_TYPES:
@@ -83,6 +87,7 @@ class EventBus:
 
         now = now_addis_iso()
         payload_json = json.dumps(payload, ensure_ascii=False) if payload else None
+        active_org = organization_id or self.organization_id or "org-system"
 
         try:
             event = Event(
@@ -93,6 +98,9 @@ class EventBus:
                 published_by=published_by,
                 published_ts=now,
                 status="pending",
+                organization_id=active_org,
+                agent_id=agent_id,
+                job_id=job_id,
             )
             self.session.add(event)
             self.session.flush()
@@ -163,7 +171,10 @@ class EventBus:
         """Fetch pending events for a subscriber."""
         stmt = (
             select(Event)
-            .where(Event.status == "pending")
+            .where(
+                Event.status == "pending",
+                Event.organization_id == self.organization_id
+            )
             .order_by(Event.published_ts.asc())
             .limit(limit)
         )

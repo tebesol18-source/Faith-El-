@@ -148,9 +148,9 @@ export async function GET(request: NextRequest) {
         FROM contracts c
         LEFT JOIN leads l ON c.lead_id = l.lead_id
         LEFT JOIN lead_contacts lc ON c.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL
-        WHERE c.deleted_ts IS NULL
+        WHERE c.deleted_ts IS NULL AND c.organization_id = ?
       `;
-      const params: (string | number)[] = [];
+      const params: (string | number)[] = [auth.user.organizationId];
       if (statusFilter) {
         query += " AND c.status = ?";
         params.push(statusFilter);

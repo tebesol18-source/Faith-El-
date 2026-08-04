@@ -36,6 +36,7 @@ class Lead(Base):
     headquarters_city: Mapped[str | None] = mapped_column(Text)
     website: Mapped[str | None] = mapped_column(Text)
     source_row_hash: Mapped[str | None] = mapped_column(Text)
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
 
     # Denormalized lifecycle fields (updated by StateManager)
     current_state: Mapped[str] = mapped_column(Text, nullable=False, default="NEW")

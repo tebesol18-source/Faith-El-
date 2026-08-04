@@ -30,6 +30,9 @@ class Event(Base):
     consumed_ts: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="pending")
     error_message: Mapped[str | None] = mapped_column(Text)
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
+    agent_id: Mapped[str | None] = mapped_column(Text)
+    job_id: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
         CheckConstraint(

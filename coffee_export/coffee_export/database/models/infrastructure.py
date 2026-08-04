@@ -44,6 +44,7 @@ class Operator(Base):
     email: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     role: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     created_ts: Mapped[str] = mapped_column(Text, nullable=False)
     updated_ts: Mapped[str] = mapped_column(Text, nullable=False)
 

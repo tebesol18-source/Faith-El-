@@ -40,13 +40,17 @@ describe("Security Regression and Hardening", () => {
   describe("Content Security Policy (CSP) Headers on API responses", () => {
     itOrSkip("GET /api/health includes default-src 'self' CSP header", async () => {
       const r = await fetch(`${BASE_URL}/api/health`);
-      expect(r.headers.get("content-security-policy")).toBe("default-src 'self'; frame-ancestors 'none';");
+      expect(r.headers.get("content-security-policy")).toBe(
+        "default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self';"
+      );
     });
 
     itOrSkip("GET /api/dashboard with auth includes default-src 'self' CSP header", async () => {
       const client = await getAdminClient();
       const r = await client.fetch("/api/dashboard");
-      expect(r.headers.get("content-security-policy")).toBe("default-src 'self'; frame-ancestors 'none';");
+      expect(r.headers.get("content-security-policy")).toBe(
+        "default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self';"
+      );
     });
   });
 
