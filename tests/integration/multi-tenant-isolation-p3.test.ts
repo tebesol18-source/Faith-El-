@@ -2,8 +2,10 @@
  * Phase 3 Multi-Tenant Isolation and Event Propagation tests.
  *
  * Verifies that:
- *   1. The direct-by-ID IDOR guard returns a 404 Not Found (instead of 403)
+ *   1. EventBus isolates event publishing and consumption by organization_id.
+ *   2. The direct-by-ID IDOR guard returns a 404 Not Found (instead of 403)
  *      to completely prevent resource enumeration.
+ *   3. Dashboard totals, statistics, and counts are strictly isolated by organization.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -86,5 +88,26 @@ describe("Phase 3 — Multi-Tenant Isolation & Event Bus Scoping", () => {
     expect(r.status).toBe(200);
     const body = await r.json();
     expect(body.ok).toBe(true);
+  });
+
+  itOrSkip("Operator C (org-test-c) has an empty dashboard (0 leads, 0 contracts)", async () => {
+    const clientC = await createTestClient("op-c@test.com", "testpass123", "170.0.0.3");
+    const r = await clientC.fetch("/api/dashboard");
+
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.stats.totalLeads).toBe(0);
+    expect(body.data.stats.totalContracts).toBe(0);
+  });
+
+  itOrSkip("Operator D (org-test-d) dashboard reflects exactly their own tenant-scoped data", async () => {
+    const clientD = await createTestClient("op-d@test.com", "testpass123", "170.0.0.4");
+    const r = await clientD.fetch("/api/dashboard");
+
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.stats.totalLeads).toBe(1); // Exclusively reflects org-test-d lead
   });
 });

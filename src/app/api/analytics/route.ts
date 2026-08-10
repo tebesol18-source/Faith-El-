@@ -29,6 +29,8 @@ export async function GET(request: any) {
         FROM agent_controls ORDER BY agent_id
       `).all() as any[];
 
+      const orgId = auth.user.organizationId;
+
       const aiCallLogs = db.prepare(`
         SELECT agent_id, COUNT(*) as total_calls,
                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
@@ -61,16 +63,26 @@ export async function GET(request: any) {
       });
 
       // ═══ 2. EMAIL OUTREACH METRICS ═══
-      const totalMessagesSent = (db.prepare("SELECT COUNT(*) as n FROM inbox_messages WHERE direction = 'outbound'").get() as any).n;
-      const totalMessagesReceived = (db.prepare("SELECT COUNT(*) as n FROM inbox_messages WHERE direction = 'inbound'").get() as any).n;
+      const totalMessagesSent = (db.prepare(`
+        SELECT COUNT(*) as n FROM inbox_messages im
+        LEFT JOIN message_threads t ON im.thread_id = t.thread_id
+        LEFT JOIN leads l ON t.lead_id = l.lead_id
+        WHERE im.direction = 'outbound' AND l.organization_id = ?
+      `).get(orgId) as any).n;
+      const totalMessagesReceived = (db.prepare(`
+        SELECT COUNT(*) as n FROM inbox_messages im
+        LEFT JOIN message_threads t ON im.thread_id = t.thread_id
+        LEFT JOIN leads l ON t.lead_id = l.lead_id
+        WHERE im.direction = 'inbound' AND l.organization_id = ?
+      `).get(orgId) as any).n;
       const emailResponseRate = totalMessagesSent > 0 ? Math.round((totalMessagesReceived / totalMessagesSent) * 100) : 0;
 
       // ═══ 3. DEAL PIPELINE METRICS ═══
       const leadStates = db.prepare(`
         SELECT current_state, COUNT(*) as count
-        FROM leads WHERE deleted_ts IS NULL
+        FROM leads WHERE deleted_ts IS NULL AND organization_id = ?
         GROUP BY current_state
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       const stateMap: Record<string, number> = {};
       leadStates.forEach((s) => { stateMap[s.current_state] = s.count; });
@@ -97,8 +109,8 @@ export async function GET(request: any) {
           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
           SUM(CASE WHEN status NOT IN ('cancelled','breached') THEN total_value ELSE 0 END) as total_value,
           AVG(CASE WHEN status NOT IN ('cancelled','breached') THEN total_value ELSE NULL END) as avg_value
-        FROM contracts WHERE deleted_ts IS NULL
-      `).get() as any;
+        FROM contracts WHERE deleted_ts IS NULL AND organization_id = ?
+      `).get(orgId) as any;
 
       const totalRevenue = contractStats.total_value || 0;
       const avgContractValue = contractStats.avg_value || 0;
@@ -110,14 +122,14 @@ export async function GET(request: any) {
           COUNT(*) as total,
           SUM(CASE WHEN decision = 'approved' THEN 1 ELSE 0 END) as approved,
           SUM(CASE WHEN decision = 'rejected' THEN 1 ELSE 0 END) as rejected
-        FROM agent_feedback
-      `).get() as any;
+        FROM agent_feedback WHERE organization_id = ?
+      `).get(orgId) as any;
 
       const rejectReasons = db.prepare(`
         SELECT feedback_reason, COUNT(*) as count
-        FROM agent_feedback WHERE decision = 'rejected' AND feedback_reason IS NOT NULL
+        FROM agent_feedback WHERE decision = 'rejected' AND feedback_reason IS NOT NULL AND organization_id = ?
         GROUP BY feedback_reason ORDER BY count DESC
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       const feedbackApprovalRate = feedbackStats.total > 0
         ? Math.round((feedbackStats.approved / feedbackStats.total) * 100) : 0;
@@ -129,8 +141,8 @@ export async function GET(request: any) {
           SUM(CASE WHEN status = 'dispatched' THEN 1 ELSE 0 END) as dispatched,
           SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
           SUM(CASE WHEN status = 'decided' THEN 1 ELSE 0 END) as decided
-        FROM sample_requests WHERE deleted_ts IS NULL
-      `).get() as any;
+        FROM sample_requests WHERE deleted_ts IS NULL AND organization_id = ?
+      `).get(orgId) as any;
 
       const shipmentStats = db.prepare(`
         SELECT
@@ -138,15 +150,15 @@ export async function GET(request: any) {
           SUM(CASE WHEN status = 'in_transit' THEN 1 ELSE 0 END) as in_transit,
           SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
           SUM(CASE WHEN status = 'departed' THEN 1 ELSE 0 END) as departed
-        FROM shipments WHERE deleted_ts IS NULL
-      `).get() as any;
+        FROM shipments WHERE deleted_ts IS NULL AND organization_id = ?
+      `).get(orgId) as any;
 
       const complianceStats = db.prepare(`
         SELECT
           COUNT(*) as total,
           SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved
-        FROM compliance_documents WHERE deleted_ts IS NULL
-      `).get() as any;
+        FROM compliance_documents WHERE deleted_ts IS NULL AND organization_id = ?
+      `).get(orgId) as any;
 
       // ═══ 7. EVENT PROCESSING METRICS ═══
       const eventStats = db.prepare(`
@@ -154,8 +166,8 @@ export async function GET(request: any) {
           COUNT(*) as total,
           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
           SUM(CASE WHEN status = 'consumed' THEN 1 ELSE 0 END) as consumed
-        FROM events
-      `).get() as any;
+        FROM events WHERE organization_id = ?
+      `).get(orgId) as any;
 
       const supervisorLogs = db.prepare(`
         SELECT
@@ -163,21 +175,21 @@ export async function GET(request: any) {
           SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) as critical,
           SUM(CASE WHEN severity = 'warning' THEN 1 ELSE 0 END) as warning,
           SUM(CASE WHEN event_type = 'AUTO_RESTART' THEN 1 ELSE 0 END) as auto_restarts
-        FROM supervisor_log
-      `).get() as any;
+        FROM supervisor_log WHERE organization_id = ?
+      `).get(orgId) as any;
 
       // ═══ 8. LEAD SOURCE METRICS ═══
       const leadsByCountry = db.prepare(`
         SELECT headquarters_country as country, COUNT(*) as count
-        FROM leads WHERE deleted_ts IS NULL
+        FROM leads WHERE deleted_ts IS NULL AND organization_id = ?
         GROUP BY headquarters_country ORDER BY count DESC LIMIT 10
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       const leadsByTier = db.prepare(`
         SELECT priority_tier as tier, COUNT(*) as count
-        FROM leads WHERE deleted_ts IS NULL
+        FROM leads WHERE deleted_ts IS NULL AND organization_id = ?
         GROUP BY priority_tier ORDER BY tier
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       return NextResponse.json({
         ok: true,

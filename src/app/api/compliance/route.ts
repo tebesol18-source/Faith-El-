@@ -37,9 +37,9 @@ export async function GET(request: any) {
                l.headquarters_city AS buyer_city
         FROM contracts c
         LEFT JOIN leads l ON c.lead_id = l.lead_id
-        WHERE c.deleted_ts IS NULL
+        WHERE c.deleted_ts IS NULL AND c.organization_id = ?
         ORDER BY c.created_ts DESC
-      `).all() as any[];
+      `).all(auth.user.organizationId) as any[];
 
       const docsStmt = db.prepare(`
         SELECT document_type, file_path, issued_date, expiry_date, status, notes

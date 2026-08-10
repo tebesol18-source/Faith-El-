@@ -28,9 +28,9 @@ export async function GET(request: any) {
                l.company_name
         FROM sample_requests sr
         LEFT JOIN leads l ON sr.lead_id = l.lead_id
-        WHERE sr.deleted_ts IS NULL
+        WHERE sr.deleted_ts IS NULL AND sr.organization_id = ?
         ORDER BY sr.created_ts DESC
-      `).all() as any[];
+      `).all(auth.user.organizationId) as any[];
 
       // For each sample, get its lots
       const lotStmt = db.prepare(`

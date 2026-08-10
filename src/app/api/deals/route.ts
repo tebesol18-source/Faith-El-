@@ -67,9 +67,9 @@ export async function GET(request: any) {
                lc.name AS contact_name
         FROM leads l
         LEFT JOIN lead_contacts lc ON l.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL
-        WHERE l.deleted_ts IS NULL
+        WHERE l.deleted_ts IS NULL AND l.organization_id = ?
         ORDER BY l.created_ts DESC
-      `).all() as any[];
+      `).all(auth.user.organizationId) as any[];
 
       // Get contract info per lead
       const contractStmt = db.prepare(`

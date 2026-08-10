@@ -52,9 +52,9 @@ export async function GET(request: any) {
     try {
       const rows = db.prepare(`
         SELECT * FROM pending_agent_actions
-        WHERE status = 'pending'
+        WHERE status = 'pending' AND organization_id = ?
         ORDER BY submitted_ts DESC
-      `).all() as any[];
+      `).all(auth.user.organizationId) as any[];
 
       const actions = rows.map((a) => {
         const rc = RISK_CONFIG[a.risk_level] || RISK_CONFIG.medium;
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
     const db = getWritableDb();
 
     try {
-      const pending = db.prepare("SELECT * FROM pending_agent_actions WHERE id = ? AND status = 'pending'").get(id) as any;
+      const pending = db.prepare("SELECT * FROM pending_agent_actions WHERE id = ? AND status = 'pending' AND organization_id = ?").get(id, user.organizationId) as any;
 
       if (!pending) {
         return NextResponse.json({ ok: false, error: "Pending action not found or already reviewed" }, { status: 404 });
@@ -127,15 +127,15 @@ export async function POST(request: NextRequest) {
       db.prepare(`
         UPDATE pending_agent_actions
         SET status = ?, reviewed_by = ?, reviewed_ts = ?, review_notes = ?
-        WHERE id = ?
-      `).run(newStatus, reviewerName, now, reviewNotes, id);
+        WHERE id = ? AND organization_id = ?
+      `).run(newStatus, reviewerName, now, reviewNotes, id, user.organizationId);
 
       // ═══ Capture human feedback for learning ═══
       db.prepare(`
         INSERT INTO agent_feedback (
           action_id, agent_id, action_type, target_entity_id,
-          decision, feedback_reason, edited_fields, original_payload, seller_notes, created_ts
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          decision, feedback_reason, edited_fields, original_payload, seller_notes, created_ts, organization_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         pending.agent_id,
@@ -146,13 +146,14 @@ export async function POST(request: NextRequest) {
         edited_fields ? JSON.stringify(edited_fields) : null,
         pending.payload,
         seller_notes || reviewNotes || null,
-        now
+        now,
+        user.organizationId
       );
 
       // Log to supervisor_log
       db.prepare(`
-        INSERT INTO supervisor_log (timestamp, agent_id, event_type, severity, message, action_taken, details)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO supervisor_log (timestamp, agent_id, event_type, severity, message, action_taken, details, organization_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         now,
         pending.agent_id,
@@ -160,7 +161,8 @@ export async function POST(request: NextRequest) {
         action === "approve" ? "info" : "warning",
         `${pending.agent_id}'s action "${pending.action_description}" was ${newStatus} by ${reviewerName}${feedback_reason ? ` — reason: ${feedback_reason}` : ''}`,
         action === "approve" ? "Action approved — supervisor will execute on next tick" : "Action rejected — feedback recorded for learning",
-        JSON.stringify({ actionId: id, actionType: pending.action_type, reviewer: reviewerName, feedbackReason: feedback_reason, hasEdits: !!edited_fields })
+        JSON.stringify({ actionId: id, actionType: pending.action_type, reviewer: reviewerName, feedbackReason: feedback_reason, hasEdits: !!edited_fields }),
+        user.organizationId
       );
 
       // If rejected, mark the associated event as consumed (so the agent doesn't retry)

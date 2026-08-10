@@ -125,9 +125,9 @@ export async function GET(request: NextRequest) {
         FROM message_threads t
         LEFT JOIN exporter_inboxes ei ON t.inbox_id = ei.id
         LEFT JOIN leads l ON t.lead_id = l.lead_id
-        WHERE t.closed_ts IS NULL
+        WHERE t.closed_ts IS NULL AND l.organization_id = ?
         ORDER BY t.last_message_ts DESC
-      `).all() as any[];
+      `).all(auth.user.organizationId) as any[];
 
       if (threads.length === 0) {
         return NextResponse.json({

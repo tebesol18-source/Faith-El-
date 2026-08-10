@@ -25,12 +25,14 @@ export async function GET(request: any) {
     const db = getReadonlyDb();
 
     try {
+      const orgId = auth.user.organizationId;
+
       // ═══ PIPELINE STAGES (from leads table) ═══
       const leadStateCounts = db.prepare(`
         SELECT current_state, COUNT(*) as n
-        FROM leads WHERE deleted_ts IS NULL
+        FROM leads WHERE deleted_ts IS NULL AND organization_id = ?
         GROUP BY current_state
-      `).all() as any[];
+      `).all(orgId) as any[];
       const stateMap: Record<string, number> = {};
       leadStateCounts.forEach((r) => { stateMap[r.current_state] = r.n; });
       const totalLeads = leadStateCounts.reduce((s, r) => s + r.n, 0);
@@ -58,18 +60,18 @@ export async function GET(request: any) {
           SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as drafts,
           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
           SUM(CASE WHEN status NOT IN ('cancelled', 'breached') THEN total_value ELSE 0 END) as total_value
-        FROM contracts WHERE deleted_ts IS NULL
-      `).get() as any;
+        FROM contracts WHERE deleted_ts IS NULL AND organization_id = ?
+      `).get(orgId) as any;
 
-      // Shipments (table is empty — will show 0)
-      const shipmentCount = db.prepare("SELECT COUNT(*) as n FROM shipments").get() as any;
+      // Shipments
+      const shipmentCount = db.prepare("SELECT COUNT(*) as n FROM shipments WHERE organization_id = ?").get(orgId) as any;
 
       // Payments outstanding (derived from contracts that aren't completed)
       const outstandingPayments = db.prepare(`
         SELECT SUM(total_value) as total
         FROM contracts
-        WHERE deleted_ts IS NULL AND status NOT IN ('completed', 'cancelled', 'breached')
-      `).get() as any;
+        WHERE deleted_ts IS NULL AND status NOT IN ('completed', 'cancelled', 'breached') AND organization_id = ?
+      `).get(orgId) as any;
 
       // Pipeline value = sum of contract values (active ones)
       const pipelineValue = contractStats.total_value || 0;
@@ -125,9 +127,10 @@ export async function GET(request: any) {
       const eventRows = db.prepare(`
         SELECT id, event_type, entity_type, entity_id, payload, published_by, published_ts, status
         FROM events
+        WHERE organization_id = ?
         ORDER BY published_ts DESC
         LIMIT 10
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       // Map event types → activity display
       const eventConfig: Record<string, { text: (p: any) => string; badge: string; badgeBg: string; badgeColor: string; dot: string }> = {
@@ -168,10 +171,10 @@ export async function GET(request: any) {
       const priorityLeads = db.prepare(`
         SELECT lead_id, company_name, current_state, last_touch_ts
         FROM leads
-        WHERE deleted_ts IS NULL AND current_state IN ('IN_SEQUENCE', 'GHOSTED', 'DECIDED_APPROVED')
+        WHERE deleted_ts IS NULL AND current_state IN ('IN_SEQUENCE', 'GHOSTED', 'DECIDED_APPROVED') AND organization_id = ?
         ORDER BY CASE current_state WHEN 'DECIDED_APPROVED' THEN 1 WHEN 'IN_SEQUENCE' THEN 2 WHEN 'GHOSTED' THEN 3 END
         LIMIT 4
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       const priorityColors = ["bg-red-500", "bg-amber-500", "bg-green-600", "bg-blue-500"];
       const priorities = priorityLeads.map((lead, i) => {

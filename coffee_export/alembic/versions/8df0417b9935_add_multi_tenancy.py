@@ -46,7 +46,10 @@ def upgrade() -> None:
         "sample_requests",
         "compliance_documents",
         "admin_audit_log",
-        "events"
+        "events",
+        "pending_agent_actions",
+        "agent_feedback",
+        "supervisor_log"
     ]
 
     for table_name in target_tables:
@@ -78,7 +81,10 @@ def downgrade() -> None:
         "sample_requests",
         "compliance_documents",
         "admin_audit_log",
-        "events"
+        "events",
+        "pending_agent_actions",
+        "agent_feedback",
+        "supervisor_log"
     ]
 
     op.drop_column("events", "agent_id")
