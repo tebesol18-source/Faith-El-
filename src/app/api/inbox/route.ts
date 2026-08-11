@@ -99,6 +99,7 @@ export async function GET(request: NextRequest) {
   // Auth — every GET route requires a valid session
   const auth = requireAuth(request);
   if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
 
   try {
     const db = getReadonlyDb();
@@ -125,9 +126,9 @@ export async function GET(request: NextRequest) {
         FROM message_threads t
         LEFT JOIN exporter_inboxes ei ON t.inbox_id = ei.id
         LEFT JOIN leads l ON t.lead_id = l.lead_id
-        WHERE t.closed_ts IS NULL
+        WHERE t.closed_ts IS NULL AND t.organization_id = ?
         ORDER BY t.last_message_ts DESC
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       if (threads.length === 0) {
         return NextResponse.json({
@@ -146,13 +147,13 @@ export async function GET(request: NextRequest) {
       // Prepare statement for fetching messages per thread
       const msgStmt = db.prepare(`
         SELECT * FROM inbox_messages
-        WHERE thread_id = ?
+        WHERE organization_id = ? AND thread_id = ?
         ORDER BY created_ts ASC
       `);
 
       for (let i = 0; i < threads.length; i++) {
         const t = threads[i];
-        const threadMessages = (msgStmt.all(t.thread_id) as any[]) || [];
+        const threadMessages = (msgStmt.all(orgId, t.thread_id) as any[]) || [];
         const msgs: FrontendMessage[] = threadMessages.map((m) => {
           const fromAddr = m.from_addr || "";
           // The frontend appends "faithelexport.com" to the from field,

@@ -12,6 +12,7 @@ export async function GET(request: any) {
   // Auth — every GET route requires a valid session
   const auth = requireAuth(request);
   if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
 
   try {
     const db = getReadonlyDb();
@@ -20,8 +21,8 @@ export async function GET(request: any) {
         SELECT lot_id, region, washing_station_name, coop_name, process,
                screen_size, cupping_score, stock_bags_remaining, crop_year,
                certifications, eudr_data_status, status, bag_size_kg
-        FROM lots WHERE deleted_ts IS NULL ORDER BY created_ts DESC
-      `).all() as any[];
+        FROM lots WHERE deleted_ts IS NULL AND organization_id = ? ORDER BY created_ts DESC
+      `).all(orgId) as any[];
 
       const lots = rows.map((r) => ({
         id: r.lot_id,

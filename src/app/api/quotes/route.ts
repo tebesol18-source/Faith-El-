@@ -38,6 +38,7 @@ export async function GET(request: any) {
   // Auth — every GET route requires a valid session
   const auth = requireAuth(request);
   if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
 
   try {
     const db = getReadonlyDb();
@@ -50,20 +51,20 @@ export async function GET(request: any) {
                l.headquarters_city AS buyer_city, l.priority_tier
         FROM contracts c
         LEFT JOIN leads l ON c.lead_id = l.lead_id
-        WHERE c.deleted_ts IS NULL
+        WHERE c.deleted_ts IS NULL AND c.organization_id = ?
         ORDER BY c.created_ts DESC
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       const lineItemsStmt = db.prepare(`
         SELECT cli.lot_id, cli.quantity_bags, cli.unit_price, cli.total_price,
                lt.region, lt.process, lt.screen_size
         FROM contract_line_items cli
         LEFT JOIN lots lt ON cli.lot_id = lt.lot_id
-        WHERE cli.contract_id = ? AND cli.deleted_ts IS NULL
+        WHERE cli.organization_id = ? AND cli.contract_id = ? AND cli.deleted_ts IS NULL
       `);
 
       const quotes = contracts.map((c, idx) => {
-        const lineItems = (lineItemsStmt.all(c.contract_id) as any[]) || [];
+        const lineItems = (lineItemsStmt.all(orgId, c.contract_id) as any[]) || [];
         const quoteStatus = mapContractStatusToQuote(c.status);
         const weightKg = (c.total_volume_bags || 0) * 60;
         const linesSubtotal = c.total_value || 0;

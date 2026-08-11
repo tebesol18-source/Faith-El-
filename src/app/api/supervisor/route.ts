@@ -58,6 +58,7 @@ export async function GET(request: any) {
   // Auth — every GET route requires a valid session
   const auth = requireAuth(request);
   if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
 
   try {
     const db = getReadonlyDb();

@@ -46,6 +46,7 @@ export async function GET(request: any) {
   // Auth — every GET route requires a valid session
   const auth = requireAuth(request);
   if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
 
   try {
     const db = getReadonlyDb();
@@ -57,9 +58,9 @@ export async function GET(request: any) {
                l.company_name AS buyer_name
         FROM contracts c
         LEFT JOIN leads l ON c.lead_id = l.lead_id
-        WHERE c.deleted_ts IS NULL
+        WHERE c.deleted_ts IS NULL AND c.organization_id = ?
         ORDER BY c.created_ts DESC
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       const transactions: any[] = [];
 

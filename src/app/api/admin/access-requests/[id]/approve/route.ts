@@ -143,11 +143,19 @@ export async function POST(
       const passwordHash = hashPassword(pwd);
       const now = nowISO();
 
-      // ─── 4. Insert the new operator (must_change_password=1 since pwd is auto-generated) ───
+      // ─── TENANT ISOLATION: Create a new organization for this exporter ───
+      // Each approved exporter gets their own org so their data is isolated.
+      const newOrgId = `org-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
       db.prepare(`
-        INSERT INTO operators (operator_id, name, email, role, status, password_hash, must_change_password, created_ts, updated_ts)
-        VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?)
-      `).run(newOperatorId, req.name, (req.email as string).toLowerCase(), finalRole, passwordHash, now, now);
+        INSERT INTO organizations (organization_id, name, status, created_ts, updated_ts)
+        VALUES (?, ?, 'active', ?, ?)
+      `).run(newOrgId, `${req.name}'s Organization`, now, now);
+
+      // ─── 4. Insert the new operator with the new org_id ───
+      db.prepare(`
+        INSERT INTO operators (operator_id, name, email, role, status, password_hash, must_change_password, organization_id, created_ts, updated_ts)
+        VALUES (?, ?, ?, ?, 'active', ?, 1, ?, ?, ?)
+      `).run(newOperatorId, req.name, (req.email as string).toLowerCase(), finalRole, passwordHash, newOrgId, now, now);
 
       // ─── 5. Update the access request ───
       db.prepare(`

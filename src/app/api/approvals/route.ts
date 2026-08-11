@@ -45,6 +45,7 @@ export async function GET(request: any) {
   // Auth — every GET route requires a valid session
   const auth = requireAuth(request);
   if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
 
   try {
     const db = getReadonlyDb();
@@ -52,9 +53,9 @@ export async function GET(request: any) {
     try {
       const rows = db.prepare(`
         SELECT * FROM pending_agent_actions
-        WHERE status = 'pending'
+        WHERE status = 'pending' AND organization_id = ?
         ORDER BY submitted_ts DESC
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       const actions = rows.map((a) => {
         const rc = RISK_CONFIG[a.risk_level] || RISK_CONFIG.medium;
@@ -98,6 +99,7 @@ export async function POST(request: NextRequest) {
     const auth = requireAuth(request);
     if ("error" in auth) return auth.error;
     const user = auth.user;
+    const orgId = user.organizationId;
 
     const body = await request.json();
     const { id, action, reviewer, notes, feedback_reason, edited_fields, seller_notes } = body;
@@ -112,7 +114,7 @@ export async function POST(request: NextRequest) {
     const db = getWritableDb();
 
     try {
-      const pending = db.prepare("SELECT * FROM pending_agent_actions WHERE id = ? AND status = 'pending'").get(id) as any;
+      const pending = db.prepare("SELECT * FROM pending_agent_actions WHERE organization_id = ? AND id = ? AND status = 'pending'").get(orgId, id) as any;
 
       if (!pending) {
         return NextResponse.json({ ok: false, error: "Pending action not found or already reviewed" }, { status: 404 });

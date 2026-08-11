@@ -4,11 +4,11 @@
  * Returns all aggregate data for the Dashboard page in one call.
  * Pulls real counts from the backend SQLite database.
  *
+ * TENANT ISOLATION: All queries are scoped to the authenticated user's
+ * organization_id. A user in org-A will NEVER see org-B's data.
+ *
  * Backend: /home/z/my-project/coffee_export/data/coffee_export.db
  * Tables:  leads, contracts, agents, events, ai_call_logs, inbox_messages
- *
- * Each section falls back to mock-style values when the underlying
- * table is empty (so the dashboard never looks broken).
  */
 
 import { NextResponse } from "next/server";
@@ -17,25 +17,24 @@ import { requireAuth } from "@/lib/auth";
 import { relativeTime, messageTime } from "@/lib/format";
 
 export async function GET(request: any) {
-  // Auth — every GET route requires a valid session
   const auth = requireAuth(request);
   if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
 
   try {
     const db = getReadonlyDb();
 
     try {
-      // ═══ PIPELINE STAGES (from leads table) ═══
+      // ═══ PIPELINE STAGES (from leads table) — FILTERED BY ORG ═══
       const leadStateCounts = db.prepare(`
         SELECT current_state, COUNT(*) as n
-        FROM leads WHERE deleted_ts IS NULL
+        FROM leads WHERE deleted_ts IS NULL AND organization_id = ?
         GROUP BY current_state
-      `).all() as any[];
+      `).all(orgId) as any[];
       const stateMap: Record<string, number> = {};
       leadStateCounts.forEach((r) => { stateMap[r.current_state] = r.n; });
       const totalLeads = leadStateCounts.reduce((s, r) => s + r.n, 0);
 
-      // Map backend lead states → frontend pipeline stages
       const stages = [
         { label: "New Leads", count: stateMap["NEW"] || 0, value: "$0", color: "bg-blue-500" },
         { label: "Qualified", count: stateMap["QUALIFIED"] || 0, value: "$0", color: "bg-indigo-500" },
@@ -45,91 +44,55 @@ export async function GET(request: any) {
         { label: "Completed", count: stateMap["CONTRACTED"] || 0, value: "$0", color: "bg-emerald-600" },
       ];
 
-      // ═══ KPIs ═══
-      // Deals: count of leads that are in active pipeline states
+      // ═══ KPIs — ALL FILTERED BY ORG ═══
       const activeDealStates = ["IN_SEQUENCE", "QUALIFIED", "SAMPLE_DISPATCHED", "SAMPLE_FEEDBACK_DUE", "DECIDED_APPROVED", "DECIDED_NEEDS_ANOTHER"];
       let activeDeals = 0;
       activeDealStates.forEach((s) => { activeDeals += stateMap[s] || 0; });
 
-      // Contracts
       const contractStats = db.prepare(`
         SELECT
           COUNT(*) as total,
           SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as drafts,
           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
           SUM(CASE WHEN status NOT IN ('cancelled', 'breached') THEN total_value ELSE 0 END) as total_value
-        FROM contracts WHERE deleted_ts IS NULL
-      `).get() as any;
+        FROM contracts WHERE deleted_ts IS NULL AND organization_id = ?
+      `).get(orgId) as any;
 
-      // Shipments (table is empty — will show 0)
-      const shipmentCount = db.prepare("SELECT COUNT(*) as n FROM shipments").get() as any;
+      const shipmentCount = db.prepare("SELECT COUNT(*) as n FROM shipments WHERE organization_id = ?").get(orgId) as any;
 
-      // Payments outstanding (derived from contracts that aren't completed)
       const outstandingPayments = db.prepare(`
         SELECT SUM(total_value) as total
         FROM contracts
-        WHERE deleted_ts IS NULL AND status NOT IN ('completed', 'cancelled', 'breached')
-      `).get() as any;
+        WHERE deleted_ts IS NULL AND status NOT IN ('completed', 'cancelled', 'breached') AND organization_id = ?
+      `).get(orgId) as any;
 
-      // Pipeline value = sum of contract values (active ones)
       const pipelineValue = contractStats.total_value || 0;
 
       const kpis = [
-        {
-          label: "Deals",
-          value: String(activeDeals),
-          sub: "Active",
+        { label: "Deals", value: String(activeDeals), sub: "Active",
           context: `$${pipelineValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} Pipeline`,
-          icon: "Handshake",
-          iconBg: "bg-green-50",
-          iconColor: "text-green-600",
-          trend: "0%",
-          trendUp: true,
-        },
-        {
-          label: "Contracts",
-          value: String(contractStats.total || 0),
+          icon: "Handshake", iconBg: "bg-green-50", iconColor: "text-green-600", trend: "0%", trendUp: true },
+        { label: "Contracts", value: String(contractStats.total || 0),
           sub: contractStats.drafts > 0 ? `${contractStats.drafts} Draft` : "No drafts",
           context: `$${pipelineValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} Total Value`,
-          icon: "FileText",
-          iconBg: "bg-amber-50",
-          iconColor: "text-amber-600",
-          trend: "0%",
-          trendUp: true,
-        },
-        {
-          label: "Leads",
-          value: String(totalLeads),
-          sub: `${stateMap["NEW"] || 0} New`,
-          context: `${stateMap["QUALIFIED"] || 0} Qualified`,
-          icon: "Users",
-          iconBg: "bg-blue-50",
-          iconColor: "text-blue-600",
-          trend: "0%",
-          trendUp: true,
-        },
-        {
-          label: "Payments",
-          value: `$${Math.round(outstandingPayments.total || 0).toLocaleString()}`,
-          sub: "Outstanding",
-          context: `$${Math.round(contractStats.total_value || 0).toLocaleString()} Contract Value`,
-          icon: "DollarSign",
-          iconBg: "bg-green-50",
-          iconColor: "text-green-600",
-          trend: "0%",
-          trendUp: false,
-        },
+          icon: "FileText", iconBg: "bg-amber-50", iconColor: "text-amber-600", trend: "0%", trendUp: true },
+        { label: "Leads", value: String(totalLeads),
+          sub: `${stateMap["NEW"] || 0} New`, context: `${stateMap["QUALIFIED"] || 0} Qualified`,
+          icon: "Users", iconBg: "bg-blue-50", iconColor: "text-blue-600", trend: "0%", trendUp: true },
+        { label: "Payments", value: `$${Math.round(outstandingPayments.total || 0).toLocaleString()}`,
+          sub: "Outstanding", context: `$${Math.round(contractStats.total_value || 0).toLocaleString()} Contract Value`,
+          icon: "DollarSign", iconBg: "bg-green-50", iconColor: "text-green-600", trend: "0%", trendUp: false },
       ];
 
-      // ═══ ACTIVITIES (from events table) ═══
+      // ═══ ACTIVITIES (from events table) — FILTERED BY ORG ═══
       const eventRows = db.prepare(`
         SELECT id, event_type, entity_type, entity_id, payload, published_by, published_ts, status
         FROM events
+        WHERE organization_id = ?
         ORDER BY published_ts DESC
         LIMIT 10
-      `).all() as any[];
+      `).all(orgId) as any[];
 
-      // Map event types → activity display
       const eventConfig: Record<string, { text: (p: any) => string; badge: string; badgeBg: string; badgeColor: string; dot: string }> = {
         LEAD_CREATED: { text: (p) => `New lead created: ${p.company_name || p.lead_id}`, badge: "Lead", badgeBg: "bg-blue-50", badgeColor: "text-blue-700", dot: "bg-blue-500" },
         LEAD_ENRICHED: { text: (p) => `Lead enriched: ${p.company_name || p.lead_id} → ${p.tier || "?"} tier`, badge: "Lead", badgeBg: "bg-blue-50", badgeColor: "text-blue-700", dot: "bg-blue-500" },
@@ -146,82 +109,51 @@ export async function GET(request: any) {
         try { payload = JSON.parse(e.payload || "{}"); } catch {}
         const config = eventConfig[e.event_type] || {
           text: () => `${e.event_type.replace(/_/g, " ")}: ${e.entity_id}`,
-          badge: "System",
-          badgeBg: "bg-gray-100",
-          badgeColor: "text-gray-700",
-          dot: "bg-gray-500",
+          badge: "System", badgeBg: "bg-gray-100", badgeColor: "text-gray-700", dot: "bg-gray-500",
         };
-        return {
-          time: messageTime(e.published_ts),
-          text: config.text(payload),
-          badge: config.badge,
-          badgeBg: config.badgeBg,
-          badgeColor: config.badgeColor,
-          dot: config.dot,
-        };
+        return { time: messageTime(e.published_ts), text: config.text(payload),
+          badge: config.badge, badgeBg: config.badgeBg, badgeColor: config.badgeColor, dot: config.dot };
       });
 
-      // ═══ PRIORITIES (derived from real data) ═══
-      // Top priority: leads in IN_SEQUENCE state (need follow-up)
-      // Second: draft contracts (need action)
-      // Third: ghosted leads (need breakup email)
+      // ═══ PRIORITIES — FILTERED BY ORG ═══
       const priorityLeads = db.prepare(`
         SELECT lead_id, company_name, current_state, last_touch_ts
         FROM leads
-        WHERE deleted_ts IS NULL AND current_state IN ('IN_SEQUENCE', 'GHOSTED', 'DECIDED_APPROVED')
+        WHERE deleted_ts IS NULL AND organization_id = ?
+          AND current_state IN ('IN_SEQUENCE', 'GHOSTED', 'DECIDED_APPROVED')
         ORDER BY CASE current_state WHEN 'DECIDED_APPROVED' THEN 1 WHEN 'IN_SEQUENCE' THEN 2 WHEN 'GHOSTED' THEN 3 END
         LIMIT 4
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       const priorityColors = ["bg-red-500", "bg-amber-500", "bg-green-600", "bg-blue-500"];
       const priorities = priorityLeads.map((lead, i) => {
         let text = "";
-        if (lead.current_state === "DECIDED_APPROVED") {
-          text = `Create contract for ${lead.company_name} — sample approved`;
-        } else if (lead.current_state === "IN_SEQUENCE") {
-          text = `Follow up with ${lead.company_name} — in outreach sequence`;
-        } else if (lead.current_state === "GHOSTED") {
-          text = `Send breakup email to ${lead.company_name} — ghosted`;
-        } else {
-          text = `Review lead ${lead.company_name}`;
-        }
-        return {
-          num: String(i + 1),
-          color: priorityColors[i] || "bg-gray-400",
-          text,
-          time: relativeTime(lead.last_touch_ts),
-        };
+        if (lead.current_state === "DECIDED_APPROVED") text = `Create contract for ${lead.company_name} — sample approved`;
+        else if (lead.current_state === "IN_SEQUENCE") text = `Follow up with ${lead.company_name} — in outreach sequence`;
+        else if (lead.current_state === "GHOSTED") text = `Send breakup email to ${lead.company_name} — ghosted`;
+        else text = `Review lead ${lead.company_name}`;
+        return { num: String(i + 1), color: priorityColors[i] || "bg-gray-400", text, time: relativeTime(lead.last_touch_ts) };
       });
 
-      // ═══ SHIPMENTS (table is empty — return empty array, frontend will show mock fallback) ═══
       const shipments: any[] = [];
 
-      // ═══ AGENT ACTIVITY (for AI coach / system health) ═══
+      // ═══ AGENT ACTIVITY — FILTERED BY ORG ═══
       const agentActivity = db.prepare(`
         SELECT COUNT(*) as total_calls,
                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
                SUM(cost_usd) as total_cost
         FROM ai_call_logs
-      `).get() as any;
+        WHERE organization_id = ?
+      `).get(orgId) as any;
 
       return NextResponse.json({
-        ok: true,
-        source: "sqlite",
+        ok: true, source: "sqlite",
         data: {
-          stages,
-          kpis,
-          activities,
-          priorities,
-          shipments,
+          stages, kpis, activities, priorities, shipments,
           stats: {
-            totalLeads,
-            totalContracts: contractStats.total || 0,
-            activeDeals,
-            pipelineValue,
-            shipmentCount: shipmentCount.n || 0,
-            eventCount: eventRows.length,
-            agentCalls: agentActivity.total_calls || 0,
-            agentCost: agentActivity.total_cost || 0,
+            totalLeads, totalContracts: contractStats.total || 0, activeDeals, pipelineValue,
+            shipmentCount: shipmentCount.n || 0, eventCount: eventRows.length,
+            agentCalls: agentActivity.total_calls || 0, agentCost: agentActivity.total_cost || 0,
           },
         },
       });

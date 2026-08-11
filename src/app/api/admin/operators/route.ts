@@ -143,12 +143,24 @@ export async function POST(request: NextRequest) {
       // ─── Hash the password ───
       const passwordHash = hashPassword(password);
 
+      // ─── TENANT ISOLATION: Create a new organization for non-admin operators ───
+      // Admins belong to org-system (they manage the platform itself).
+      // Each exporter gets their own org so their data is isolated.
+      let operatorOrgId = "org-system";
+      if (finalRole !== "admin") {
+        operatorOrgId = `org-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+        db.prepare(`
+          INSERT INTO organizations (organization_id, name, status, created_ts, updated_ts)
+          VALUES (?, ?, 'active', ?, ?)
+        `).run(operatorOrgId, `${name.trim()}'s Organization`, nowISO(), nowISO());
+      }
+
       // ─── Insert (set must_change_password=1 so user must change on first login) ───
       const now = nowISO();
       db.prepare(`
-        INSERT INTO operators (operator_id, name, email, role, status, password_hash, must_change_password, created_ts, updated_ts)
-        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
-      `).run(finalOperatorId, name.trim(), normalizedEmail, finalRole, finalStatus, passwordHash, now, now);
+        INSERT INTO operators (operator_id, name, email, role, status, password_hash, must_change_password, organization_id, created_ts, updated_ts)
+        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+      `).run(finalOperatorId, name.trim(), normalizedEmail, finalRole, finalStatus, passwordHash, operatorOrgId, now, now);
 
       // ─── Audit log ───
       writeAuditLog({
@@ -158,7 +170,7 @@ export async function POST(request: NextRequest) {
         targetType: "operator",
         targetId: finalOperatorId,
         targetEmail: normalizedEmail,
-        details: { role: finalRole, status: finalStatus },
+        details: { role: finalRole, status: finalStatus, organization_id: operatorOrgId },
       });
 
       // ─── Return the new operator (without the hash) ───
@@ -172,6 +184,7 @@ export async function POST(request: NextRequest) {
           status: finalStatus,
           created_ts: now,
           must_change_password: true,
+          organization_id: operatorOrgId,
         },
       }, { status: 201 });
     } finally {

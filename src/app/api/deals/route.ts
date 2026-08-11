@@ -54,6 +54,7 @@ export async function GET(request: any) {
   // Auth — every GET route requires a valid session
   const auth = requireAuth(request);
   if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
 
   try {
     const db = getReadonlyDb();
@@ -67,19 +68,19 @@ export async function GET(request: any) {
                lc.name AS contact_name
         FROM leads l
         LEFT JOIN lead_contacts lc ON l.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL
-        WHERE l.deleted_ts IS NULL
+        WHERE l.deleted_ts IS NULL AND l.organization_id = ?
         ORDER BY l.created_ts DESC
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       // Get contract info per lead
       const contractStmt = db.prepare(`
         SELECT contract_id, total_value, status FROM contracts
-        WHERE lead_id = ? AND deleted_ts IS NULL LIMIT 1
+        WHERE organization_id = ? AND lead_id = ? AND deleted_ts IS NULL LIMIT 1
       `);
 
       const deals = leads.map((l) => {
         const { stage, health } = mapLeadStateToDealStage(l.current_state);
-        const contract = contractStmt.get(l.lead_id) as any;
+        const contract = contractStmt.get(orgId, l.lead_id) as any;
 
         // Estimate deal value based on tier
         const tierValues: Record<string, number> = { S: 50000, A: 30000, B: 15000, C: 5000 };

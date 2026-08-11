@@ -17,6 +17,7 @@ export async function GET(request: any) {
   // Auth — every GET route requires a valid session
   const auth = requireAuth(request);
   if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
 
   try {
     const db = getReadonlyDb();
@@ -28,35 +29,35 @@ export async function GET(request: any) {
                l.company_name
         FROM sample_requests sr
         LEFT JOIN leads l ON sr.lead_id = l.lead_id
-        WHERE sr.deleted_ts IS NULL
+        WHERE sr.deleted_ts IS NULL AND sr.organization_id = ?
         ORDER BY sr.created_ts DESC
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       // For each sample, get its lots
       const lotStmt = db.prepare(`
         SELECT srl.lot_id, lt.region, lt.process
         FROM sample_request_lots srl
         LEFT JOIN lots lt ON srl.lot_id = lt.lot_id
-        WHERE srl.sample_request_id = ?
+        WHERE srl.organization_id = ? AND srl.sample_request_id = ?
       `);
 
       // Get cupping scores
       const scoreStmt = db.prepare(`
         SELECT AVG(total_score) as avg_score FROM cupping_scores
-        WHERE sample_request_id = ? AND deleted_ts IS NULL
+        WHERE organization_id = ? AND sample_request_id = ? AND deleted_ts IS NULL
       `);
 
       // Get decision
       const decisionStmt = db.prepare(`
         SELECT decision FROM sample_decisions
-        WHERE sample_request_id = ? ORDER BY created_ts DESC LIMIT 1
+        WHERE organization_id = ? AND sample_request_id = ? ORDER BY created_ts DESC LIMIT 1
       `);
 
       const samples = rows.map((r) => {
-        const lots = (lotStmt.all(r.sample_request_id) as any[]) || [];
+        const lots = (lotStmt.all(orgId, r.sample_request_id) as any[]) || [];
         const lotLabels = lots.map((l) => l.lot_id + (l.region ? ` (${l.region})` : ""));
-        const scoreRow = scoreStmt.get(r.sample_request_id) as any;
-        const decisionRow = decisionStmt.get(r.sample_request_id) as any;
+        const scoreRow = scoreStmt.get(orgId, r.sample_request_id) as any;
+        const decisionRow = decisionStmt.get(orgId, r.sample_request_id) as any;
 
         // Map status: draft → pending (frontend expects "pending" not "draft")
         const statusMap: Record<string, string> = {

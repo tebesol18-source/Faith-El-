@@ -18,6 +18,7 @@ export async function GET(request: any) {
   // Auth — analytics are available to any logged-in user
   const auth = requireAuth(request);
   if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
 
   try {
     const db = getReadonlyDb();
@@ -68,9 +69,9 @@ export async function GET(request: any) {
       // ═══ 3. DEAL PIPELINE METRICS ═══
       const leadStates = db.prepare(`
         SELECT current_state, COUNT(*) as count
-        FROM leads WHERE deleted_ts IS NULL
+        FROM leads WHERE deleted_ts IS NULL AND organization_id = ?
         GROUP BY current_state
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       const stateMap: Record<string, number> = {};
       leadStates.forEach((s) => { stateMap[s.current_state] = s.count; });
@@ -97,8 +98,8 @@ export async function GET(request: any) {
           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
           SUM(CASE WHEN status NOT IN ('cancelled','breached') THEN total_value ELSE 0 END) as total_value,
           AVG(CASE WHEN status NOT IN ('cancelled','breached') THEN total_value ELSE NULL END) as avg_value
-        FROM contracts WHERE deleted_ts IS NULL
-      `).get() as any;
+        FROM contracts WHERE deleted_ts IS NULL AND organization_id = ?
+      `).get(orgId) as any;
 
       const totalRevenue = contractStats.total_value || 0;
       const avgContractValue = contractStats.avg_value || 0;
@@ -129,8 +130,8 @@ export async function GET(request: any) {
           SUM(CASE WHEN status = 'dispatched' THEN 1 ELSE 0 END) as dispatched,
           SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
           SUM(CASE WHEN status = 'decided' THEN 1 ELSE 0 END) as decided
-        FROM sample_requests WHERE deleted_ts IS NULL
-      `).get() as any;
+        FROM sample_requests WHERE deleted_ts IS NULL AND organization_id = ?
+      `).get(orgId) as any;
 
       const shipmentStats = db.prepare(`
         SELECT
@@ -138,15 +139,15 @@ export async function GET(request: any) {
           SUM(CASE WHEN status = 'in_transit' THEN 1 ELSE 0 END) as in_transit,
           SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
           SUM(CASE WHEN status = 'departed' THEN 1 ELSE 0 END) as departed
-        FROM shipments WHERE deleted_ts IS NULL
-      `).get() as any;
+        FROM shipments WHERE deleted_ts IS NULL AND organization_id = ?
+      `).get(orgId) as any;
 
       const complianceStats = db.prepare(`
         SELECT
           COUNT(*) as total,
           SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved
-        FROM compliance_documents WHERE deleted_ts IS NULL
-      `).get() as any;
+        FROM compliance_documents WHERE deleted_ts IS NULL AND organization_id = ?
+      `).get(orgId) as any;
 
       // ═══ 7. EVENT PROCESSING METRICS ═══
       const eventStats = db.prepare(`
@@ -169,15 +170,15 @@ export async function GET(request: any) {
       // ═══ 8. LEAD SOURCE METRICS ═══
       const leadsByCountry = db.prepare(`
         SELECT headquarters_country as country, COUNT(*) as count
-        FROM leads WHERE deleted_ts IS NULL
+        FROM leads WHERE deleted_ts IS NULL AND organization_id = ?
         GROUP BY headquarters_country ORDER BY count DESC LIMIT 10
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       const leadsByTier = db.prepare(`
         SELECT priority_tier as tier, COUNT(*) as count
-        FROM leads WHERE deleted_ts IS NULL
+        FROM leads WHERE deleted_ts IS NULL AND organization_id = ?
         GROUP BY priority_tier ORDER BY tier
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       return NextResponse.json({
         ok: true,

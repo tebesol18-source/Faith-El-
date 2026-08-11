@@ -82,7 +82,12 @@ export function createSession(opts: {
   const db = getWritableDb();
   try {
     const op = db.prepare("SELECT organization_id FROM operators WHERE operator_id = ?").get(opts.operatorId) as { organization_id: string } | undefined;
-    const organizationId = op?.organization_id || "org-system";
+    // SECURITY: Do NOT fall back to org-system. If the operator has no org,
+    // they should not be able to log in. This prevents cross-tenant leakage.
+    const organizationId = op?.organization_id;
+    if (!organizationId) {
+      throw new Error(`Operator ${opts.operatorId} has no organization_id — refusing to create session`);
+    }
 
     db.prepare(`
       INSERT INTO sessions (id, operator_id, operator_email, operator_role,
@@ -174,7 +179,9 @@ export function validateSession(sessionId: string | null | undefined): SessionUs
         operatorId: session.operator_id,
         mustChangePassword: op.must_change_password === 1,
         sessionId: session.id,
-        organizationId: session.organization_id || op.organization_id || "org-system",
+        // SECURITY: Use the operator's current org_id, not a fallback.
+        // If the operator has no org_id, reject the session entirely.
+        organizationId: op.organization_id || session.organization_id,
       };
     } finally {
       db.close();

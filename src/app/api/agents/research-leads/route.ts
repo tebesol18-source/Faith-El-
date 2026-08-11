@@ -222,6 +222,7 @@ export async function POST(request: NextRequest) {
     const auth = requireAuth(request);
     if ("error" in auth) return auth.error;
     const user = auth.user;
+    const orgId = user.organizationId;
 
     const body = await request.json();
     const { country, segment, count } = body;
@@ -274,7 +275,7 @@ export async function POST(request: NextRequest) {
           const contact = generateContactName(country);
           const sourceHash = crypto.createHash("md5").update(leadId + companyName).digest("hex");
 
-          // Insert lead
+          // Insert lead — scoped to the requesting user's organization
           db.prepare(`
             INSERT INTO leads (
               lead_id, company_name, headquarters_country, headquarters_city,
@@ -282,11 +283,11 @@ export async function POST(request: NextRequest) {
               last_touch_ts, next_action_due_ts, next_action_agent,
               priority_tier, recommended_vp, outreach_language,
               sequence_step, substitute_round, ghosted_count,
-              created_ts, updated_ts, deleted_ts
-            ) VALUES (?, ?, ?, ?, ?, ?, 'NEW', 'Agent 2', NULL, NULL, 'Agent 3', ?, ?, ?, 0, 0, 0, ?, ?, NULL)
+              created_ts, updated_ts, deleted_ts, organization_id
+            ) VALUES (?, ?, ?, ?, ?, ?, 'NEW', 'Agent 2', NULL, NULL, 'Agent 3', ?, ?, ?, 0, 0, 0, ?, ?, NULL, ?)
           `).run(
             leadId, companyName, country, city, website, sourceHash,
-            tier, vp, language, now, now
+            tier, vp, language, now, now, orgId
           );
 
           // Insert primary contact
