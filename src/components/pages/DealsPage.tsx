@@ -51,13 +51,13 @@ export function DealsPage() {
         if (data.ok && Array.isArray(data.deals) && data.deals.length > 0) {
           setDealsData(data.deals);
         } else {
-          setDealsData(mockDealsData);
+          setDealsData([]);
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("[DealsPage] API fetch failed, using mock data:", err);
-        setDealsData(mockDealsData);
+        setDealsData([]);
       });
     return () => { cancelled = true; };
   }, []);

@@ -79,31 +79,31 @@ export function DashboardPage() {
             icon: iconMap[k.icon] || Handshake,
           }));
           setDashboardData({
-            priorities: d.priorities?.length > 0 ? d.priorities : mockPriorities,
-            stages: d.stages?.length > 0 ? d.stages : mockStages,
-            kpis: mappedKpis.length > 0 ? mappedKpis : mockKpis,
-            activities: d.activities?.length > 0 ? d.activities : mockActivities,
-            shipments: d.shipments?.length > 0 ? d.shipments : mockShipments,
+            priorities: d.priorities || [],
+            stages: d.stages || [],
+            kpis: mappedKpis,
+            activities: d.activities || [],
+            shipments: d.shipments || [],
           });
         } else {
           setDashboardData({
-            priorities: mockPriorities,
-            stages: mockStages,
-            kpis: mockKpis,
-            activities: mockActivities,
-            shipments: mockShipments,
+            priorities: [],
+            stages: [],
+            kpis: [],
+            activities: [],
+            shipments: [],
           });
         }
       })
       .catch((err) => {
         if (cancelled) return;
-        console.warn("[DashboardPage] API fetch failed, using mock data:", err);
+        console.warn("[DashboardPage] API fetch failed:", err);
         setDashboardData({
-          priorities: mockPriorities,
-          stages: mockStages,
-          kpis: mockKpis,
-          activities: mockActivities,
-          shipments: mockShipments,
+          priorities: [],
+          stages: [],
+          kpis: [],
+          activities: [],
+          shipments: [],
         });
       });
     return () => { cancelled = true; };

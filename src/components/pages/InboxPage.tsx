@@ -39,17 +39,17 @@ export function InboxPage() {
         if (cancelled) return;
         if (data.ok && Array.isArray(data.conversations) && data.conversations.length > 0) {
           setConversations(data.conversations);
-          setMessages(data.messages || mockMessages);
+          setMessages(data.messages || []);
         } else {
-          setConversations(mockConversations);
-          setMessages(mockMessages);
+          setConversations([]);
+          setMessages([]);
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("[InboxPage] API fetch failed, using mock data:", err);
-        setConversations(mockConversations);
-        setMessages(mockMessages);
+        setConversations([]);
+        setMessages([]);
       });
     return () => { cancelled = true; };
   }, []);

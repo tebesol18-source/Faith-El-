@@ -66,9 +66,9 @@ export function LeadsPage() {
       .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
       .then((data) => {
         if (data.ok && Array.isArray(data.leads) && data.leads.length > 0) setLeadsData(data.leads);
-        else setLeadsData(mockLeadsData);
+        else setLeadsData([]);
       })
-      .catch(() => setLeadsData(mockLeadsData));
+      .catch(() => setLeadsData([]));
   };
 
   useEffect(() => {

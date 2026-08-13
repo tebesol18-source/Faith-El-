@@ -563,13 +563,13 @@ export function ContractsPage() {
         if (data.ok && Array.isArray(data.contracts) && data.contracts.length > 0) {
           setContractsData(data.contracts);
         } else {
-          setContractsData(mockContractsData);
+          setContractsData([]);
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("[ContractsPage] API fetch failed, using mock data:", err);
-        setContractsData(mockContractsData);
+        setContractsData([]);
       });
     return () => { cancelled = true; };
   }, []);

@@ -235,13 +235,13 @@ export function ShipmentsPage() {
         if (data.ok && Array.isArray(data.shipments) && data.shipments.length > 0) {
           setShipmentsData(data.shipments);
         } else {
-          setShipmentsData(mockShipmentsData);
+          setShipmentsData([]);
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("[ShipmentsPage] API fetch failed, using mock data:", err);
-        setShipmentsData(mockShipmentsData);
+        setShipmentsData([]);
       });
     // Fetch vessel tracking
     fetch("/api/vessel-tracking")

@@ -167,13 +167,13 @@ export function FinancePage() {
           setTransactionsData(data.transactions);
           setApiStats(data.stats);
         } else {
-          setTransactionsData(mockTransactionsData);
+          setTransactionsData([]);
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("[FinancePage] API fetch failed, using mock data:", err);
-        setTransactionsData(mockTransactionsData);
+        setTransactionsData([]);
       });
     return () => { cancelled = true; };
   }, []);

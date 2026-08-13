@@ -58,13 +58,13 @@ export function InventoryPage() {
         if (data.ok && Array.isArray(data.lots) && data.lots.length > 0) {
           setLotsData(data.lots);
         } else {
-          setLotsData(mockLotsData);
+          setLotsData([]);
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("[InventoryPage] API fetch failed, using mock data:", err);
-        setLotsData(mockLotsData);
+        setLotsData([]);
       });
     return () => { cancelled = true; };
   }, []);

@@ -342,13 +342,13 @@ export function QuotesPage() {
         if (data.ok && Array.isArray(data.quotes) && data.quotes.length > 0) {
           setQuotesData(data.quotes);
         } else {
-          setQuotesData(mockQuotesData);
+          setQuotesData([]);
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("[QuotesPage] API fetch failed, using mock data:", err);
-        setQuotesData(mockQuotesData);
+        setQuotesData([]);
       });
     // Fetch market prices
     fetch("/api/market-prices")

@@ -44,7 +44,8 @@ export function getDbPath(): string {
   );
 
   for (const p of candidates) {
-    if (fs.existsSync(p)) { dbPath = p; return p; }
+    // Check exists AND is non-empty (0-byte DB files are corrupted/empty)
+    if (fs.existsSync(p) && fs.statSync(p).size > 0) { dbPath = p; return p; }
   }
   // None exist — return the last candidate so the error message is useful
   dbPath = candidates[candidates.length - 1];

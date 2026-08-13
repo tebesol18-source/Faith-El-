@@ -235,35 +235,35 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
           if (Array.isArray(data.operators) && data.operators.length > 0) {
             setOperatorsData(data.operators);
           } else {
-            setOperatorsData(mockOperatorsData);
+            setOperatorsData([]);
           }
           if (Array.isArray(data.agents) && data.agents.length > 0) {
             setAiAgentsData(data.agents);
           } else {
-            setAiAgentsData(mockAiAgentsData);
+            setAiAgentsData([]);
           }
-          setApprovalsData(Array.isArray(data.approvals) ? data.approvals : mockApprovalsData);
+          setApprovalsData(Array.isArray(data.approvals) ? data.approvals : []);
           if (Array.isArray(data.audit) && data.audit.length > 0) {
             setAuditData(data.audit);
           } else {
-            setAuditData(mockAuditData);
+            setAuditData([]);
           }
           // Pending access requests from the login "Request Access" form
           setAccessRequests(Array.isArray(data.accessRequests) ? data.accessRequests : []);
         } else {
-          setOperatorsData(mockOperatorsData);
-          setAiAgentsData(mockAiAgentsData);
-          setApprovalsData(mockApprovalsData);
-          setAuditData(mockAuditData);
+          setOperatorsData([]);
+          setAiAgentsData([]);
+          setApprovalsData([]);
+          setAuditData([]);
           setAccessRequests([]);
         }
       })
       .catch((err) => {
         console.warn("[AdminPage] API fetch failed, using mock data:", err);
-        setOperatorsData(mockOperatorsData);
-        setAiAgentsData(mockAiAgentsData);
-        setApprovalsData(mockApprovalsData);
-        setAuditData(mockAuditData);
+        setOperatorsData([]);
+        setAiAgentsData([]);
+        setApprovalsData([]);
+        setAuditData([]);
         setAccessRequests([]);
       });
 

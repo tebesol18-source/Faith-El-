@@ -45,13 +45,13 @@ export function SamplesPage() {
         if (data.ok && Array.isArray(data.samples) && data.samples.length > 0) {
           setSamplesData(data.samples);
         } else {
-          setSamplesData(mockSamplesData);
+          setSamplesData([]);
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("[SamplesPage] API fetch failed, using mock data:", err);
-        setSamplesData(mockSamplesData);
+        setSamplesData([]);
       });
     return () => { cancelled = true; };
   }, []);

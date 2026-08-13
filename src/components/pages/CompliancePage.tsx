@@ -109,13 +109,13 @@ export function CompliancePage() {
         if (data.ok && Array.isArray(data.complianceShipments) && data.complianceShipments.length > 0) {
           setComplianceShipments(data.complianceShipments);
         } else {
-          setComplianceShipments(mockComplianceShipments);
+          setComplianceShipments([]);
         }
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn("[CompliancePage] API fetch failed, using mock data:", err);
-        setComplianceShipments(mockComplianceShipments);
+        setComplianceShipments([]);
       });
     return () => { cancelled = true; };
   }, []);
