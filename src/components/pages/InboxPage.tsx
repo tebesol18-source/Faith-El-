@@ -73,7 +73,7 @@ export function InboxPage() {
     );
   }
 
-  const conv = conversations.find(c => c.id === selectedConv) || conversations[0];
+  const conv = conversations.find(c => c.id === selectedConv) || conversations[0] || null;
 
   return (
     <main className="flex h-[calc(100vh-4rem)]">
@@ -136,10 +136,11 @@ export function InboxPage() {
 
       {/* Message View */}
       <div className="flex-1 flex flex-col bg-[#FAFAF9]">
+        {conv ? (
         <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">{conv.subject}</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Buyer: {conv.buyer}faithelexport.com · Lead: L-2026-00507 · Status: Awaiting Exporter</p>
+            <h2 className="text-base font-semibold text-gray-900">{conv.subject || "No subject"}</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Buyer: {conv.buyer || "—"}{conv.buyer ? "faithelexport.com" : ""}</p>
           </div>
           <div className="flex items-center gap-2">
             <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"><Archive className="h-3.5 w-3.5" /> Archive</button>
@@ -217,6 +218,11 @@ export function InboxPage() {
             </div>
           </div>
         </div>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-gray-400">
+            <p className="text-sm">No conversations yet</p>
+          </div>
+        )}
       </div>
     </main>
   );

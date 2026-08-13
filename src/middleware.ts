@@ -31,7 +31,7 @@ const CSRF_HEADER = "x-csrf-token";
 
 /** Routes that should be rate-limited, with per-route overrides. */
 const ROUTE_LIMITS: { pattern: RegExp; limit: number; windowMs: number }[] = [
-  { pattern: /^\/api\/auth\/login$/, limit: 10, windowMs: 60_000 },
+  { pattern: /^\/api\/auth\/login$/, limit: 30, windowMs: 60_000 },
   { pattern: /^\/api\/auth\/request-access$/, limit: 5, windowMs: 60_000 },
   { pattern: /^\/api\/agents\/research-leads$/, limit: 5, windowMs: 60_000 },
   { pattern: /^\/api\/approvals$/, limit: 30, windowMs: 60_000 },

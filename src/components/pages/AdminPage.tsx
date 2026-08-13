@@ -13,56 +13,7 @@ import { getCsrfToken } from "@/lib/auth-client";
 
 
 
-const sellersData: Seller[] = [
-  {
-    id: "SEL-001", name: "Faith-El PLC", contact: "Abi Solomon", email: "abi@faithel.com", region: "Yirgacheffe",
-    dealsClosed: 18, dealsActive: 11, pipelineValue: 245000, revenueYTD: 84600,
-    commissionEarned: 1692, commissionPending: 4900,
-    riskLevel: "healthy", atRiskDeals: 1, overduePayments: 0, missingDocs: 0,
-    avgMargin: 21.9, lastActive: "2 min ago", joinedDate: "Jan 2026", status: "active",
-    topBuyer: "Blue Mountain Traders", topOrigin: "Yirgacheffe G1",
-  },
-  {
-    id: "SEL-002", name: "Sidamo Trading Co", contact: "Sara Bekele", email: "sara@sidamotrade.com", region: "Sidamo",
-    dealsClosed: 12, dealsActive: 8, pipelineValue: 180000, revenueYTD: 64000,
-    commissionEarned: 1280, commissionPending: 3600,
-    riskLevel: "healthy", atRiskDeals: 0, overduePayments: 1, missingDocs: 2,
-    avgMargin: 19.8, lastActive: "1h ago", joinedDate: "Feb 2026", status: "active",
-    topBuyer: "Falcon Coffee UK", topOrigin: "Sidamo G2",
-  },
-  {
-    id: "SEL-003", name: "Yirgacheffe Exports Ltd", contact: "Dawit Tadesse", email: "dawit@yirgexports.com", region: "Yirgacheffe",
-    dealsClosed: 8, dealsActive: 5, pipelineValue: 120000, revenueYTD: 42000,
-    commissionEarned: 840, commissionPending: 2400,
-    riskLevel: "warning", atRiskDeals: 2, overduePayments: 0, missingDocs: 3,
-    avgMargin: 18.2, lastActive: "3h ago", joinedDate: "Mar 2026", status: "active",
-    topBuyer: "Marcus Coffee GmbH", topOrigin: "Yirgacheffe G1",
-  },
-  {
-    id: "SEL-004", name: "Guji Highland Coffee", contact: "Helen Girma", email: "helen@gujihighland.com", region: "Guji",
-    dealsClosed: 5, dealsActive: 3, pipelineValue: 75000, revenueYTD: 28000,
-    commissionEarned: 560, commissionPending: 1500,
-    riskLevel: "warning", atRiskDeals: 1, overduePayments: 0, missingDocs: 5,
-    avgMargin: 17.5, lastActive: "Yesterday", joinedDate: "Apr 2026", status: "active",
-    topBuyer: "Hashimoto Coffee", topOrigin: "Guji G1",
-  },
-  {
-    id: "SEL-005", name: "Limu Valley Trading", contact: "Marcus Asfaw", email: "marcus@limuvalley.com", region: "Limu",
-    dealsClosed: 3, dealsActive: 2, pipelineValue: 45000, revenueYTD: 15000,
-    commissionEarned: 300, commissionPending: 900,
-    riskLevel: "critical", atRiskDeals: 2, overduePayments: 1, missingDocs: 4,
-    avgMargin: 14.2, lastActive: "2 days ago", joinedDate: "May 2026", status: "warning",
-    topBuyer: "Rösterei Berlin", topOrigin: "Limu G1",
-  },
-  {
-    id: "SEL-006", name: "Harar Coffee Exports", contact: "Yusuf Omar", email: "yusuf@hararcoffee.com", region: "Harar",
-    dealsClosed: 2, dealsActive: 1, pipelineValue: 30000, revenueYTD: 8000,
-    commissionEarned: 160, commissionPending: 600,
-    riskLevel: "critical", atRiskDeals: 1, overduePayments: 2, missingDocs: 6,
-    avgMargin: 12.8, lastActive: "1 week ago", joinedDate: "Jun 2026", status: "warning",
-    topBuyer: "Aurora Imports", topOrigin: "Harar G4",
-  },
-];
+const sellersData: Seller[] = [];
 
 const sellerRiskConfig: Record<SellerRisk, { label: string; bg: string; text: string; dot: string; border: string }> = {
   healthy: { label: "Healthy", bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500", border: "border-green-200" },
@@ -70,40 +21,7 @@ const sellerRiskConfig: Record<SellerRisk, { label: string; bg: string; text: st
   critical: { label: "Critical", bg: "bg-red-50", text: "text-red-700", dot: "bg-red-500", border: "border-red-200" },
 };
 
-const sellerDealsData: Record<string, SellerDeal[]> = {
-  "SEL-001": [
-    { id: "CT-2026-0003", buyer: "Blue Mountain Traders", value: 84600, margin: 19.6, status: "in_progress", commission: 1692 },
-    { id: "CT-2026-0004", buyer: "Marcus Coffee GmbH", value: 70500, margin: 22.4, status: "in_progress", commission: 1410 },
-    { id: "CT-2025-0195", buyer: "Marcus Coffee GmbH", value: 58900, margin: 23.1, status: "completed", commission: 1178 },
-    { id: "CT-2026-0008", buyer: "Seoul Coffee Lab", value: 27600, margin: 20.8, status: "in_progress", commission: 552 },
-    { id: "CT-2026-0002", buyer: "Rösterei Berlin", value: 39000, margin: 25.4, status: "rejected", commission: 0 },
-  ],
-  "SEL-002": [
-    { id: "CT-2026-0020", buyer: "Falcon Coffee UK", value: 52400, margin: 19.2, status: "in_progress", commission: 1048 },
-    { id: "CT-2026-0018", buyer: "Nordic Bean Co", value: 42000, margin: 21.5, status: "completed", commission: 840 },
-    { id: "CT-2026-0015", buyer: "Antwerp Roasters", value: 38000, margin: 18.7, status: "completed", commission: 760 },
-    { id: "CT-2026-0022", buyer: "Trieste Coffee", value: 28000, margin: 16.2, status: "at_risk", commission: 560 },
-  ],
-  "SEL-003": [
-    { id: "CT-2026-0030", buyer: "Marcus Coffee GmbH", value: 32000, margin: 20.1, status: "in_progress", commission: 640 },
-    { id: "CT-2026-0028", buyer: "Berlin Specialty", value: 28000, margin: 17.8, status: "at_risk", commission: 560 },
-    { id: "CT-2026-0025", buyer: "Hamburg Beans", value: 22000, margin: 16.5, status: "completed", commission: 440 },
-  ],
-  "SEL-004": [
-    { id: "CT-2026-0040", buyer: "Hashimoto Coffee", value: 30200, margin: 18.9, status: "in_progress", commission: 604 },
-    { id: "CT-2026-0038", buyer: "Yokohama Trading", value: 24800, margin: 16.2, status: "at_risk", commission: 496 },
-    { id: "CT-2026-0035", buyer: "Osaka Coffee", value: 20000, margin: 17.5, status: "completed", commission: 400 },
-  ],
-  "SEL-005": [
-    { id: "CT-2026-0050", buyer: "Rösterei Berlin", value: 19500, margin: 14.8, status: "at_risk", commission: 390 },
-    { id: "CT-2026-0048", buyer: "Munich Roasters", value: 16800, margin: 13.5, status: "at_risk", commission: 336 },
-    { id: "CT-2026-0045", buyer: "Frankfurt Coffee", value: 15000, margin: 15.2, status: "completed", commission: 300 },
-  ],
-  "SEL-006": [
-    { id: "CT-2026-0060", buyer: "Aurora Imports", value: 18000, margin: 12.8, status: "at_risk", commission: 360 },
-    { id: "CT-2026-0058", buyer: "NYC Coffee Co", value: 12000, margin: 11.5, status: "completed", commission: 240 },
-  ],
-};
+const sellerDealsData: Record<string, SellerDeal[]> = {};
 
 
 
