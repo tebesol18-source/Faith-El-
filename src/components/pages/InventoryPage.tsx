@@ -7,16 +7,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Insight } from "@/lib/types";
 
-const mockLotsData = [
-  { id: "LOT-25-0001", region: "Yirgacheffe", station: "Konga Station", coop: "Konga Coop", process: "Washed", score: 87.5, screen: 14, stock: 85, cropYear: "25/26", eudr: "complete", certifications: ["Organic", "Fairtrade"], status: "active" },
-  { id: "LOT-25-0002", region: "Yirgacheffe", station: "Biloya Station", coop: "Biloya Coop", process: "Natural", score: 88.0, screen: 15, stock: 60, cropYear: "25/26", eudr: "complete", certifications: ["Organic"], status: "active" },
-  { id: "LOT-25-0003", region: "Guji", station: "Shakisso Station", coop: "Shakisso Coop", process: "Washed", score: 86.5, screen: 14, stock: 45, cropYear: "25/26", eudr: "complete", certifications: [], status: "active" },
-  { id: "LOT-25-0004", region: "Guji", station: "Shakisso Station", coop: "Shakisso Coop", process: "Natural", score: 85.0, screen: 14, stock: 30, cropYear: "25/26", eudr: "partial", certifications: [], status: "active" },
-  { id: "LOT-25-0005", region: "Sidamo", station: "Bensa Station", coop: "Bensa Coop", process: "Washed", score: 84.5, screen: 14, stock: 12, cropYear: "25/26", eudr: "complete", certifications: ["Fairtrade"], status: "active" },
-  { id: "LOT-25-0006", region: "Sidamo", station: "Bensa Station", coop: "Bensa Coop", process: "Natural", score: 83.0, screen: 13, stock: 0, cropYear: "25/26", eudr: "missing", certifications: [], status: "depleted" },
-  { id: "LOT-25-0007", region: "Limu", station: "Limu Station", coop: "Limu Coop", process: "Washed", score: 82.0, screen: 14, stock: 50, cropYear: "25/26", eudr: "partial", certifications: [], status: "active" },
-  { id: "LOT-25-0008", region: "Harrar", station: "Harrar Station", coop: "Harrar Coop", process: "Natural", score: 84.0, screen: 15, stock: 25, cropYear: "25/26", eudr: "missing", certifications: [], status: "hold" },
-];
+const mockLotsData = [];
 
 const eudrConfig: Record<string, { label: string; bg: string; text: string; dot: string }> = {
   complete: { label: "Complete", bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500" },
@@ -40,7 +31,7 @@ const regionColors: Record<string, string> = {
 
 export function InventoryPage() {
   // ─── Live data from backend ───
-  const [lotsData, setLotsData] = useState<typeof mockLotsData | null>(null);
+  const [lotsData, setLotsData] = useState<any[] | null>(null);
   const [filterRegion, setFilterRegion] = useState("All");
   const [filterEudr, setFilterEudr] = useState("All");
   // ─── Inventory upload state ───

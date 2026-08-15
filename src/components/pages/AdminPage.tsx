@@ -28,39 +28,13 @@ const sellerDealsData: Record<string, SellerDeal[]> = {};
 
 
 
-const mockOperatorsData: Operator[] = [
-  { id: "OP-001", name: "Abi Solomon", email: "abi@faithel.com", role: "admin", status: "active", lastActive: "2 min ago", actionsToday: 47 },
-  { id: "OP-002", name: "Sara Bekele", email: "sara@faithel.com", role: "manager", status: "active", lastActive: "1h ago", actionsToday: 23 },
-  { id: "OP-003", name: "Dawit Tadesse", email: "dawit@faithel.com", role: "operator", status: "active", lastActive: "3h ago", actionsToday: 12 },
-  { id: "OP-004", name: "Helen Girma", email: "helen@faithel.com", role: "operator", status: "active", lastActive: "Yesterday", actionsToday: 0 },
-  { id: "OP-005", name: "Marcus Bauer", email: "marcus@external.com", role: "viewer", status: "active", lastActive: "2 days ago", actionsToday: 0 },
-  { id: "OP-006", name: "Yuki Hashimoto", email: "yuki@external.com", role: "viewer", status: "disabled", lastActive: "2 weeks ago", actionsToday: 0 },
-];
+const mockOperatorsData: Operator[] = [];
 
-const mockAiAgentsData: AIAgent[] = [
-  { id: "AGT-SUP", name: "Supplier Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Identified LOT-25-0007 for Hashimoto counter", lastActionTime: "Yesterday", actionsToday: 8, approvalsWaiting: 0 },
-  { id: "AGT-OUT", name: "Outreach Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Drafted Quote QU-2026-0007 for Aurora", lastActionTime: "2h ago", actionsToday: 12, approvalsWaiting: 1 },
-  { id: "AGT-CUS", name: "Customer Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Drafted breakup email for Nordic Bean", lastActionTime: "2 days ago", actionsToday: 4, approvalsWaiting: 1 },
-  { id: "AGT-SMP", name: "Sample Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Tracked SR-2026-0003 dispatch", lastActionTime: "Yesterday", actionsToday: 3, approvalsWaiting: 0 },
-  { id: "AGT-CMP", name: "Compliance Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Flagged phytosanitary expiry CT-2026-001", lastActionTime: "5h ago", actionsToday: 6, approvalsWaiting: 0 },
-  { id: "AGT-LOG", name: "Logistics Agent", model: "Llama 3.3 70B", status: "active", lastAction: "Tracked MSC Hamburg through Suez", lastActionTime: "Yesterday", actionsToday: 9, approvalsWaiting: 0 },
-  { id: "AGT-CRM", name: "Customer Insights Agent", model: "Llama 3.3 70B", status: "idle", lastAction: "Generated weekly buyer insights report", lastActionTime: "3 days ago", actionsToday: 1, approvalsWaiting: 0 },
-];
+const mockAiAgentsData: AIAgent[] = [];
 
-const mockApprovalsData: ApprovalItem[] = [
-  { id: "APR-0042", agent: "Outreach Agent", action: "Send quote to Aurora Imports", target: "QU-2026-0007", submittedAt: "1h ago", riskLevel: "medium", detail: "First-time buyer, no transaction history. Quote value $22,500. Margin 21.3%." },
-  { id: "APR-0041", agent: "Customer Agent", action: "Send breakup email to Nordic Bean Co", target: "QU-2026-0001", submittedAt: "2 days ago", riskLevel: "low", detail: "Quote expired 15 days ago. Standard re-engagement email." },
-  { id: "APR-0040", agent: "Outreach Agent", action: "Add 4 new leads from research batch", target: "L-2026-00510 to L-2026-00513", submittedAt: "3 days ago", riskLevel: "low", detail: "4 German specialty roasters identified with annual imports >5t." },
-];
+const mockApprovalsData: ApprovalItem[] = [];
 
-const mockAuditData: AuditEntry[] = [
-  { id: "AUD-9821", timestamp: "10:42 AM", actor: "Abi Solomon", actorType: "operator", action: "Approved quote V2", entityType: "Quote", entityId: "QU-2026-0004" },
-  { id: "AUD-9820", timestamp: "10:15 AM", actor: "Compliance Agent", actorType: "agent", action: "Created alert", entityType: "Shipment", entityId: "CT-2026-001" },
-  { id: "AUD-9819", timestamp: "09:48 AM", actor: "Outreach Agent", actorType: "agent", action: "Drafted quote", entityType: "Quote", entityId: "QU-2026-0007" },
-  { id: "AUD-9818", timestamp: "09:22 AM", actor: "Sara Bekele", actorType: "operator", action: "Updated lot", entityType: "Inventory", entityId: "LOT-25-0007" },
-  { id: "AUD-9817", timestamp: "Yesterday 18:34", actor: "Logistics Agent", actorType: "agent", action: "Updated milestone", entityType: "Shipment", entityId: "CT-2026-001" },
-  { id: "AUD-9816", timestamp: "Yesterday 16:12", actor: "Abi Solomon", actorType: "operator", action: "Signed contract", entityType: "Contract", entityId: "CT-2026-0003" },
-];
+const mockAuditData: AuditEntry[] = [];
 
 const operatorRoleConfig: Record<OperatorRole, { label: string; bg: string; text: string }> = {
   admin: { label: "Admin", bg: "bg-[#4A3520]", text: "text-white" },

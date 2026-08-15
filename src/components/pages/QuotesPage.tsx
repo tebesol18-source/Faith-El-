@@ -9,111 +9,7 @@ import type { Contract, Insight, Quote, QuoteLineItem, Shipment } from "@/lib/ty
 
 
 
-const mockQuotesData: Quote[] = [
-  {
-    id: "QU-2026-0004", lead: "Marcus Coffee GmbH", leadId: "L-2026-00501", version: 2,
-    status: "pending_approval", incoterm: "CIF Hamburg", destination: "Hamburg, DE", currency: "USD",
-    paymentTerms: "30% deposit · 70% against B/L copy", validUntil: "Aug 02", createdAt: "Jul 21", sentAt: null, respondedAt: null,
-    lines: [
-      { lotId: "LOT-25-0001", origin: "Yirgacheffe", process: "Washed", grade: "G1", weightKg: 5000, pricePerKg: 7.20, costPerKg: 5.40 },
-      { lotId: "LOT-25-0003", origin: "Guji", process: "Washed", grade: "G1", weightKg: 5000, pricePerKg: 6.85, costPerKg: 5.10 },
-    ],
-    freight: 1850, insurance: 420, commissionPct: 2,
-    aiDrafted: true, aiConfidence: 92,
-    aiSuggestion: "Margin of 22.4% is above target (20%). Yirgacheffe price bumped from V1's $7.05 to $7.20 based on buyer signal. Recommend approval and dispatch today — samples expire in 8 days.",
-    buyerNote: null, daysToExpiry: 8,
-  },
-  {
-    id: "QU-2026-0005", lead: "Falcon Coffee UK", leadId: "L-2026-00502", version: 1,
-    status: "pending_review", incoterm: "FOB Djibouti", destination: "Felixstowe, UK", currency: "USD",
-    paymentTerms: "LC at sight", validUntil: "Aug 05", createdAt: "Jul 22", sentAt: null, respondedAt: null,
-    lines: [
-      { lotId: "LOT-25-0002", origin: "Yirgacheffe", process: "Natural", grade: "G1", weightKg: 8000, pricePerKg: 6.95, costPerKg: 5.20 },
-    ],
-    freight: 0, insurance: 0, commissionPct: 2,
-    aiDrafted: true, aiConfidence: 78,
-    aiSuggestion: "Margin of 25.2% is healthy but Falcon historically negotiates 3-5% down. Consider pre-discounting to $6.75 to avoid round 2. Sample SR-2026-0002 is still in transit — send now while interest is hot.",
-    buyerNote: null, daysToExpiry: 11,
-  },
-  {
-    id: "QU-2026-0006", lead: "Hashimoto Coffee", leadId: "L-2026-00503", version: 3,
-    status: "revised", incoterm: "CIF Yokohama", destination: "Yokohama, JP", currency: "USD",
-    paymentTerms: "T/T 50/50", validUntil: "Jul 30", createdAt: "Jul 18", sentAt: "Jul 19", respondedAt: "Jul 23",
-    lines: [
-      { lotId: "LOT-25-0005", origin: "Sidamo", process: "Washed", grade: "G2", weightKg: 6000, pricePerKg: 6.40, costPerKg: 4.85 },
-      { lotId: "LOT-25-0007", origin: "Limu", process: "Washed", grade: "G1", weightKg: 4000, pricePerKg: 6.20, costPerKg: 4.70 },
-    ],
-    freight: 2400, insurance: 510, commissionPct: 2,
-    aiDrafted: true, aiConfidence: 68,
-    aiSuggestion: "Buyer counter-offered at $6.10/$5.95 (4.7% under ask). Margin would compress to 14.8% — still above 12% floor. Recommend accepting the Sidamo price but holding Limu at $6.10 (Limu G1 is scarce).",
-    buyerNote: "Price is 5% above market. Can you do $6.10 Sidamo / $5.95 Limu? Need answer by Friday.",
-    daysToExpiry: 5,
-  },
-  {
-    id: "QU-2026-0007", lead: "Aurora Imports", leadId: "L-2026-00504", version: 1,
-    status: "ai_draft", incoterm: "CIF New York", destination: "New York, US", currency: "USD",
-    paymentTerms: "30% deposit · 70% against B/L copy", validUntil: "Aug 08", createdAt: "Jul 24", sentAt: null, respondedAt: null,
-    lines: [
-      { lotId: "LOT-25-0004", origin: "Guji", process: "Natural", grade: "G1", weightKg: 3000, pricePerKg: 7.50, costPerKg: 5.60 },
-    ],
-    freight: 2100, insurance: 380, commissionPct: 2,
-    aiDrafted: true, aiConfidence: 71,
-    aiSuggestion: "Aurora is a new lead with no transaction history. Pricing at $7.50 is competitive vs. US market for G1 Guji Natural ($7.80 median). Margin 21.3%. Recommend adding a 2-week validity to create urgency.",
-    buyerNote: null, daysToExpiry: 14,
-  },
-  {
-    id: "QU-2026-0003", lead: "Blue Mountain Traders", leadId: "L-2026-00507", version: 1,
-    status: "accepted", incoterm: "CIF Hamburg", destination: "Hamburg, DE", currency: "USD",
-    paymentTerms: "LC at sight", validUntil: "Jul 25", createdAt: "Jul 12", sentAt: "Jul 13", respondedAt: "Jul 20",
-    lines: [
-      { lotId: "LOT-25-0001", origin: "Yirgacheffe", process: "Washed", grade: "G1", weightKg: 6000, pricePerKg: 7.10, costPerKg: 5.40 },
-      { lotId: "LOT-25-0003", origin: "Guji", process: "Washed", grade: "G1", weightKg: 6000, pricePerKg: 6.75, costPerKg: 5.10 },
-      { lotId: "LOT-25-0005", origin: "Sidamo", process: "Washed", grade: "G2", weightKg: 4000, pricePerKg: 6.30, costPerKg: 4.85 },
-    ],
-    freight: 3200, insurance: 680, commissionPct: 2,
-    aiDrafted: false, aiConfidence: 0,
-    aiSuggestion: "Accepted in full on Jul 20. Contract CT-2026-0003 has been generated. Margin captured: 19.6%. Recommend proceeding to shipment scheduling immediately — buyer requested August vessel.",
-    buyerNote: "All lots approved. Proceeding to contract.",
-    daysToExpiry: 1,
-  },
-  {
-    id: "QU-2026-0002", lead: "Rösterei Berlin", leadId: "L-2026-00508", version: 2,
-    status: "rejected", incoterm: "FOB Djibouti", destination: "Hamburg, DE", currency: "USD",
-    paymentTerms: "T/T 30 days", validUntil: "Jul 20", createdAt: "Jul 08", sentAt: "Jul 09", respondedAt: "Jul 15",
-    lines: [
-      { lotId: "LOT-25-0004", origin: "Guji", process: "Natural", grade: "G1", weightKg: 5000, pricePerKg: 7.80, costPerKg: 5.60 },
-    ],
-    freight: 0, insurance: 0, commissionPct: 2,
-    aiDrafted: false, aiConfidence: 0,
-    aiSuggestion: "Rejected after sample SR-2026-0007 scored 83.0 (target was 86+). Buyer is looking for premium Guji Natural. Review current Guji inventory for lots with 86+ cupping scores before re-quoting.",
-    buyerNote: "Sample scored 83 — too low for our specialty line. Looking elsewhere for now.",
-    daysToExpiry: -5,
-  },
-  {
-    id: "QU-2026-0001", lead: "Nordic Bean Co", leadId: "L-2026-00505", version: 1,
-    status: "expired", incoterm: "CIF Gothenburg", destination: "Gothenburg, SE", currency: "USD",
-    paymentTerms: "LC at sight", validUntil: "Jul 10", createdAt: "Jun 25", sentAt: "Jun 26", respondedAt: null,
-    lines: [
-      { lotId: "LOT-25-0001", origin: "Yirgacheffe", process: "Washed", grade: "G1", weightKg: 4000, pricePerKg: 7.00, costPerKg: 5.40 },
-    ],
-    freight: 1600, insurance: 360, commissionPct: 2,
-    aiDrafted: false, aiConfidence: 0,
-    aiSuggestion: "Expired with no response after 14 days. Buyer may have sourced elsewhere or lost interest. Recommend a breakup email in 30 days — Yirgacheffe LOT-25-0001 was later sold to Blue Mountain at $7.10.",
-    buyerNote: null, daysToExpiry: -15,
-  },
-  {
-    id: "QU-2026-0008", lead: "Seoul Coffee Lab", leadId: "L-2026-00509", version: 1,
-    status: "sent", incoterm: "CIF Busan", destination: "Busan, KR", currency: "USD",
-    paymentTerms: "T/T 50/50", validUntil: "Jul 31", createdAt: "Jul 18", sentAt: "Jul 20", respondedAt: null,
-    lines: [
-      { lotId: "LOT-25-0003", origin: "Guji", process: "Washed", grade: "G1", weightKg: 4000, pricePerKg: 6.90, costPerKg: 5.10 },
-    ],
-    freight: 1950, insurance: 410, commissionPct: 2,
-    aiDrafted: true, aiConfidence: 84,
-    aiSuggestion: "Sent 4 days ago, no response yet. Buyer's typical response time is 3-5 days. Suggest waiting 2 more days before follow-up — follow-up too early signals desperation.",
-    buyerNote: null, daysToExpiry: 6,
-  },
-];
+const mockQuotesData: Quote[] = [];
 
 const quoteStatusConfig: Record<Quote["status"], { label: string; bg: string; text: string; dot: string }> = {
   ai_draft: { label: "AI Draft", bg: "bg-indigo-50", text: "text-indigo-700", dot: "bg-indigo-500" },
@@ -330,7 +226,7 @@ function NegotiationSimulator({ quote }: { quote: Quote }) {
 
 export function QuotesPage() {
   // ─── Live data from backend ───
-  const [quotesData, setQuotesData] = useState<typeof mockQuotesData | null>(null);
+  const [quotesData, setQuotesData] = useState<any[] | null>(null);
   const [marketPrice, setMarketPrice] = useState<any>(null);
 
   useEffect(() => {

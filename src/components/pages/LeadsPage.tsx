@@ -7,18 +7,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Insight } from "@/lib/types";
 
-const mockLeadsData = [
-  { id: "L-2026-00501", company: "Marcus Coffee GmbH", country: "Germany", city: "Hamburg", tier: "S", vp: "VP1", state: "QUALIFIED", language: "EN", score: 92, lastTouch: "2h ago", tags: ["specialty", "EU"], enriched: true },
-  { id: "L-2026-00502", company: "Falcon Coffee UK", country: "United Kingdom", city: "London", tier: "A", vp: "VP2", state: "IN_SEQUENCE", language: "EN", score: 85, lastTouch: "5h ago", tags: ["commercial", "UK"], enriched: true },
-  { id: "L-2026-00503", company: "Hashimoto Coffee", country: "Japan", city: "Tokyo", tier: "S", vp: "VP3", state: "SAMPLE_DISPATCHED", language: "JA", score: 88, lastTouch: "1d ago", tags: ["specialty", "Asia"], enriched: true },
-  { id: "L-2026-00504", company: "Aurora Imports", country: "Italy", city: "Trieste", tier: "A", vp: "VP1", state: "IN_SEQUENCE", language: "IT", score: 79, lastTouch: "2d ago", tags: ["commercial", "EU"], enriched: true },
-  { id: "L-2026-00505", company: "Nordic Bean Co", country: "Sweden", city: "Stockholm", tier: "B", vp: "VP2", state: "ENRICHED", language: "EN", score: 72, lastTouch: "3d ago", tags: ["specialty", "EU"], enriched: true },
-  { id: "L-2026-00506", company: "Café de Paris", country: "France", city: "Paris", tier: "A", vp: "VP1", state: "NEW", language: "FR", score: 0, lastTouch: "Never", tags: [], enriched: false },
-  { id: "L-2026-00507", company: "Blue Mountain Traders", country: "USA", city: "New York", tier: "S", vp: "VP4", state: "CONTRACTED", language: "EN", score: 95, lastTouch: "Yesterday", tags: ["specialty", "US"], enriched: true },
-  { id: "L-2026-00508", company: "Rösterei Berlin", country: "Germany", city: "Berlin", tier: "B", vp: "VP2", state: "GHOSTED", language: "DE", score: 65, lastTouch: "8d ago", tags: ["specialty", "EU"], enriched: true },
-  { id: "L-2026-00509", company: "Seoul Coffee Lab", country: "South Korea", city: "Seoul", tier: "A", vp: "VP3", state: "ENRICHED", language: "KO", score: 81, lastTouch: "4d ago", tags: ["specialty", "Asia"], enriched: true },
-  { id: "L-2026-00510", company: "Antwerp Trading", country: "Belgium", city: "Antwerp", tier: "C", vp: "VP2", state: "NEW", language: "EN", score: 0, lastTouch: "Never", tags: [], enriched: false },
-];
+const mockLeadsData = [];
 
 const stateColors: Record<string, { bg: string; text: string; dot: string }> = {
   NEW: { bg: "bg-gray-100", text: "text-gray-600", dot: "bg-gray-400" },
@@ -58,7 +47,7 @@ export function LeadsPage() {
   // ─── Live data from backend ───
   // Replaces the old static `leadsData` array. Falls back to mock data
   // if the API is unreachable (e.g. during offline development).
-  const [leadsData, setLeadsData] = useState<typeof mockLeadsData | null>(null);
+  const [leadsData, setLeadsData] = useState<any[] | null>(null);
   const [leadsError, setLeadsError] = useState<string | null>(null);
 
   const refetchLeads = () => {

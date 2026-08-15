@@ -7,52 +7,24 @@ import {
 import { cn } from "@/lib/utils";
 import type { Contract, Quote, Shipment } from "@/lib/types";
 
-const mockPriorities = [
-  { num: "1", color: "bg-red-500", text: "Reply to Aurora Coffee — asked for pricing 2h ago", time: "2h ago" },
-  { num: "2", color: "bg-amber-500", text: "Approve Quote V2 — QU-2026-0004", time: "3h ago" },
-  { num: "3", color: "bg-green-600", text: "Sign Contract CT-2026-0003", time: "5h ago" },
-  { num: "4", color: "bg-blue-500", text: "Shipment CT-2026-001 arrives tomorrow", time: "Tomorrow" },
-];
+const mockPriorities = [];
 
-const mockStages = [
-  { label: "New Leads", count: 24, value: "$0", color: "bg-blue-500" },
-  { label: "Qualified", count: 18, value: "$45K", color: "bg-indigo-500" },
-  { label: "Sampling", count: 12, value: "$32K", color: "bg-purple-500" },
-  { label: "Negotiating", count: 8, value: "$245K", color: "bg-amber-500" },
-  { label: "Contract", count: 5, value: "$18K", color: "bg-green-600" },
-  { label: "Shipping", count: 3, value: "$13K", color: "bg-teal-500" },
-  { label: "Completed", count: 15, value: "$86K", color: "bg-emerald-600" },
-];
+const mockStages = [];
 
-const mockKpis = [
-  { label: "Deals", value: "18", sub: "Active", context: "$45,680 Potential", icon: Handshake, iconBg: "bg-green-50", iconColor: "text-green-600", trend: "12%", trendUp: true },
-  { label: "Quotes", value: "8", sub: "Awaiting Approval", context: "$84,000 Pipeline", icon: FileText, iconBg: "bg-amber-50", iconColor: "text-amber-600", trend: "5%", trendUp: true },
-  { label: "Shipments", value: "3", sub: "In Transit", context: "All on schedule", icon: Ship, iconBg: "bg-blue-50", iconColor: "text-blue-600", trend: "0%", trendUp: true },
-  { label: "Payments", value: "$42K", sub: "Outstanding", context: "$86K Paid", icon: DollarSign, iconBg: "bg-green-50", iconColor: "text-green-600", trend: "8%", trendUp: false },
-];
+const mockKpis = [];
 
-const mockActivities = [
-  { time: "10:24 AM", text: "Marcus Coffee accepted Quote V2", badge: "Deal", badgeBg: "bg-green-50", badgeColor: "text-green-700", dot: "bg-green-500" },
-  { time: "Yesterday", text: "Contract CT-2026-0003 signed by buyer", badge: "Contract", badgeBg: "bg-purple-50", badgeColor: "text-purple-700", dot: "bg-purple-500" },
-  { time: "Yesterday", text: "Payment received: $12,800 from Falcon UK", badge: "Payment", badgeBg: "bg-blue-50", badgeColor: "text-blue-700", dot: "bg-blue-500" },
-  { time: "2 days ago", text: "Shipment CT-2026-001 departed Djibouti", badge: "Shipment", badgeBg: "bg-gray-100", badgeColor: "text-gray-700", dot: "bg-gray-500" },
-  { time: "3 days ago", text: "AI generated Quote V3 for Aurora Coffee", badge: "AI", badgeBg: "bg-indigo-50", badgeColor: "text-indigo-700", dot: "bg-indigo-500" },
-];
+const mockActivities = [];
 
-const mockShipments = [
-  { id: "CT-2026-001", dest: "Hamburg", flag: "🇩🇪", status: "In Transit", statusColor: "text-blue-600", statusBg: "bg-blue-50", eta: "2 days", progress: 68 },
-  { id: "CT-2026-002", dest: "Antwerp", flag: "🇧🇪", status: "Departed", statusColor: "text-amber-600", statusBg: "bg-amber-50", eta: "5 days", progress: 20 },
-  { id: "CT-2026-003", dest: "Trieste", flag: "🇮🇹", status: "On Schedule", statusColor: "text-green-600", statusBg: "bg-green-50", eta: "10 days", progress: 10 },
-];
+const mockShipments = [];
 
 export function DashboardPage() {
   // ─── Live data from backend ───
   const [dashboardData, setDashboardData] = useState<{
-    priorities: typeof mockPriorities;
-    stages: typeof mockStages;
-    kpis: typeof mockKpis;
-    activities: typeof mockActivities;
-    shipments: typeof mockShipments;
+    priorities: any[];
+    stages: any[];
+    kpis: any[];
+    activities: any[];
+    shipments: any[];
   } | null>(null);
 
   useEffect(() => {

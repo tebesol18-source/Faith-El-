@@ -7,16 +7,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Contract } from "@/lib/types";
 
-const mockSamplesData = [
-  { id: "SR-2026-0001", lead: "Marcus Coffee GmbH", leadId: "L-2026-00501", lots: ["LOT-25-0001 (Yirgacheffe)", "LOT-25-0003 (Guji)"], type: "350g", status: "delivered", dispatched: "Jul 10", delivered: "Jul 14", feedback: "Yirgacheffe scored 87.5 — excellent. Guji pending.", score: 87.5, decision: "approved", budget: "used" },
-  { id: "SR-2026-0002", lead: "Falcon Coffee UK", leadId: "L-2026-00502", lots: ["LOT-25-0002 (Yirgacheffe Natural)"], type: "350g", status: "dispatched", dispatched: "Jul 16", delivered: null, feedback: null, score: null, decision: null, budget: "used" },
-  { id: "SR-2026-0003", lead: "Hashimoto Coffee", leadId: "L-2026-00503", lots: ["LOT-25-0005 (Sidamo)", "LOT-25-0007 (Limu)"], type: "350g", status: "dispatched", dispatched: "Jul 18", delivered: null, feedback: null, score: null, decision: null, budget: "used" },
-  { id: "SR-2026-0004", lead: "Aurora Imports", leadId: "L-2026-00504", lots: ["LOT-25-0004 (Guji Natural)"], type: "150g", status: "pending", dispatched: null, delivered: null, feedback: null, score: null, decision: null, budget: "used" },
-  { id: "SR-2026-0005", lead: "Nordic Bean Co", leadId: "L-2026-00505", lots: ["LOT-25-0001 (Yirgacheffe)"], type: "350g", status: "feedback_due", dispatched: "Jul 5", delivered: "Jul 9", feedback: "No response in 7 days", score: null, decision: null, budget: "used" },
-  { id: "SR-2026-0006", lead: "Blue Mountain Traders", leadId: "L-2026-00507", lots: ["LOT-25-0001 (Yirgacheffe)", "LOT-25-0003 (Guji)", "LOT-25-0005 (Sidamo)"], type: "350g", status: "decided", dispatched: "Jun 20", delivered: "Jun 25", feedback: "All lots approved. Proceeding to contract.", score: 88.0, decision: "approved", budget: "used" },
-  { id: "SR-2026-0007", lead: "Rösterei Berlin", leadId: "L-2026-00508", lots: ["LOT-25-0004 (Guji Natural)"], type: "350g", status: "decided", dispatched: "Jun 15", delivered: "Jun 20", feedback: "Score too low. Looking for 86+ Guji.", score: 83.0, decision: "rejected", budget: "used" },
-  { id: "SR-2026-0008", lead: "Seoul Coffee Lab", leadId: "L-2026-00509", lots: ["LOT-25-0003 (Guji)"], type: "350g", status: "pending", dispatched: null, delivered: null, feedback: null, score: null, decision: null, budget: "available" },
-];
+const mockSamplesData = [];
 
 const sampleStatusConfig: Record<string, { label: string; bg: string; text: string; dot: string }> = {
   pending: { label: "Pending Dispatch", bg: "bg-gray-100", text: "text-gray-600", dot: "bg-gray-400" },
@@ -34,7 +25,7 @@ const decisionConfig: Record<string, { label: string; bg: string; text: string }
 
 export function SamplesPage() {
   // ─── Live data from backend ───
-  const [samplesData, setSamplesData] = useState<typeof mockSamplesData | null>(null);
+  const [samplesData, setSamplesData] = useState<any[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;

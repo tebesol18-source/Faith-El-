@@ -7,16 +7,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Contract, Insight, Quote } from "@/lib/types";
 
-const mockDealsData = [
-  { id: "DEAL-2026-0001", lead: "Marcus Coffee GmbH", leadId: "L-2026-00501", stage: "negotiating", origin: "Guji", process: "Washed", volume: "320 bags", incoterm: "FOB", value: 1305, probability: 75, health: "healthy", updated: "2h ago", quotes: 2, lastQuote: "QUOTE-2026-0004-V2" },
-  { id: "DEAL-2026-0002", lead: "Falcon Coffee UK", leadId: "L-2026-00502", stage: "quoting", origin: "Yirgacheffe", process: "Natural", volume: "500 bags", incoterm: "CIF", value: 2400, probability: 60, health: "healthy", updated: "5h ago", quotes: 1, lastQuote: "QUOTE-2026-0005-V1" },
-  { id: "DEAL-2026-0003", lead: "Hashimoto Coffee", leadId: "L-2026-00503", stage: "sampling", origin: "Sidamo", process: "Washed", volume: "200 bags", incoterm: "FOB", value: 696, probability: 40, health: "waiting", updated: "1d ago", quotes: 0, lastQuote: null },
-  { id: "DEAL-2026-0004", lead: "Aurora Imports", leadId: "L-2026-00504", stage: "negotiating", origin: "Limu", process: "Washed", volume: "150 bags", incoterm: "FOB", value: 540, probability: 75, health: "at_risk", updated: "3d ago", quotes: 3, lastQuote: "QUOTE-2026-0007-V3" },
-  { id: "DEAL-2026-0005", lead: "Nordic Bean Co", leadId: "L-2026-00505", stage: "quoting", origin: "Guji", process: "Natural", volume: "100 bags", incoterm: "CIF", value: 438, probability: 60, health: "healthy", updated: "4d ago", quotes: 1, lastQuote: "QUOTE-2026-0008-V1" },
-  { id: "DEAL-2026-0006", lead: "Blue Mountain Traders", leadId: "L-2026-00507", stage: "closed_won", origin: "Yirgacheffe", process: "Washed", volume: "1000 bags", incoterm: "FOB", value: 4200, probability: 100, health: "healthy", updated: "Yesterday", quotes: 4, lastQuote: "QUOTE-2026-0001-V4" },
-  { id: "DEAL-2026-0007", lead: "Rösterei Berlin", leadId: "L-2026-00508", stage: "closed_lost", origin: "Sidamo", process: "Honey", volume: "80 bags", incoterm: "FOB", value: 374, probability: 0, health: "at_risk", updated: "8d ago", quotes: 2, lastQuote: "QUOTE-2026-0003-V2" },
-  { id: "DEAL-2026-0008", lead: "Seoul Coffee Lab", leadId: "L-2026-00509", stage: "sampling", origin: "Guji", process: "Washed", volume: "300 bags", incoterm: "CIF", value: 1314, probability: 40, health: "waiting", updated: "2d ago", quotes: 0, lastQuote: null },
-];
+const mockDealsData = [];
 
 const stageConfig: Record<string, { label: string; color: string; bg: string }> = {
   prospecting: { label: "Prospecting", color: "text-blue-600", bg: "bg-blue-50" },
@@ -40,7 +31,7 @@ export function DealsPage() {
   const [selectedDeal, setSelectedDeal] = useState<string | null>(null);
 
   // ─── Live data from backend ───
-  const [dealsData, setDealsData] = useState<typeof mockDealsData | null>(null);
+  const [dealsData, setDealsData] = useState<any[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;

@@ -31,60 +31,7 @@ const docStatusConfig: Record<DocStatus, { label: string; bg: string; text: stri
   expired: { label: "Expired", bg: "bg-red-100", text: "text-red-800", dot: "bg-red-600", border: "border-red-300", icon: AlertCircle },
 };
 
-const mockComplianceShipments: ComplianceShipment[] = [
-  {
-    id: "CT-2026-001", destination: "Hamburg, DE", flag: "🇩🇪", eta: "Jul 28", lots: ["LOT-25-0001", "LOT-25-0003"], contractValue: 84600, vessel: "MSC Hamburg",
-    docs: [
-      { type: "phytosanitary", status: "expiring", issuedDate: "May 30", expiryDate: "Jul 30", daysToExpiry: 4, issuedBy: "EAA", refNumber: "PHY-2026-0892", fileName: "phyto-0892.pdf" },
-      { type: "ecx_grade", status: "approved", issuedDate: "Jul 12", expiryDate: "Oct 10", daysToExpiry: 77, issuedBy: "ECX", refNumber: "ECX-G-25-441", fileName: "ecx-441.pdf" },
-      { type: "export_permit", status: "approved", issuedDate: "Jul 14", expiryDate: "Aug 13", daysToExpiry: 19, issuedBy: "MoT", refNumber: "EP-2026-3398", fileName: "permit-3398.pdf" },
-      { type: "certificate_of_origin", status: "approved", issuedDate: "Jul 15", expiryDate: "Jan 12", daysToExpiry: 171, issuedBy: "EACC", refNumber: "CO-2026-7781", fileName: "co-7781.pdf" },
-      { type: "ico_certificate", status: "approved", issuedDate: "Jul 15", expiryDate: "Jul 15 2027", daysToExpiry: 365, issuedBy: "ICO", refNumber: "ICO-ET-25-091", fileName: "ico-091.pdf" },
-      { type: "fumigation", status: "approved", issuedDate: "Jul 18", expiryDate: "Aug 17", daysToExpiry: 23, issuedBy: "Fumigatix Ltd", refNumber: "FUM-25-2287", fileName: "fum-2287.pdf" },
-      { type: "quality_inspection", status: "approved", issuedDate: "Jul 13", expiryDate: "Oct 11", daysToExpiry: 78, issuedBy: "EQSA", refNumber: "QI-2026-4419", fileName: "qi-4419.pdf" },
-      { type: "bill_of_lading", status: "submitted", issuedDate: "Jul 22", expiryDate: null, daysToExpiry: null, issuedBy: "Maersk", refNumber: "MAEU-782991", fileName: "bl-782991.pdf" },
-    ],
-  },
-  {
-    id: "CT-2026-002", destination: "Antwerp, BE", flag: "🇧🇪", eta: "Aug 02", lots: ["LOT-25-0002"], contractValue: 52400, vessel: "CMA CGM Antoine",
-    docs: [
-      { type: "phytosanitary", status: "approved", issuedDate: "Jul 10", expiryDate: "Sep 08", daysToExpiry: 45, issuedBy: "EAA", refNumber: "PHY-2026-0945", fileName: "phyto-0945.pdf" },
-      { type: "ecx_grade", status: "approved", issuedDate: "Jul 11", expiryDate: "Oct 09", daysToExpiry: 76, issuedBy: "ECX", refNumber: "ECX-G-25-450", fileName: "ecx-450.pdf" },
-      { type: "export_permit", status: "missing", issuedDate: null, expiryDate: null, daysToExpiry: null, issuedBy: null, refNumber: null, fileName: null },
-      { type: "certificate_of_origin", status: "approved", issuedDate: "Jul 16", expiryDate: "Jan 13", daysToExpiry: 172, issuedBy: "EACC", refNumber: "CO-2026-7790", fileName: "co-7790.pdf" },
-      { type: "ico_certificate", status: "approved", issuedDate: "Jul 16", expiryDate: "Jul 16 2027", daysToExpiry: 366, issuedBy: "ICO", refNumber: "ICO-ET-25-098", fileName: "ico-098.pdf" },
-      { type: "fumigation", status: "in_progress", issuedDate: null, expiryDate: null, daysToExpiry: null, issuedBy: "Fumigatix Ltd", refNumber: null, fileName: null },
-      { type: "quality_inspection", status: "approved", issuedDate: "Jul 12", expiryDate: "Oct 10", daysToExpiry: 77, issuedBy: "EQSA", refNumber: "QI-2026-4425", fileName: "qi-4425.pdf" },
-      { type: "bill_of_lading", status: "missing", issuedDate: null, expiryDate: null, daysToExpiry: null, issuedBy: null, refNumber: null, fileName: null },
-    ],
-  },
-  {
-    id: "CT-2026-003", destination: "Trieste, IT", flag: "🇮🇹", eta: "Aug 08", lots: ["LOT-25-0005", "LOT-25-0007"], contractValue: 67800, vessel: "Evergreen Typhoon",
-    docs: [
-      { type: "phytosanitary", status: "approved", issuedDate: "Jul 18", expiryDate: "Sep 16", daysToExpiry: 53, issuedBy: "EAA", refNumber: "PHY-2026-1011", fileName: "phyto-1011.pdf" },
-      { type: "ecx_grade", status: "approved", issuedDate: "Jul 19", expiryDate: "Oct 17", daysToExpiry: 84, issuedBy: "ECX", refNumber: "ECX-G-25-458", fileName: "ecx-458.pdf" },
-      { type: "export_permit", status: "approved", issuedDate: "Jul 20", expiryDate: "Aug 19", daysToExpiry: 25, issuedBy: "MoT", refNumber: "EP-2026-3411", fileName: "permit-3411.pdf" },
-      { type: "certificate_of_origin", status: "approved", issuedDate: "Jul 21", expiryDate: "Jan 18", daysToExpiry: 177, issuedBy: "EACC", refNumber: "CO-2026-7802", fileName: "co-7802.pdf" },
-      { type: "ico_certificate", status: "approved", issuedDate: "Jul 21", expiryDate: "Jul 21 2027", daysToExpiry: 367, issuedBy: "ICO", refNumber: "ICO-ET-25-103", fileName: "ico-103.pdf" },
-      { type: "fumigation", status: "approved", issuedDate: "Jul 22", expiryDate: "Aug 21", daysToExpiry: 27, issuedBy: "Fumigatix Ltd", refNumber: "FUM-25-2301", fileName: "fum-2301.pdf" },
-      { type: "quality_inspection", status: "approved", issuedDate: "Jul 20", expiryDate: "Oct 18", daysToExpiry: 85, issuedBy: "EQSA", refNumber: "QI-2026-4438", fileName: "qi-4438.pdf" },
-      { type: "bill_of_lading", status: "missing", issuedDate: null, expiryDate: null, daysToExpiry: null, issuedBy: null, refNumber: null, fileName: null },
-    ],
-  },
-  {
-    id: "CT-2026-004", destination: "Yokohama, JP", flag: "🇯🇵", eta: "Aug 15", lots: ["LOT-25-0004"], contractValue: 41200, vessel: "ONE Stork",
-    docs: [
-      { type: "phytosanitary", status: "missing", issuedDate: null, expiryDate: null, daysToExpiry: null, issuedBy: null, refNumber: null, fileName: null },
-      { type: "ecx_grade", status: "in_progress", issuedDate: null, expiryDate: null, daysToExpiry: null, issuedBy: "ECX", refNumber: null, fileName: null },
-      { type: "export_permit", status: "missing", issuedDate: null, expiryDate: null, daysToExpiry: null, issuedBy: null, refNumber: null, fileName: null },
-      { type: "certificate_of_origin", status: "missing", issuedDate: null, expiryDate: null, daysToExpiry: null, issuedBy: null, refNumber: null, fileName: null },
-      { type: "ico_certificate", status: "approved", issuedDate: "Jul 22", expiryDate: "Jul 22 2027", daysToExpiry: 367, issuedBy: "ICO", refNumber: "ICO-ET-25-110", fileName: "ico-110.pdf" },
-      { type: "fumigation", status: "missing", issuedDate: null, expiryDate: null, daysToExpiry: null, issuedBy: null, refNumber: null, fileName: null },
-      { type: "quality_inspection", status: "submitted", issuedDate: "Jul 23", expiryDate: null, daysToExpiry: null, issuedBy: "EQSA", refNumber: null, fileName: null },
-      { type: "bill_of_lading", status: "missing", issuedDate: null, expiryDate: null, daysToExpiry: null, issuedBy: null, refNumber: null, fileName: null },
-    ],
-  },
-];
+const mockComplianceShipments: ComplianceShipment[] = [];
 
 const allDocTypes: DocType[] = ["phytosanitary", "ecx_grade", "export_permit", "certificate_of_origin", "ico_certificate", "fumigation", "quality_inspection", "bill_of_lading"];
 
@@ -98,7 +45,7 @@ function shipmentReadiness(s: ComplianceShipment): { approved: number; total: nu
 
 export function CompliancePage() {
   // ─── Live data from backend ───
-  const [complianceShipments, setComplianceShipments] = useState<typeof mockComplianceShipments | null>(null);
+  const [complianceShipments, setComplianceShipments] = useState<any[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;

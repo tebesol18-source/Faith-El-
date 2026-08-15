@@ -12,153 +12,15 @@ import type { AIAction, Contract, Insight, Opportunity, Page, Priority, Quote, R
 
 
 
-const coachPriorities: Priority[] = [
-  {
-    rank: 1,
-    category: "risk",
-    action: "Renew phytosanitary certificate for CT-2026-001",
-    context: "Container MSCU-7729340 is at sea heading to Hamburg. Cert expires Jul 30, vessel arrives Aug 09.",
-    impact: "$420/day demurrage if cert not ready at port",
-    eta: "Submit today — 5-7 day processing at EAA",
-    page: "compliance",
-    urgency: "critical",
-  },
-  {
-    rank: 2,
-    category: "revenue",
-    action: "Sign contract CT-2026-0005 (Hashimoto Coffee)",
-    context: "Buyer signed Jul 23. Counter-offer accepted at $6.10 (midpoint). Margin compressed to 14.8% but Limu G1 is scarce.",
-    impact: "$67,800 contract value · retain Japanese relationship",
-    eta: "Sign today — buyer waiting 2 days",
-    page: "contracts",
-    urgency: "high",
-  },
-  {
-    rank: 3,
-    category: "operational",
-    action: "Resolve 5 missing documents for CT-2026-004 (Yokohama)",
-    context: "Aurora Imports shipment. Phytosanitary, export permit, certificate of origin, fumigation, B/L all missing.",
-    impact: "$41,200 shipment · vessel departs Aug 02 (8 days)",
-    eta: "Start applications today — cutoff is Jul 31",
-    page: "compliance",
-    urgency: "high",
-  },
-  {
-    rank: 4,
-    category: "revenue",
-    action: "Send follow-up on Quote QU-2026-0008 (Seoul Coffee Lab)",
-    context: "Sent Jul 20, no response in 4 days. Buyer's typical response time is 3-5 days.",
-    impact: "$27,600 potential · vessel CT-2026-005 already en route to Busan",
-    eta: "Wait 1 more day, then follow up",
-    page: "quotes",
-    urgency: "medium",
-  },
-  {
-    rank: 5,
-    category: "relationship",
-    action: "Send breakup email to Nordic Bean Co (QU-2026-0001)",
-    context: "Quote expired 15 days ago with no response. Yirgacheffe LOT-25-0001 was later sold at $7.10.",
-    impact: "Re-engage prospect · $28K potential if renewed",
-    eta: "Send this week — 30-day re-engagement window",
-    page: "quotes",
-    urgency: "medium",
-  },
-];
+const coachPriorities: Priority[] = [];
 
-const coachInsights: Insight[] = [
-  {
-    type: "pattern",
-    title: "Yirgacheffe is your best performer",
-    body: "Yirgacheffe G1 lots have closed at $7.00-$7.20/kg this season — 8% above ECX auction average. Buyers consistently approve samples. Consider expanding Yirgacheffe supplier relationships for next harvest.",
-    metric: "$7.10/kg avg · 4 deals closed",
-  },
-  {
-    type: "opportunity",
-    title: "Marcus Coffee wants more Guji",
-    body: "Marcus Coffee accepted V2 quote at $6.85/kg Guji. Their buyer asked about long-term supply. They typically order 8-10t per quarter. A standing offer could lock in $70K+ annual revenue.",
-    metric: "$70K+ potential annual",
-  },
-  {
-    type: "warning",
-    title: "Sidamo G2 margin compressing",
-    body: "Sidamo G2 sold at $6.30/kg in CT-2026-0003 (margin 19.6%) but cost basis rose to $4.85/kg. If trend continues, Sidamo G2 margins will fall below 15% target. Consider sourcing Sidamo G1 or shifting to Limu.",
-    metric: "Margin trend: 22% → 19.6% → 17.5% projected",
-  },
-  {
-    type: "pattern",
-    title: "CIF Hamburg is your strongest route",
-    body: "3 of 5 active shipments go to Hamburg. MSC and Hapag-Lloyd both reliable. Avg transit 21 days. On-time rate 100%. Consider negotiating volume freight discount with MSC for next quarter.",
-    metric: "$2,800-$3,200/shipment · 21-day transit",
-  },
-];
+const coachInsights: Insight[] = [];
 
-const coachRisks: RiskItem[] = [
-  {
-    title: "Phytosanitary expiry blocks Hamburg arrival",
-    severity: "critical",
-    probability: 95,
-    impact: "$8,400+ demurrage (20+ days at $420/day) + buyer relationship damage",
-    mitigation: "Submit EAA renewal application today. Express processing available for +50% fee.",
-    daysToImpact: 4,
-  },
-  {
-    title: "Yokohama shipment may miss vessel cutoff",
-    severity: "high",
-    probability: 70,
-    impact: "Container roll to next vessel (10-14 day delay) + $41K contract at risk",
-    mitigation: "Prioritize ECX grading + export permit applications. Use broker for expedited processing.",
-    daysToImpact: 7,
-  },
-  {
-    title: "Hashimoto contract lapses if not signed",
-    severity: "high",
-    probability: 40,
-    impact: "Lose $67.8K contract + Japanese market relationship",
-    mitigation: "Sign today. Margin 14.8% is acceptable — Limu G1 scarcity justifies acceptance.",
-    daysToImpact: 5,
-  },
-  {
-    title: "Seoul Coffee Lab may source elsewhere",
-    severity: "medium",
-    probability: 35,
-    impact: "Lose $27.6K quote + future Korean business",
-    mitigation: "Wait 1 more day, then send value-focused follow-up referencing Busan shipment progress.",
-    daysToImpact: 3,
-  },
-];
+const coachRisks: RiskItem[] = [];
 
-const coachOpportunities: Opportunity[] = [
-  {
-    title: "Aurora Imports — New US market entry",
-    buyer: "Aurora Imports",
-    potentialValue: 22500,
-    action: "Verify credit → send contract for QU-2026-0007",
-    deadline: "This week",
-  },
-  {
-    title: "Marcus Coffee — Standing supply offer",
-    buyer: "Marcus Coffee GmbH",
-    potentialValue: 70000,
-    action: "Draft annual supply MOU for Guji G1",
-    deadline: "Next 2 weeks",
-  },
-  {
-    title: "Falcon Coffee UK — Pre-discount quote",
-    buyer: "Falcon Coffee UK",
-    potentialValue: 55600,
-    action: "Send revised QU-2026-0005 at $6.75/kg (pre-discount)",
-    deadline: "While sample SR-2026-0002 is in transit",
-  },
-];
+const coachOpportunities: Opportunity[] = [];
 
-const coachAiActions: AIAction[] = [
-  { time: "2h ago", agent: "Outreach Agent", action: "Drafted Quote QU-2026-0007 for Aurora Imports", status: "completed", detail: "Pulled pricing from comparable US deals. Margin 21.3%." },
-  { time: "5h ago", agent: "Compliance Agent", action: "Flagged phytosanitary expiry on CT-2026-001", status: "completed", detail: "Cross-referenced EAA renewal timeline vs vessel ETA." },
-  { time: "Yesterday", agent: "Supplier Agent", action: "Identified LOT-25-0007 (Limu G1) for Hashimoto counter", status: "completed", detail: "Substituted higher-margin lot in V3 quote." },
-  { time: "Yesterday", agent: "Logistics Agent", action: "Tracked MSC Hamburg through Suez Canal", status: "completed", detail: "On schedule. Updated milestone timeline." },
-  { time: "2 days ago", agent: "Customer Agent", action: "Drafted breakup email for Nordic Bean Co", status: "pending_approval", detail: "Awaiting your review before sending." },
-  { time: "3 days ago", agent: "Outreach Agent", action: "Researched 12 new German specialty roasters", status: "in_progress", detail: "Found 4 with annual imports >5t. Adding to Leads." },
-];
+const coachAiActions: AIAction[] = [];
 
 const urgencyConfig: Record<Priority["urgency"], { color: string; bg: string; text: string; label: string }> = {
   critical: { color: "bg-red-500", bg: "bg-red-50", text: "text-red-700", label: "Critical" },
