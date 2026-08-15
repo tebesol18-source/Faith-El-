@@ -8,7 +8,7 @@ import type { Operator, Seller } from "@/lib/types";
 import { setAuthToken } from "@/lib/auth-client";
 
 export function LoginPage({ onLogin }: {
-  onLogin: (data: { role: "admin" | "seller"; email: string; mustChangePassword?: boolean }) => void;
+  onLogin: (data: { role: "admin" | "seller"; email: string; name?: string; mustChangePassword?: boolean }) => void;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,6 +37,7 @@ export function LoginPage({ onLogin }: {
         onLogin({
           role: data.role === "admin" ? "admin" : "seller",
           email: data.email,
+          name: data.name,
           mustChangePassword: data.mustChangePassword,
         });
       } else {

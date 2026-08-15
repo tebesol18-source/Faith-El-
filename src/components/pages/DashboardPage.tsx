@@ -17,7 +17,7 @@ const mockActivities = [];
 
 const mockShipments = [];
 
-export function DashboardPage() {
+export function DashboardPage({ userName }: { userName?: string }) {
   // ─── Live data from backend ───
   const [dashboardData, setDashboardData] = useState<{
     priorities: any[];
@@ -86,7 +86,7 @@ export function DashboardPage() {
     return (
       <main className="p-8 max-w-[1200px] mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Good Morning, Abi <span className="inline-block">👋</span></h1>
+          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Good Morning, {userName || "there"} <span className="inline-block">👋</span></h1>
           <p className="text-sm text-gray-500 mt-2">Loading dashboard data…</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
@@ -104,7 +104,7 @@ export function DashboardPage() {
   return (
     <main className="p-8 max-w-[1200px] mx-auto">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Good Morning, Abi <span className="inline-block">👋</span></h1>
+        <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Good Morning, {userName || "there"} <span className="inline-block">👋</span></h1>
         <p className="text-sm text-gray-500 mt-2">You have <span className="font-semibold text-gray-900">{priorities.length} priority tasks</span> and <span className="font-semibold text-green-600">{kpis[3]?.value}</span> in active pipeline.</p>
       </div>
 

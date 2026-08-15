@@ -7,8 +7,9 @@ import { cn } from "@/lib/utils";
 import type { Page } from "@/lib/types";
 import { navGroups, type NavGroup } from "@/lib/nav";
 
-export function Sidebar({ currentPage, onNavigate, expanded, onToggle, navGroups: groups }: { currentPage: Page; onNavigate: (p: Page) => void; expanded: boolean; onToggle: () => void; navGroups?: typeof navGroups }) {
+export function Sidebar({ currentPage, onNavigate, expanded, onToggle, navGroups: groups, orgName }: { currentPage: Page; onNavigate: (p: Page) => void; expanded: boolean; onToggle: () => void; navGroups?: typeof navGroups; orgName?: string }) {
   const renderedGroups = groups ?? navGroups;
+  const displayName = orgName || "Faith-El";
   return (
     <aside className={cn(
       "fixed left-0 top-0 z-40 h-screen border-r border-gray-200 bg-white flex flex-col transition-all duration-300",
@@ -83,7 +84,7 @@ export function Sidebar({ currentPage, onNavigate, expanded, onToggle, navGroups
           {expanded && (
             <div className="flex-1 text-left overflow-hidden">
               <p className="text-sm font-semibold text-gray-900 truncate">Abi Solomon</p>
-              <p className="text-xs text-gray-400 truncate">Faith-El PLC</p>
+              <p className="text-xs text-gray-400 truncate">{displayName}</p>
             </div>
           )}
           {expanded && <ChevronDown className="h-4 w-4 text-gray-300 shrink-0" />}

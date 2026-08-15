@@ -31,6 +31,8 @@ export default function App() {
   const [authState, setAuthState] = useState<"checking" | "loggedOut" | "loggedIn">("checking");
   const [userRole, setUserRole] = useState<"admin" | "seller">("admin");
   const [userEmail, setUserEmail] = useState("");
+  const [userName, setUserName] = useState("");
+  const [orgName, setOrgName] = useState("Faith-El");
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
@@ -60,7 +62,7 @@ export default function App() {
                 .then((me) => {
                   if (cancelled) return;
                   if (me.ok) {
-                    setUserRole(me.role === "admin" ? "admin" : "seller");
+                    setUserRole(me.role === "admin" ? "admin" : "seller"); setUserName(me.name || me.email?.split("@")[0] || ""); setOrgName(me.organizationName || "Faith-El");
                     setUserEmail(me.email || "");
                     setMustChangePassword(!!me.mustChangePassword);
                     setCurrentPage(me.role === "admin" ? "admin" : "dashboard");
@@ -86,7 +88,7 @@ export default function App() {
               .then((me) => {
                 if (cancelled) return;
                 if (me.ok) {
-                  setUserRole(me.role === "admin" ? "admin" : "seller");
+                  setUserRole(me.role === "admin" ? "admin" : "seller"); setUserName(me.name || me.email?.split("@")[0] || ""); setOrgName(me.organizationName || "Faith-El");
                   setUserEmail(me.email || "");
                 }
               })
@@ -105,10 +107,12 @@ export default function App() {
   const handleLogin = (data: {
     role: "admin" | "seller";
     email: string;
+    name?: string;
     mustChangePassword?: boolean;
   }) => {
     setUserRole(data.role);
     setUserEmail(data.email);
+    setUserName(data.name || data.email.split("@")[0]);
     setMustChangePassword(!!data.mustChangePassword);
     setAuthState("loggedIn");
     setCurrentPage(data.role === "admin" ? "admin" : "dashboard");
@@ -172,10 +176,11 @@ export default function App() {
         expanded={sidebarExpanded}
         onToggle={() => setSidebarExpanded(!sidebarExpanded)}
         navGroups={visibleNavGroups}
+        orgName={orgName}
       />
       <div className={cn("transition-all duration-300", sidebarExpanded ? "ml-[240px]" : "ml-[64px]")}>
         <TopHeader userRole={userRole} onLogout={handleLogout} />
-        {currentPage === "dashboard" && <DashboardPage />}
+        {currentPage === "dashboard" && <DashboardPage userName={userName} />}
         {currentPage === "inbox" && <InboxPage />}
         {currentPage === "leads" && <LeadsPage />}
         {currentPage === "deals" && <DealsPage />}
