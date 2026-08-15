@@ -2,62 +2,51 @@
 
 import { useState } from "react";
 import {
-  AlertTriangle, Bot, Clock, Coffee, DollarSign, Send, Ship, Sparkles, Star, TrendingUp, Users,
+  AlertTriangle, Bot, CheckCircle2, ChevronRight, Sparkles, Star, TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AIAction, Contract, Insight, Opportunity, Page, Priority, Quote, RiskItem } from "@/lib/types";
 
+const coachPriorities: any[] = [];
 
+const coachInsights: any[] = [];
 
+const coachRisks: any[] = [];
 
+const coachOpportunities: any[] = [];
 
+const coachAiActions: any[] = [];
 
-const coachPriorities: Priority[] = [];
-
-const coachInsights: Insight[] = [];
-
-const coachRisks: RiskItem[] = [];
-
-const coachOpportunities: Opportunity[] = [];
-
-const coachAiActions: AIAction[] = [];
-
-const urgencyConfig: Record<Priority["urgency"], { color: string; bg: string; text: string; label: string }> = {
+const urgencyConfig: Record<string, { color: string; bg: string; text: string; label: string }> = {
   critical: { color: "bg-red-500", bg: "bg-red-50", text: "text-red-700", label: "Critical" },
   high: { color: "bg-amber-500", bg: "bg-amber-50", text: "text-amber-700", label: "High" },
   medium: { color: "bg-blue-500", bg: "bg-blue-50", text: "text-blue-700", label: "Medium" },
+  low: { color: "bg-gray-400", bg: "bg-gray-50", text: "text-gray-700", label: "Low" },
 };
 
-const categoryConfig: Record<Priority["category"], { icon: any; label: string }> = {
-  revenue: { icon: DollarSign, label: "Revenue" },
+const categoryConfig: Record<string, { icon: any; label: string }> = {
+  deal: { icon: TrendingUp, label: "Deal" },
+  compliance: { icon: CheckCircle2, label: "Compliance" },
+  inventory: { icon: AlertTriangle, label: "Inventory" },
   risk: { icon: AlertTriangle, label: "Risk" },
-  relationship: { icon: Users, label: "Relationship" },
-  operational: { icon: Ship, label: "Operational" },
 };
 
-const insightTypeConfig: Record<Insight["type"], { icon: any; bg: string; text: string; label: string }> = {
-  pattern: { icon: TrendingUp, bg: "bg-blue-50", text: "text-blue-700", label: "Pattern" },
+const insightTypeConfig: Record<string, { icon: any; bg: string; text: string; label: string }> = {
+  trend: { icon: TrendingUp, bg: "bg-blue-50", text: "text-blue-700", label: "Trend" },
   opportunity: { icon: Star, bg: "bg-green-50", text: "text-green-700", label: "Opportunity" },
   warning: { icon: AlertTriangle, bg: "bg-amber-50", text: "text-amber-700", label: "Warning" },
 };
 
-const severityConfig: Record<RiskItem["severity"], { bg: string; text: string; bar: string; label: string }> = {
+const severityConfig: Record<string, { bg: string; text: string; bar: string; label: string }> = {
   critical: { bg: "bg-red-50", text: "text-red-700", bar: "bg-red-500", label: "Critical" },
   high: { bg: "bg-amber-50", text: "text-amber-700", bar: "bg-amber-500", label: "High" },
-  medium: { bg: "bg-yellow-50", text: "text-yellow-700", bar: "bg-yellow-500", label: "Medium" },
-};
-
-const aiActionStatusConfig: Record<AIAction["status"], { bg: string; text: string; label: string }> = {
-  completed: { bg: "bg-green-50", text: "text-green-700", label: "Completed" },
-  pending_approval: { bg: "bg-amber-50", text: "text-amber-700", label: "Needs Approval" },
-  in_progress: { bg: "bg-blue-50", text: "text-blue-700", label: "In Progress" },
+  medium: { bg: "bg-blue-50", text: "text-blue-700", bar: "bg-blue-500", label: "Medium" },
+  low: { bg: "bg-gray-50", text: "text-gray-700", bar: "bg-gray-400", label: "Low" },
 };
 
 export function CoachPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<{ role: "user" | "ai"; text: string }[]>([
-    { role: "ai", text: "Good morning, Abi. I've reviewed all 11 active deals, 6 shipments, and your compliance tracker. You have 2 critical items needing action today — the phytosanitary renewal and the Hashimoto contract signature. Want me to walk you through them?" },
-  ]);
+  const [chatMessages, setChatMessages] = useState<{ role: "user" | "ai"; text: string }[]>([]);
 
   const sendMessage = () => {
     if (!chatInput.trim()) return;
@@ -65,20 +54,7 @@ export function CoachPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
     setChatMessages(prev => [...prev, { role: "user", text: userMsg }]);
     setChatInput("");
     setTimeout(() => {
-      let response = "I'll look into that for you.";
-      const lower = userMsg.toLowerCase();
-      if (lower.includes("margin")) {
-        response = "Your average margin across active quotes is 21.9% — above the 20% target. Lowest is Hashimoto at 14.8% (counter-offer accepted). Highest is Rösterei Berlin at 25.4% (rejected on quality). I recommend accepting Hashimoto — Limu G1 scarcity justifies the compressed margin.";
-      } else if (lower.includes("hashimoto") || lower.includes("sign")) {
-        response = "Hashimoto Coffee (CT-2026-0005) is awaiting your signature. Buyer signed Jul 23. Contract value $67,800. Margin 14.8% (compressed from 19.8% after counter at $6.10). Recommend signing today — Limu G1 is scarce and retaining the Japanese relationship has long-term value.";
-      } else if (lower.includes("phyto") || lower.includes("hamburg") || lower.includes("demurrage")) {
-        response = "Phytosanitary cert PHY-2026-0892 for CT-2026-001 expires Jul 30 (4 days). Vessel MSC Hamburg arrives Aug 09. Renewal takes 5-7 days at EAA. If you submit today, cert will be ready Aug 01 — 8 days before arrival. Risk cost: $420/day demurrage if not ready. Express processing (+50% fee) available if needed.";
-      } else if (lower.includes("priority") || lower.includes("today")) {
-        response = "Today's top 3 priorities: 1) Renew phytosanitary cert (critical — $420/day risk), 2) Sign Hashimoto contract (high — $67.8K value), 3) Start CT-2026-004 doc applications (high — vessel departs Aug 02). All 3 are listed in the priorities panel above with one-click navigation.";
-      } else {
-        response = "I can help with margins, contracts, shipments, compliance, or strategic decisions. Try asking 'Should I sign the Hashimoto contract?' or 'What's my risk exposure this week?'";
-      }
-      setChatMessages(prev => [...prev, { role: "ai", text: response }]);
+      setChatMessages(prev => [...prev, { role: "ai", text: "I'll analyze your data and get back to you. Try creating some leads or contracts first — I need real data to provide insights." }]);
     }, 800);
   };
 
@@ -89,7 +65,7 @@ export function CoachPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         <p className="text-sm text-gray-500 mt-1">What should I do next?</p>
       </div>
 
-      {/* Morning Brief */}
+      {/* Morning Brief — dynamic, shows empty state when no data */}
       <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-white p-6 mb-6">
         <div className="flex items-start gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-100">
@@ -101,271 +77,219 @@ export function CoachPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
               <span className="text-xs text-gray-400">·</span>
               <span className="text-xs text-gray-500">Today</span>
             </div>
-            <p className="text-sm text-gray-700 leading-relaxed mb-4">
-              You have <span className="font-semibold text-red-700">1 critical risk</span> (phytosanitary expiry), <span className="font-semibold text-amber-700">2 high-priority actions</span> (sign Hashimoto contract, resolve CT-2026-004 docs), and <span className="font-semibold text-green-600">$84,600 in received revenue</span> this month. Pipeline is healthy at 21.9% avg margin. Net profit YTD is <span className="font-semibold text-green-600">$42,580</span> (19.4% margin). Two opportunities worth <span className="font-semibold text-gray-900">$92,500</span> are ripe for action this week.
-            </p>
+            {coachPriorities.length === 0 ? (
+              <p className="text-sm text-gray-500 leading-relaxed">
+                No active priorities yet. Once you start creating leads and closing deals,
+                your AI coach will provide a daily morning brief with priorities, risks, and opportunities.
+              </p>
+            ) : (
+              <p className="text-sm text-gray-700 leading-relaxed mb-4">
+                You have <span className="font-semibold text-red-700">{coachRisks.filter(r => r.severity === "critical").length} critical risk(s)</span>,
+                <span className="font-semibold text-amber-700"> {coachPriorities.filter(p => p.urgency === "high").length} high-priority action(s)</span>.
+                See details below.
+              </p>
+            )}
             <div className="grid grid-cols-5 gap-3 pt-4 border-t border-indigo-100">
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Active Deals</p>
-                <p className="text-lg font-bold text-gray-900">11</p>
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Priorities</p>
+                <p className="text-lg font-bold text-gray-900">{coachPriorities.length}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Pipeline</p>
-                <p className="text-lg font-bold text-gray-900">$245K</p>
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Risks</p>
+                <p className="text-lg font-bold text-red-600">{coachRisks.length}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">At Risk</p>
-                <p className="text-lg font-bold text-red-600">2</p>
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Opportunities</p>
+                <p className="text-lg font-bold text-green-600">{coachOpportunities.length}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Margin</p>
-                <p className="text-lg font-bold text-green-600">21.9%</p>
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Insights</p>
+                <p className="text-lg font-bold text-blue-600">{coachInsights.length}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Net Profit</p>
-                <p className="text-lg font-bold text-green-600">$42.6K</p>
+                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">AI Actions</p>
+                <p className="text-lg font-bold text-indigo-600">{coachAiActions.length}</p>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Top 5 Priorities */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-900">Today&apos;s Top 5 Priorities</h3>
-          <span className="text-xs text-gray-400">ordered by impact</span>
+      {/* Empty state when no data */}
+      {coachPriorities.length === 0 && coachRisks.length === 0 && coachOpportunities.length === 0 ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-12 text-center mb-6">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50 mb-4">
+            <Sparkles className="h-7 w-7 text-indigo-400" strokeWidth={1.5} />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Your AI Coach is ready</h3>
+          <p className="text-sm text-gray-500 max-w-md mx-auto">
+            Once you have leads, contracts, or shipments in the system, your AI coach will
+            generate personalized priorities, risk alerts, and opportunities.
+          </p>
+          <button
+            onClick={() => onNavigate("leads")}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors"
+          >
+            Go to Leads <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
-        <div className="space-y-3">
-          {coachPriorities.map((p) => {
-            const uc = urgencyConfig[p.urgency];
-            const cc = categoryConfig[p.category];
-            const pageLabel = p.page.charAt(0).toUpperCase() + p.page.slice(1);
-            return (
-              <div key={p.rank} className={cn("rounded-lg border p-4 flex items-start gap-4", uc.bg, "border-gray-200")}>
-                <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white", uc.color)}>
-                  {p.rank}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <p className="text-sm font-semibold text-gray-900">{p.action}</p>
-                    <span className={cn("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold", uc.bg, uc.text)}>
-                      {uc.label}
-                    </span>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[10px] font-medium text-gray-600 border border-gray-200">
-                      <cc.icon className="h-2.5 w-2.5" /> {cc.label}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-600 mb-2">{p.context}</p>
-                  <div className="flex items-center gap-4 text-[11px]">
-                    <div className="flex items-center gap-1.5">
-                      <DollarSign className="h-3 w-3 text-gray-400" />
-                      <span className="text-gray-500">{p.impact}</span>
+      ) : (
+        <>
+          {/* Top 5 Priorities */}
+          {coachPriorities.length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-6 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-900">Today&apos;s Top 5 Priorities</h3>
+                <span className="text-xs text-gray-400">ordered by impact</span>
+              </div>
+              <div className="space-y-3">
+                {coachPriorities.map((p) => {
+                  const uc = urgencyConfig[p.urgency] || urgencyConfig.low;
+                  const cc = categoryConfig[p.category] || categoryConfig.deal;
+                  const pageLabel = p.page ? (p.page.charAt(0).toUpperCase() + p.page.slice(1)) : "";
+                  return (
+                    <div key={p.rank} className={cn("rounded-lg border p-4 flex items-start gap-4", uc.bg, "border-gray-200")}>
+                      <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white", uc.color)}>
+                        {p.rank}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <p className="text-sm font-semibold text-gray-900">{p.action}</p>
+                          <span className={cn("inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold", uc.bg, uc.text)}>
+                            {uc.label}
+                          </span>
+                        </div>
+                        {p.detail && <p className="text-xs text-gray-500">{p.detail}</p>}
+                      </div>
+                      {pageLabel && (
+                        <button onClick={() => onNavigate(p.page)} className="shrink-0 text-xs font-medium text-[#4A3520] hover:underline flex items-center gap-0.5">
+                          {pageLabel} <ChevronRight className="h-3 w-3" />
+                        </button>
+                      )}
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="h-3 w-3 text-gray-400" />
-                      <span className="text-gray-500">{p.eta}</span>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => onNavigate(p.page)}
-                  className="shrink-0 rounded-lg bg-[#4A3520] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6B4E33] transition-colors"
-                >
-                  Go to {pageLabel} →
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Risk Radar + Opportunities */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertTriangle className="h-4 w-4 text-red-500" strokeWidth={1.5} />
-            <h3 className="text-sm font-semibold text-gray-900">Risk Radar</h3>
-            <span className="text-xs text-gray-400 ml-auto">next 7 days</span>
-          </div>
-          <div className="space-y-3">
-            {coachRisks.map((r, i) => {
-              const sc = severityConfig[r.severity];
-              return (
-                <div key={i} className={cn("rounded-lg p-3 border", sc.bg, "border-gray-200")}>
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <p className="text-sm font-medium text-gray-900 flex-1">{r.title}</p>
-                    <span className={cn("inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold", sc.bg, sc.text)}>
-                      {sc.label} · {r.probability}%
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-gray-600 mb-2">{r.impact}</p>
-                  <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Fix:</span>
-                    <p className="text-[11px] text-gray-700 flex-1">{r.mitigation}</p>
-                  </div>
-                  <div className="flex items-center gap-1 mt-2 text-[10px] text-gray-400">
-                    <Clock className="h-2.5 w-2.5" />
-                    <span>{r.daysToImpact} days to impact</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Star className="h-4 w-4 text-green-500" strokeWidth={1.5} />
-            <h3 className="text-sm font-semibold text-gray-900">Opportunities</h3>
-            <span className="text-xs text-gray-400 ml-auto">act this week</span>
-          </div>
-          <div className="space-y-3">
-            {coachOpportunities.map((o, i) => (
-              <div key={i} className="rounded-lg border border-green-200 bg-green-50/30 p-3">
-                <div className="flex items-start justify-between gap-2 mb-1">
-                  <p className="text-sm font-medium text-gray-900 flex-1">{o.title}</p>
-                  <p className="text-sm font-bold text-green-600 shrink-0">${(o.potentialValue / 1000).toFixed(1)}K</p>
-                </div>
-                <p className="text-[11px] text-gray-500 mb-2">{o.buyer}</p>
-                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                  <p className="text-[11px] text-gray-700">{o.action}</p>
-                </div>
-                <div className="flex items-center gap-1 mt-2 text-[10px] text-gray-400">
-                  <Clock className="h-2.5 w-2.5" />
-                  <span>{o.deadline}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Strategic Insights */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Sparkles className="h-4 w-4 text-indigo-500" strokeWidth={1.5} />
-          <h3 className="text-sm font-semibold text-gray-900">Strategic Insights</h3>
-          <span className="text-xs text-gray-400 ml-auto">patterns I&apos;ve spotted</span>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          {coachInsights.map((ins, i) => {
-            const ic = insightTypeConfig[ins.type];
-            return (
-              <div key={i} className={cn("rounded-lg border p-4", ic.bg, "border-gray-200")}>
-                <div className="flex items-center gap-2 mb-2">
-                  <ic.icon className={cn("h-4 w-4", ic.text)} strokeWidth={1.5} />
-                  <span className={cn("text-[10px] font-semibold uppercase tracking-wider", ic.text)}>{ic.label}</span>
-                </div>
-                <p className="text-sm font-medium text-gray-900 mb-1">{ins.title}</p>
-                <p className="text-xs text-gray-600 leading-relaxed mb-2">{ins.body}</p>
-                {ins.metric && (
-                  <p className={cn("text-xs font-semibold pt-2 border-t border-gray-100", ic.text)}>{ins.metric}</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Recent AI Actions */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Bot className="h-4 w-4 text-indigo-500" strokeWidth={1.5} />
-            <h3 className="text-sm font-semibold text-gray-900">Recent AI Agent Actions</h3>
-          </div>
-          <span className="text-xs text-gray-400">last 3 days</span>
-        </div>
-        <div className="space-y-2">
-          {coachAiActions.map((a, i) => {
-            const sc = aiActionStatusConfig[a.status];
-            return (
-              <div key={i} className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0">
-                <div className="flex flex-col items-center pt-1">
-                  <span className={cn("h-2 w-2 rounded-full", a.status === "completed" ? "bg-green-500" : a.status === "pending_approval" ? "bg-amber-500" : "bg-blue-500")} />
-                  {i < coachAiActions.length - 1 && <div className="w-px flex-1 bg-gray-100 mt-1" style={{ minHeight: "20px" }} />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm text-gray-900">{a.action}</p>
-                    <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium", sc.bg, sc.text)}>{sc.label}</span>
-                  </div>
-                  <p className="text-[11px] text-gray-500 mt-0.5">{a.detail}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-[10px] text-gray-400">{a.time}</p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">{a.agent}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Ask AI Anything */}
-      <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/50 to-white p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Sparkles className="h-4 w-4 text-indigo-500" strokeWidth={1.5} />
-          <h3 className="text-sm font-semibold text-gray-900">Ask AI Anything</h3>
-        </div>
-
-        <div className="space-y-3 mb-4 max-h-[300px] overflow-y-auto">
-          {chatMessages.map((m, i) => (
-            <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-              <div className={cn(
-                "max-w-[80%] rounded-lg px-4 py-2.5 text-sm",
-                m.role === "user" ? "bg-[#4A3520] text-white" : "bg-white border border-gray-200 text-gray-700"
-              )}>
-                {m.role === "ai" && (
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <Bot className="h-3 w-3 text-indigo-500" />
-                    <span className="text-[10px] font-semibold text-indigo-600">COACH</span>
-                  </div>
-                )}
-                <p className="leading-relaxed">{m.text}</p>
+                  );
+                })}
               </div>
             </div>
-          ))}
+          )}
+
+          {/* Risks + Opportunities */}
+          {coachRisks.length > 0 && (
+            <div className="grid grid-cols-2 gap-6 mb-6">
+              <div className="rounded-xl border border-gray-200 bg-white p-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Risk Radar</h3>
+                <div className="space-y-3">
+                  {coachRisks.map((r, i) => {
+                    const sc = severityConfig[r.severity] || severityConfig.low;
+                    return (
+                      <div key={i} className={cn("rounded-lg p-3 border", sc.bg, "border-gray-200")}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={cn("h-2 w-2 rounded-full", sc.bar)} />
+                          <p className="text-sm font-medium text-gray-900">{r.title}</p>
+                        </div>
+                        {r.description && <p className="text-xs text-gray-500 pl-4">{r.description}</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-white p-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Opportunities</h3>
+                <div className="space-y-3">
+                  {coachOpportunities.map((o, i) => (
+                    <div key={i} className="rounded-lg p-3 bg-green-50 border border-green-200">
+                      <p className="text-sm font-medium text-gray-900">{o.title}</p>
+                      {o.description && <p className="text-xs text-gray-500 mt-0.5">{o.description}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Insights */}
+          {coachInsights.length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-6 mb-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Market Insights</h3>
+              <div className="space-y-3">
+                {coachInsights.map((ins, i) => {
+                  const ic = insightTypeConfig[ins.type] || insightTypeConfig.trend;
+                  return (
+                    <div key={i} className="flex items-start gap-3">
+                      <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", ic.bg)}>
+                        <ins.icon className={cn("h-4 w-4", ic.text)} />
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-800">{ins.text}</p>
+                        {ins.source && <p className="text-[11px] text-gray-400 mt-0.5">{ins.source}</p>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* AI Actions Timeline */}
+          {coachAiActions.length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-6 mb-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Recent AI Actions</h3>
+              <div className="space-y-4">
+                {coachAiActions.map((a, i) => (
+                  <div key={i} className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100">
+                        <Bot className="h-3.5 w-3.5 text-indigo-600" />
+                      </div>
+                      {i < coachAiActions.length - 1 && <div className="w-px flex-1 bg-gray-100 mt-1" style={{ minHeight: "20px" }} />}
+                    </div>
+                    <div className="flex-1 pb-2">
+                      <p className="text-sm font-medium text-gray-900">{a.title}</p>
+                      <p className="text-xs text-gray-500">{a.description}</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">{a.timestamp}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* AI Chat */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Bot className="h-5 w-5 text-indigo-600" strokeWidth={1.5} />
+          <h3 className="text-sm font-semibold text-gray-900">Ask your AI Coach</h3>
         </div>
-
-        {chatMessages.length <= 2 && (
-          <div className="flex flex-wrap gap-2 mb-3">
-            {[
-              "Should I sign the Hashimoto contract?",
-              "What's my risk exposure this week?",
-              "How are my margins trending?",
-              "What should I prioritize today?",
-            ].map((q) => (
-              <button
-                key={q}
-                onClick={() => { setChatInput(q); }}
-                className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2">
+        <div className="space-y-3 mb-4 max-h-64 overflow-y-auto">
+          {chatMessages.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">Ask about margins, contracts, shipments, or priorities.</p>
+          ) : (
+            chatMessages.map((m, i) => (
+              <div key={i} className={cn("rounded-lg p-3 text-sm", m.role === "user" ? "bg-gray-50 text-gray-800 ml-8" : "bg-indigo-50 text-gray-700 mr-8")}>
+                {m.text}
+              </div>
+            ))
+          )}
+        </div>
+        <div className="flex gap-2">
           <input
             type="text"
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-            placeholder="Ask about margins, contracts, shipments, risks..."
-            className="flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+            placeholder="Ask about your business..."
+            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:border-[#4A3520]"
           />
           <button
             onClick={sendMessage}
-            className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors"
+            className="rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33]"
           >
-            <Send className="h-4 w-4" />
+            Send
           </button>
         </div>
       </div>
     </main>
   );
 }
-
