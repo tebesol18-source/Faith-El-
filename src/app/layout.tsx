@@ -1,15 +1,9 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Coffee Export — Dashboard",
+  title: "Faith-El — Coffee Export ERP",
   description: "AI-powered coffee export ERP platform",
 };
 
@@ -21,8 +15,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${inter.variable} antialiased bg-white text-gray-900`}
-        style={{ fontFamily: "var(--font-inter), system-ui, sans-serif" }}
+        className="antialiased bg-white text-gray-900"
+        style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" }}
       >
         {children}
         <Toaster />
