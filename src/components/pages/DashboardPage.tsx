@@ -25,6 +25,7 @@ export function DashboardPage({ userName }: { userName?: string }) {
     kpis: any[];
     activities: any[];
     shipments: any[];
+    stats?: any;
   } | null>(null);
 
   useEffect(() => {
@@ -56,6 +57,7 @@ export function DashboardPage({ userName }: { userName?: string }) {
             kpis: mappedKpis,
             activities: d.activities || [],
             shipments: d.shipments || [],
+            stats: d.stats || {},
           });
         } else {
           setDashboardData({
@@ -64,6 +66,7 @@ export function DashboardPage({ userName }: { userName?: string }) {
             kpis: [],
             activities: [],
             shipments: [],
+            stats: {},
           });
         }
       })
@@ -76,6 +79,7 @@ export function DashboardPage({ userName }: { userName?: string }) {
           kpis: [],
           activities: [],
           shipments: [],
+          stats: {},
         });
       });
     return () => { cancelled = true; };
@@ -153,22 +157,21 @@ export function DashboardPage({ userName }: { userName?: string }) {
         </div>
       </div>
 
-      {/* Revenue Hero */}
+      {/* Revenue Hero — values from API stats */}
       <div className="mb-6">
         <div className="rounded-xl border border-gray-200 bg-white p-6">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[13px] font-medium text-gray-500">Revenue This Month</p>
-              <p className="mt-1 text-3xl font-bold text-gray-900 tracking-tight">$86,450</p>
+              <p className="mt-1 text-3xl font-bold text-gray-900 tracking-tight">${(dashboardData?.stats?.pipelineValue || 0).toLocaleString()}</p>
               <div className="mt-2 flex items-center gap-1.5">
-                <span className="flex items-center gap-0.5 text-sm font-semibold text-green-600"><ArrowUp className="h-3.5 w-3.5" /> +$12,300</span>
-                <span className="text-xs text-gray-400">vs last month</span>
+                <span className="text-xs text-gray-400">{dashboardData?.stats?.totalContracts || 0} contracts</span>
               </div>
             </div>
             <div className="text-right">
               <p className="text-[13px] font-medium text-gray-500">Commission Earned</p>
-              <p className="mt-1 text-2xl font-bold text-green-600 tracking-tight">$2,480</p>
-              <p className="text-xs text-gray-400 mt-1">↑ 24% vs last month</p>
+              <p className="mt-1 text-2xl font-bold text-green-600 tracking-tight">${Math.round((dashboardData?.stats?.pipelineValue || 0) * 0.02).toLocaleString()}</p>
+              <p className="text-xs text-gray-400 mt-1">2% of pipeline</p>
             </div>
           </div>
         </div>
@@ -236,35 +239,38 @@ export function DashboardPage({ userName }: { userName?: string }) {
           </div>
         </div>
 
-        {/* Business Health */}
+        {/* Business Health — dynamic from API data */}
         <div className="rounded-xl border border-gray-200 bg-white p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-900">Business Health</h3>
-            <span className="text-xs font-medium text-green-600 flex items-center gap-0.5"><ArrowUp className="h-3 w-3" /> +12%</span>
           </div>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="text-3xl font-bold text-gray-900">92</div>
-            <div>
-              <div className="flex gap-0.5">{[1,2,3,4,5].map(s => <Star key={s} className={cn("h-3.5 w-3.5", s <= 4 ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200")} />)}</div>
-              <p className="text-xs text-green-600 font-medium mt-0.5">Excellent</p>
+          {(dashboardData?.stats?.totalLeads || 0) === 0 && (dashboardData?.stats?.totalContracts || 0) === 0 ? (
+            <div className="py-6 text-center">
+              <p className="text-xs text-gray-400">No data yet — health scores will appear once you have leads and contracts.</p>
             </div>
-          </div>
-          <div className="space-y-2">
-            {[
-              { label: "Revenue", score: 95, color: "bg-green-500" },
-              { label: "Sales", score: 88, color: "bg-green-500" },
-              { label: "Compliance", score: 90, color: "bg-green-500" },
-              { label: "Cash Flow", score: 85, color: "bg-amber-500" },
-              { label: "Response Time", score: 92, color: "bg-green-500" },
-              { label: "Inventory", score: 78, color: "bg-amber-500" },
-            ].map((item, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <span className="text-xs text-gray-500 w-24 shrink-0">{item.label}</span>
-                <div className="flex-1 h-1.5 rounded-full bg-gray-100"><div className={cn("h-1.5 rounded-full", item.color)} style={{ width: `${item.score}%` }} /></div>
-                <span className="text-xs font-medium text-gray-700 w-7 text-right">{item.score}</span>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="text-3xl font-bold text-gray-900">{Math.min(100, Math.round(((dashboardData?.stats?.totalLeads || 0) > 0 ? 60 : 0) + ((dashboardData?.stats?.totalContracts || 0) > 0 ? 30 : 0) + 10))}</div>
+                <div>
+                  <div className="flex gap-0.5">{[1,2,3,4,5].map(s => <Star key={s} className={cn("h-3.5 w-3.5", s <= 3 ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200")} />)}</div>
+                </div>
               </div>
-            ))}
-          </div>
+              <div className="space-y-2">
+                {[
+                  { label: "Leads", score: Math.min(100, (dashboardData?.stats?.totalLeads || 0) * 5), color: "bg-green-500" },
+                  { label: "Contracts", score: Math.min(100, (dashboardData?.stats?.totalContracts || 0) * 20), color: "bg-green-500" },
+                  { label: "Pipeline", score: Math.min(100, Math.round((dashboardData?.stats?.pipelineValue || 0) / 1000)), color: "bg-amber-500" },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 w-24 shrink-0">{item.label}</span>
+                    <div className="flex-1 h-1.5 rounded-full bg-gray-100"><div className={cn("h-1.5 rounded-full", item.color)} style={{ width: `${item.score}%` }} /></div>
+                    <span className="text-xs font-medium text-gray-700 w-7 text-right">{item.score}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Shipments */}
