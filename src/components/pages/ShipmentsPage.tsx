@@ -5,6 +5,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, Coffee, FileCheck, Filter, MapPin, Package, Plus, Search, ShieldCheck, Ship, TrendingUp, Truck, X as XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/auth-client";
 import type { Contract, Insight, Shipment, ShipmentMilestone, ShipmentStage, ShipmentStatus, TempReading } from "@/lib/types";
 
 
@@ -42,6 +43,32 @@ export function ShipmentsPage() {
   const [vesselTracking, setVesselTracking] = useState<any[]>([]);
   const [filter, setFilter] = useState("All");
   const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
+
+  // ─── Create Shipment modal state ───
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [formContractId, setFormContractId] = useState("");
+  const [formCarrier, setFormCarrier] = useState("");
+  const [formDeparturePort, setFormDeparturePort] = useState("");
+  const [formArrivalPort, setFormArrivalPort] = useState("");
+  const [formEtd, setFormEtd] = useState("");
+  const [formEta, setFormEta] = useState("");
+  const [contractsForSelect, setContractsForSelect] = useState<any[]>([]);
+
+  // Fetch contracts list when modal opens
+  useEffect(() => {
+    if (!showCreate) return;
+    let cancelled = false;
+    apiFetch("/api/contracts")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.contracts)) setContractsForSelect(data.contracts);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [showCreate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +142,60 @@ export function ShipmentsPage() {
 
   const selected = shipmentsData.find(s => s.id === selectedShipment);
 
+  // ─── Refetch shipments list ───
+  const refetchShipments = () => {
+    apiFetch("/api/shipments")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok && Array.isArray(data.shipments)) setShipmentsData(data.shipments);
+        else setShipmentsData([]);
+      })
+      .catch(() => setShipmentsData([]));
+  };
+
+  // ─── Create Shipment handler ───
+  const handleCreate = () => {
+    setCreateError(null);
+    if (!formContractId.trim()) {
+      setCreateError("Please select a contract.");
+      return;
+    }
+    if (!formCarrier.trim() || !formDeparturePort.trim() || !formArrivalPort.trim()) {
+      setCreateError("Carrier, departure port, and arrival port are required.");
+      return;
+    }
+    if (!formEtd.trim() || !formEta.trim()) {
+      setCreateError("ETD and ETA dates are required.");
+      return;
+    }
+    setCreating(true);
+    apiFetch("/api/shipments", {
+      method: "POST",
+      body: JSON.stringify({
+        contractId: formContractId.trim(),
+        carrier: formCarrier.trim(),
+        departurePort: formDeparturePort.trim(),
+        arrivalPort: formArrivalPort.trim(),
+        etd: formEtd.trim(),
+        eta: formEta.trim(),
+      }),
+    })
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok) {
+          setShowCreate(false);
+          setFormContractId(""); setFormCarrier("");
+          setFormDeparturePort(""); setFormArrivalPort("");
+          setFormEtd(""); setFormEta("");
+          refetchShipments();
+        } else {
+          setCreateError(data.error || "Failed to create shipment.");
+        }
+      })
+      .catch((err) => setCreateError(`Failed: ${err.message}`))
+      .finally(() => setCreating(false));
+  };
+
   return (
     <main className="p-8 max-w-[1200px] mx-auto">
       {/* Header */}
@@ -127,7 +208,7 @@ export function ShipmentsPage() {
           <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
             <Search className="h-4 w-4" /> Track Container
           </button>
-          <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+          <button onClick={() => { setShowCreate(true); setCreateError(null); }} className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
             <Plus className="h-4 w-4" /> New Shipment
           </button>
         </div>
@@ -553,6 +634,60 @@ export function ShipmentsPage() {
                 <button className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Track on Vessel Website</button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Create Shipment Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => !creating && setShowCreate(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-br from-[#2D1810] to-[#4A3520] p-4 text-white flex items-center justify-between">
+              <h2 className="text-lg font-bold">Create Shipment</h2>
+              <button onClick={() => !creating && setShowCreate(false)} className="text-white/60 hover:text-white p-1">
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Contract *</label>
+                <select value={formContractId} onChange={(e) => setFormContractId(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                  <option value="">— Select a contract —</option>
+                  {contractsForSelect.map((c) => (
+                    <option key={c.id} value={c.id}>{c.id} · {c.buyer}</option>
+                  ))}
+                </select>
+                {contractsForSelect.length === 0 && <p className="text-[11px] text-gray-400 mt-1">No contracts available. Create contracts first.</p>}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Carrier *</label>
+                <input type="text" value={formCarrier} onChange={(e) => setFormCarrier(e.target.value)} disabled={creating} placeholder="e.g. Maersk" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Departure Port *</label>
+                <input type="text" value={formDeparturePort} onChange={(e) => setFormDeparturePort(e.target.value)} disabled={creating} placeholder="e.g. Djibouti" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Arrival Port *</label>
+                <input type="text" value={formArrivalPort} onChange={(e) => setFormArrivalPort(e.target.value)} disabled={creating} placeholder="e.g. Hamburg" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">ETD *</label>
+                  <input type="date" value={formEtd} onChange={(e) => setFormEtd(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">ETA *</label>
+                  <input type="date" value={formEta} onChange={(e) => setFormEta(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+              </div>
+              {createError && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{createError}</div>}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => !creating && setShowCreate(false)} className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-sm">Cancel</button>
+                <button type="submit" disabled={creating} className="flex-1 rounded-lg bg-[#4A3520] px-4 py-2 text-sm text-white disabled:opacity-60">
+                  {creating ? "Creating..." : "Create Shipment"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

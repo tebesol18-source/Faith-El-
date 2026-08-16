@@ -5,6 +5,7 @@ import {
   CheckCircle2, Clock, Coffee, DollarSign, FileSignature, Filter, Plus, Send, Ship, Sparkles, X as XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/auth-client";
 import type { Contract, ContractStatus, Insight, PaymentMilestone, Seller, Shipment } from "@/lib/types";
 
 
@@ -407,6 +408,34 @@ export function ContractsPage() {
   // ─── Live data from backend ───
   const [contractsData, setContractsData] = useState<Contract[] | null>(null);
 
+  // ─── Create Contract modal state ───
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [formLeadId, setFormLeadId] = useState("");
+  const [formTotalVolumeBags, setFormTotalVolumeBags] = useState("");
+  const [formTotalValue, setFormTotalValue] = useState("");
+  const [formIncoterm, setFormIncoterm] = useState("FOB");
+  const [formCurrency, setFormCurrency] = useState("USD");
+  const [formShipmentWindowStart, setFormShipmentWindowStart] = useState("");
+  const [formShipmentWindowEnd, setFormShipmentWindowEnd] = useState("");
+  const [formPaymentTerms, setFormPaymentTerms] = useState("");
+  const [leadsForSelect, setLeadsForSelect] = useState<any[]>([]);
+
+  // Fetch leads list when modal opens
+  useEffect(() => {
+    if (!showCreate) return;
+    let cancelled = false;
+    apiFetch("/api/leads")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.leads)) setLeadsForSelect(data.leads);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [showCreate]);
+
   useEffect(() => {
     let cancelled = false;
     fetch("/api/contracts")
@@ -477,6 +506,67 @@ export function ContractsPage() {
 
   const selected = contractsData.find(c => c.id === selectedContract);
 
+  // ─── Refetch contracts list ───
+  const refetchContracts = () => {
+    apiFetch("/api/contracts")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok && Array.isArray(data.contracts)) setContractsData(data.contracts);
+        else setContractsData([]);
+      })
+      .catch(() => setContractsData([]));
+  };
+
+  // ─── Create Contract handler ───
+  const handleCreate = () => {
+    setCreateError(null);
+    if (!formLeadId.trim()) {
+      setCreateError("Please select a lead.");
+      return;
+    }
+    if (formTotalVolumeBags === "" || formTotalValue === "") {
+      setCreateError("Total volume (bags) and total value are required.");
+      return;
+    }
+    if (!formShipmentWindowStart.trim() || !formShipmentWindowEnd.trim()) {
+      setCreateError("Shipment window start and end dates are required.");
+      return;
+    }
+    if (!formPaymentTerms.trim()) {
+      setCreateError("Payment terms are required.");
+      return;
+    }
+    setCreating(true);
+    apiFetch("/api/contracts", {
+      method: "POST",
+      body: JSON.stringify({
+        leadId: formLeadId.trim(),
+        totalVolumeBags: Number(formTotalVolumeBags),
+        totalValue: Number(formTotalValue),
+        incoterm: formIncoterm,
+        currency: formCurrency.trim() || "USD",
+        shipmentWindowStart: formShipmentWindowStart.trim(),
+        shipmentWindowEnd: formShipmentWindowEnd.trim(),
+        paymentTerms: formPaymentTerms.trim(),
+      }),
+    })
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok) {
+          setShowCreate(false);
+          setFormLeadId(""); setFormTotalVolumeBags(""); setFormTotalValue("");
+          setFormIncoterm("FOB"); setFormCurrency("USD");
+          setFormShipmentWindowStart(""); setFormShipmentWindowEnd("");
+          setFormPaymentTerms("");
+          refetchContracts();
+        } else {
+          setCreateError(data.error || "Failed to create contract.");
+        }
+      })
+      .catch((err) => setCreateError(`Failed: ${err.message}`))
+      .finally(() => setCreating(false));
+  };
+
   return (
     <main className="p-8 max-w-[1200px] mx-auto">
       {/* Header */}
@@ -485,7 +575,7 @@ export function ContractsPage() {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Contracts</h1>
           <p className="text-sm text-gray-500 mt-1">Which contracts need signing?</p>
         </div>
-        <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+        <button onClick={() => { setShowCreate(true); setCreateError(null); }} className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
           <Plus className="h-4 w-4" /> New Contract
         </button>
       </div>
@@ -563,6 +653,77 @@ export function ContractsPage() {
           <ContractCard key={c.id} contract={c} onClick={() => setSelectedContract(c.id)} />
         ))}
       </div>
+
+      {/* Create Contract Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => !creating && setShowCreate(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-br from-[#2D1810] to-[#4A3520] p-4 text-white flex items-center justify-between">
+              <h2 className="text-lg font-bold">Create Contract</h2>
+              <button onClick={() => !creating && setShowCreate(false)} className="text-white/60 hover:text-white p-1">
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Lead *</label>
+                <select value={formLeadId} onChange={(e) => setFormLeadId(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                  <option value="">— Select a lead —</option>
+                  {leadsForSelect.map((l) => (
+                    <option key={l.id} value={l.id}>{l.id} · {l.company}</option>
+                  ))}
+                </select>
+                {leadsForSelect.length === 0 && <p className="text-[11px] text-gray-400 mt-1">No leads available. Create leads first.</p>}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Total Volume (bags) *</label>
+                  <input type="number" value={formTotalVolumeBags} onChange={(e) => setFormTotalVolumeBags(e.target.value)} disabled={creating} placeholder="500" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Total Value (USD) *</label>
+                  <input type="number" step="0.01" value={formTotalValue} onChange={(e) => setFormTotalValue(e.target.value)} disabled={creating} placeholder="125000.00" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Incoterm *</label>
+                  <select value={formIncoterm} onChange={(e) => setFormIncoterm(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                    <option>FOB</option>
+                    <option>CIF</option>
+                    <option>EXW</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Currency</label>
+                  <input type="text" value={formCurrency} onChange={(e) => setFormCurrency(e.target.value)} disabled={creating} placeholder="USD" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Shipment Window Start *</label>
+                  <input type="date" value={formShipmentWindowStart} onChange={(e) => setFormShipmentWindowStart(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Shipment Window End *</label>
+                  <input type="date" value={formShipmentWindowEnd} onChange={(e) => setFormShipmentWindowEnd(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Payment Terms *</label>
+                <input type="text" value={formPaymentTerms} onChange={(e) => setFormPaymentTerms(e.target.value)} disabled={creating} placeholder="e.g. 30% deposit, 70% on B/L" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              {createError && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{createError}</div>}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => !creating && setShowCreate(false)} className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-sm">Cancel</button>
+                <button type="submit" disabled={creating} className="flex-1 rounded-lg bg-[#4A3520] px-4 py-2 text-sm text-white disabled:opacity-60">
+                  {creating ? "Creating..." : "Create Contract"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Detail Drawer */}
       {selected && (

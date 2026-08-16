@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 import {
-  Clock, Coffee, Filter, Plus, Send,
+  Clock, Coffee, Filter, Plus, Send, X as XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/auth-client";
 import type { Contract } from "@/lib/types";
 
 const mockSamplesData = [];
@@ -27,6 +28,30 @@ export function SamplesPage() {
   // ─── Live data from backend ───
   const [samplesData, setSamplesData] = useState<any[] | null>(null);
 
+  // ─── Create Sample modal state ───
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [formLeadId, setFormLeadId] = useState("");
+  const [formSampleType, setFormSampleType] = useState("100g");
+  const [formBuyerCompany, setFormBuyerCompany] = useState("");
+  const [formBuyerCountry, setFormBuyerCountry] = useState("");
+  const [leadsForSelect, setLeadsForSelect] = useState<any[]>([]);
+
+  // Fetch leads list when modal opens
+  useEffect(() => {
+    if (!showCreate) return;
+    let cancelled = false;
+    apiFetch("/api/leads")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.leads)) setLeadsForSelect(data.leads);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [showCreate]);
+
   useEffect(() => {
     let cancelled = false;
     fetch("/api/samples")
@@ -48,6 +73,53 @@ export function SamplesPage() {
   }, []);
 
   const [filter, setFilter] = useState("All");
+
+  // ─── Refetch samples list ───
+  const refetchSamples = () => {
+    apiFetch("/api/samples")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok && Array.isArray(data.samples)) setSamplesData(data.samples);
+        else setSamplesData([]);
+      })
+      .catch(() => setSamplesData([]));
+  };
+
+  // ─── Create Sample handler ───
+  const handleCreate = () => {
+    setCreateError(null);
+    if (!formLeadId.trim()) {
+      setCreateError("Please select a lead.");
+      return;
+    }
+    if (!formBuyerCompany.trim() || !formBuyerCountry.trim()) {
+      setCreateError("Buyer company and destination country are required.");
+      return;
+    }
+    setCreating(true);
+    apiFetch("/api/samples", {
+      method: "POST",
+      body: JSON.stringify({
+        leadId: formLeadId.trim(),
+        sampleType: formSampleType,
+        buyerCompany: formBuyerCompany.trim(),
+        buyerDestinationCountry: formBuyerCountry.trim(),
+      }),
+    })
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok) {
+          setShowCreate(false);
+          setFormLeadId(""); setFormSampleType("100g");
+          setFormBuyerCompany(""); setFormBuyerCountry("");
+          refetchSamples();
+        } else {
+          setCreateError(data.error || "Failed to create sample.");
+        }
+      })
+      .catch((err) => setCreateError(`Failed: ${err.message}`))
+      .finally(() => setCreating(false));
+  };
 
   // Loading state
   if (!samplesData) {
@@ -85,7 +157,7 @@ export function SamplesPage() {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Samples</h1>
           <p className="text-sm text-gray-500 mt-1">Which samples are moving?</p>
         </div>
-        <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+        <button onClick={() => { setShowCreate(true); setCreateError(null); }} className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
           <Plus className="h-4 w-4" /> New Sample Request
         </button>
       </div>
@@ -244,6 +316,54 @@ export function SamplesPage() {
           <div className="h-2 rounded-full bg-amber-500" style={{ width: "87.5%" }} />
         </div>
       </div>
+      {/* Create Sample Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => !creating && setShowCreate(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-br from-[#2D1810] to-[#4A3520] p-4 text-white flex items-center justify-between">
+              <h2 className="text-lg font-bold">Create Sample</h2>
+              <button onClick={() => !creating && setShowCreate(false)} className="text-white/60 hover:text-white p-1">
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Lead *</label>
+                <select value={formLeadId} onChange={(e) => setFormLeadId(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                  <option value="">— Select a lead —</option>
+                  {leadsForSelect.map((l) => (
+                    <option key={l.id} value={l.id}>{l.id} · {l.company}</option>
+                  ))}
+                </select>
+                {leadsForSelect.length === 0 && <p className="text-[11px] text-gray-400 mt-1">No leads available. Create leads first.</p>}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Sample Type *</label>
+                <select value={formSampleType} onChange={(e) => setFormSampleType(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                  <option>100g</option>
+                  <option>350g</option>
+                  <option>1kg</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Buyer Company *</label>
+                <input type="text" value={formBuyerCompany} onChange={(e) => setFormBuyerCompany(e.target.value)} disabled={creating} placeholder="e.g. Hashimoto Coffee" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Buyer Destination Country *</label>
+                <input type="text" value={formBuyerCountry} onChange={(e) => setFormBuyerCountry(e.target.value)} disabled={creating} placeholder="e.g. Japan" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              {createError && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{createError}</div>}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => !creating && setShowCreate(false)} className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-sm">Cancel</button>
+                <button type="submit" disabled={creating} className="flex-1 rounded-lg bg-[#4A3520] px-4 py-2 text-sm text-white disabled:opacity-60">
+                  {creating ? "Creating..." : "Create Sample"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

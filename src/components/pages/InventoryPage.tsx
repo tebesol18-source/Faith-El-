@@ -5,6 +5,7 @@ import {
   ArrowRight, Plus, Sparkles, Upload, X as XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/auth-client";
 import type { Insight } from "@/lib/types";
 
 const mockLotsData = [];
@@ -39,6 +40,19 @@ export function InventoryPage() {
   const [csvText, setCsvText] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<string | null>(null);
+
+  // ─── Add Lot modal state ───
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [formRegion, setFormRegion] = useState("");
+  const [formStation, setFormStation] = useState("");
+  const [formCoop, setFormCoop] = useState("");
+  const [formProcess, setFormProcess] = useState("Washed");
+  const [formScreen, setFormScreen] = useState("");
+  const [formScore, setFormScore] = useState("");
+  const [formStock, setFormStock] = useState("");
+  const [formCropYear, setFormCropYear] = useState("25/26");
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +102,58 @@ export function InventoryPage() {
   const eudrComplete = lotsData.filter(l => l.eudr === "complete").length;
   const lowStock = lotsData.filter(l => l.stock > 0 && l.stock < 20).length;
 
+  // ─── Refetch inventory list ───
+  const refetchInventory = () => {
+    apiFetch("/api/inventory")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok && Array.isArray(data.lots)) setLotsData(data.lots);
+        else setLotsData([]);
+      })
+      .catch(() => setLotsData([]));
+  };
+
+  // ─── Add Lot handler ───
+  const handleCreate = () => {
+    setCreateError(null);
+    if (!formRegion.trim() || !formStation.trim() || !formCoop.trim()) {
+      setCreateError("Region, washing station, and coop name are required.");
+      return;
+    }
+    if (formScreen === "" || formScore === "" || formStock === "") {
+      setCreateError("Screen size, cupping score, and stock bags are required.");
+      return;
+    }
+    setCreating(true);
+    apiFetch("/api/inventory", {
+      method: "POST",
+      body: JSON.stringify({
+        region: formRegion.trim(),
+        washingStationName: formStation.trim(),
+        coopName: formCoop.trim(),
+        process: formProcess,
+        screenSize: Number(formScreen),
+        cuppingScore: Number(formScore),
+        stockBags: Number(formStock),
+        cropYear: formCropYear.trim() || "25/26",
+      }),
+    })
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok) {
+          setShowCreate(false);
+          setFormRegion(""); setFormStation(""); setFormCoop("");
+          setFormProcess("Washed"); setFormScreen(""); setFormScore("");
+          setFormStock(""); setFormCropYear("25/26");
+          refetchInventory();
+        } else {
+          setCreateError(data.error || "Failed to create lot.");
+        }
+      })
+      .catch((err) => setCreateError(`Failed: ${err.message}`))
+      .finally(() => setCreating(false));
+  };
+
   // ─── Inventory upload handler ───
   const handleUpload = () => {
     setUploading(true);
@@ -126,7 +192,7 @@ Guji,Hambela Station,Hambela Co-op,Washed,15,86.8,25/26,60,organic;FT,complete,5
           <button onClick={() => { setShowUpload(true); setUploadResult(null); }} className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 transition-colors">
             <Upload className="h-4 w-4" /> Upload Inventory
           </button>
-          <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+          <button onClick={() => { setShowCreate(true); setCreateError(null); }} className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
             <Plus className="h-4 w-4" /> Add Lot
           </button>
         </div>
@@ -268,6 +334,69 @@ Guji,Hambela Station,Hambela Co-op,Washed,15,86.8,25/26,60,organic;FT,complete,5
           </div>
         </div>
       </div>
+
+      {/* Add Lot Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => !creating && setShowCreate(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-br from-[#2D1810] to-[#4A3520] p-4 text-white flex items-center justify-between">
+              <h2 className="text-lg font-bold">Add Lot</h2>
+              <button onClick={() => !creating && setShowCreate(false)} className="text-white/60 hover:text-white p-1">
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Region *</label>
+                <input type="text" value={formRegion} onChange={(e) => setFormRegion(e.target.value)} disabled={creating} placeholder="e.g. Yirgacheffe" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Washing Station *</label>
+                <input type="text" value={formStation} onChange={(e) => setFormStation(e.target.value)} disabled={creating} placeholder="e.g. Konga Station" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Coop Name *</label>
+                <input type="text" value={formCoop} onChange={(e) => setFormCoop(e.target.value)} disabled={creating} placeholder="e.g. Yirgacheffe Union" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Process *</label>
+                <select value={formProcess} onChange={(e) => setFormProcess(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                  <option>Washed</option>
+                  <option>Natural</option>
+                  <option>Honey</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Screen Size *</label>
+                  <input type="number" step="0.5" value={formScreen} onChange={(e) => setFormScreen(e.target.value)} disabled={creating} placeholder="14" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Cupping Score *</label>
+                  <input type="number" step="0.1" value={formScore} onChange={(e) => setFormScore(e.target.value)} disabled={creating} placeholder="87.5" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Stock Bags *</label>
+                  <input type="number" value={formStock} onChange={(e) => setFormStock(e.target.value)} disabled={creating} placeholder="45" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Crop Year</label>
+                  <input type="text" value={formCropYear} onChange={(e) => setFormCropYear(e.target.value)} disabled={creating} placeholder="25/26" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+              </div>
+              {createError && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{createError}</div>}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => !creating && setShowCreate(false)} className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-sm">Cancel</button>
+                <button type="submit" disabled={creating} className="flex-1 rounded-lg bg-[#4A3520] px-4 py-2 text-sm text-white disabled:opacity-60">
+                  {creating ? "Creating..." : "Create Lot"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Inventory Upload Modal */}
       {showUpload && (

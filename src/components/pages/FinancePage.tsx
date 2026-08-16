@@ -5,6 +5,7 @@ import {
   ArrowDown, Coffee, DollarSign, FileText, Filter, Handshake, Package, Plus, Send, ShieldCheck, Ship, Sparkles, X as XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/auth-client";
 import type { Contract, Insight, Shipment, Transaction, TxnStatus, TxnType } from "@/lib/types";
 
 
@@ -37,6 +38,30 @@ export function FinancePage() {
   // ─── Live data from backend ───
   const [transactionsData, setTransactionsData] = useState<Transaction[] | null>(null);
   const [apiStats, setApiStats] = useState<any>(null);
+
+  // ─── Record Payment modal state ───
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [formContractId, setFormContractId] = useState("");
+  const [formAmountUsd, setFormAmountUsd] = useState("");
+  const [formPaymentDate, setFormPaymentDate] = useState("");
+  const [formPaymentMethod, setFormPaymentMethod] = useState("wire");
+  const [contractsForSelect, setContractsForSelect] = useState<any[]>([]);
+
+  // Fetch contracts list when modal opens
+  useEffect(() => {
+    if (!showCreate) return;
+    let cancelled = false;
+    apiFetch("/api/contracts")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.contracts)) setContractsForSelect(data.contracts);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [showCreate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +136,61 @@ export function FinancePage() {
 
   const selected = transactionsData.find(t => t.id === selectedTxn);
 
+  // ─── Refetch transactions list ───
+  const refetchFinance = () => {
+    apiFetch("/api/finance")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok && Array.isArray(data.transactions)) {
+          setTransactionsData(data.transactions);
+          setApiStats(data.stats);
+        } else {
+          setTransactionsData([]);
+        }
+      })
+      .catch(() => setTransactionsData([]));
+  };
+
+  // ─── Record Payment handler ───
+  const handleCreate = () => {
+    setCreateError(null);
+    if (!formContractId.trim()) {
+      setCreateError("Please select a contract.");
+      return;
+    }
+    if (formAmountUsd === "") {
+      setCreateError("Amount (USD) is required.");
+      return;
+    }
+    if (!formPaymentDate.trim()) {
+      setCreateError("Payment date is required.");
+      return;
+    }
+    setCreating(true);
+    apiFetch("/api/finance", {
+      method: "POST",
+      body: JSON.stringify({
+        contractId: formContractId.trim(),
+        amountUsd: Number(formAmountUsd),
+        paymentDate: formPaymentDate.trim(),
+        paymentMethod: formPaymentMethod,
+      }),
+    })
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok) {
+          setShowCreate(false);
+          setFormContractId(""); setFormAmountUsd("");
+          setFormPaymentDate(""); setFormPaymentMethod("wire");
+          refetchFinance();
+        } else {
+          setCreateError(data.error || "Failed to record payment.");
+        }
+      })
+      .catch((err) => setCreateError(`Failed: ${err.message}`))
+      .finally(() => setCreating(false));
+  };
+
   return (
     <main className="p-8 max-w-[1200px] mx-auto">
       {/* Header */}
@@ -119,8 +199,8 @@ export function FinancePage() {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Finance</h1>
           <p className="text-sm text-gray-500 mt-1">How much money have I made?</p>
         </div>
-        <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
-          <Plus className="h-4 w-4" /> New Invoice
+        <button onClick={() => { setShowCreate(true); setCreateError(null); }} className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+          <Plus className="h-4 w-4" /> Record Payment
         </button>
       </div>
 
@@ -413,6 +493,56 @@ export function FinancePage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Record Payment Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => !creating && setShowCreate(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-br from-[#2D1810] to-[#4A3520] p-4 text-white flex items-center justify-between">
+              <h2 className="text-lg font-bold">Record Payment</h2>
+              <button onClick={() => !creating && setShowCreate(false)} className="text-white/60 hover:text-white p-1">
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Contract *</label>
+                <select value={formContractId} onChange={(e) => setFormContractId(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                  <option value="">— Select a contract —</option>
+                  {contractsForSelect.map((c) => (
+                    <option key={c.id} value={c.id}>{c.id} · {c.buyer}</option>
+                  ))}
+                </select>
+                {contractsForSelect.length === 0 && <p className="text-[11px] text-gray-400 mt-1">No contracts available. Create contracts first.</p>}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Amount (USD) *</label>
+                <input type="number" step="0.01" value={formAmountUsd} onChange={(e) => setFormAmountUsd(e.target.value)} disabled={creating} placeholder="25000.00" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Payment Date *</label>
+                <input type="date" value={formPaymentDate} onChange={(e) => setFormPaymentDate(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Payment Method *</label>
+                <select value={formPaymentMethod} onChange={(e) => setFormPaymentMethod(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                  <option value="wire">Wire</option>
+                  <option value="lc">Letter of Credit (LC)</option>
+                  <option value="paypal">PayPal</option>
+                  <option value="crypto">Crypto</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              {createError && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{createError}</div>}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => !creating && setShowCreate(false)} className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-sm">Cancel</button>
+                <button type="submit" disabled={creating} className="flex-1 rounded-lg bg-[#4A3520] px-4 py-2 text-sm text-white disabled:opacity-60">
+                  {creating ? "Recording..." : "Record Payment"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

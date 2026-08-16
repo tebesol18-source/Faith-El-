@@ -5,6 +5,7 @@ import {
   Bot, Clock, Coffee, Filter, Send, Sparkles, TrendingUp, X as XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/auth-client";
 import type { Contract, Insight, Quote, QuoteLineItem, Shipment } from "@/lib/types";
 
 
@@ -257,6 +258,31 @@ export function QuotesPage() {
   const [filter, setFilter] = useState("All");
   const [selectedQuote, setSelectedQuote] = useState<string | null>(null);
 
+  // ─── Create Quote modal state ───
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [formLeadId, setFormLeadId] = useState("");
+  const [formLotId, setFormLotId] = useState("");
+  const [formBags, setFormBags] = useState("");
+  const [formPricePerBag, setFormPricePerBag] = useState("");
+  const [formValidUntil, setFormValidUntil] = useState("");
+  const [leadsForSelect, setLeadsForSelect] = useState<any[]>([]);
+
+  // Fetch leads list when modal opens
+  useEffect(() => {
+    if (!showCreate) return;
+    let cancelled = false;
+    apiFetch("/api/leads")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && Array.isArray(data.leads)) setLeadsForSelect(data.leads);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [showCreate]);
+
   // Loading state
   if (!quotesData) {
     return (
@@ -299,6 +325,60 @@ export function QuotesPage() {
   const selected = quotesData.find(q => q.id === selectedQuote);
   const urgentQuotes = quotesData.filter(q => q.daysToExpiry !== null && q.daysToExpiry > 0 && q.daysToExpiry <= 7 && ["sent", "pending_approval", "revised"].includes(q.status));
 
+  // ─── Refetch quotes list ───
+  const refetchQuotes = () => {
+    apiFetch("/api/quotes")
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok && Array.isArray(data.quotes)) setQuotesData(data.quotes);
+        else setQuotesData([]);
+      })
+      .catch(() => setQuotesData([]));
+  };
+
+  // ─── Create Quote handler ───
+  const handleCreate = () => {
+    setCreateError(null);
+    if (!formLeadId.trim()) {
+      setCreateError("Please select a lead.");
+      return;
+    }
+    if (!formLotId.trim() || formBags === "" || formPricePerBag === "") {
+      setCreateError("Lot ID, bags, and price per bag are required.");
+      return;
+    }
+    if (!formValidUntil.trim()) {
+      setCreateError("Valid until date is required.");
+      return;
+    }
+    setCreating(true);
+    apiFetch("/api/quotes", {
+      method: "POST",
+      body: JSON.stringify({
+        leadId: formLeadId.trim(),
+        lineItems: [{
+          lotId: formLotId.trim(),
+          bags: Number(formBags),
+          pricePerBag: Number(formPricePerBag),
+        }],
+        validUntil: formValidUntil.trim(),
+      }),
+    })
+      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
+      .then((data) => {
+        if (data.ok) {
+          setShowCreate(false);
+          setFormLeadId(""); setFormLotId(""); setFormBags("");
+          setFormPricePerBag(""); setFormValidUntil("");
+          refetchQuotes();
+        } else {
+          setCreateError(data.error || "Failed to create quote.");
+        }
+      })
+      .catch((err) => setCreateError(`Failed: ${err.message}`))
+      .finally(() => setCreating(false));
+  };
+
   return (
     <main className="p-8 max-w-[1200px] mx-auto">
       {/* Header */}
@@ -307,7 +387,7 @@ export function QuotesPage() {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Quotes</h1>
           <p className="text-sm text-gray-500 mt-1">Which quotes need approval?</p>
         </div>
-        <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+        <button onClick={() => { setShowCreate(true); setCreateError(null); }} className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
           <Sparkles className="h-4 w-4" /> New Quote (AI Draft)
         </button>
       </div>
@@ -548,6 +628,57 @@ export function QuotesPage() {
           );
         })}
       </div>
+
+      {/* Create Quote Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => !creating && setShowCreate(false)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-br from-[#2D1810] to-[#4A3520] p-4 text-white flex items-center justify-between">
+              <h2 className="text-lg font-bold">Create Quote</h2>
+              <button onClick={() => !creating && setShowCreate(false)} className="text-white/60 hover:text-white p-1">
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Lead *</label>
+                <select value={formLeadId} onChange={(e) => setFormLeadId(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10">
+                  <option value="">— Select a lead —</option>
+                  {leadsForSelect.map((l) => (
+                    <option key={l.id} value={l.id}>{l.id} · {l.company}</option>
+                  ))}
+                </select>
+                {leadsForSelect.length === 0 && <p className="text-[11px] text-gray-400 mt-1">No leads available. Create leads first.</p>}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Lot ID *</label>
+                <input type="text" value={formLotId} onChange={(e) => setFormLotId(e.target.value)} disabled={creating} placeholder="e.g. LOT-001" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Bags *</label>
+                  <input type="number" value={formBags} onChange={(e) => setFormBags(e.target.value)} disabled={creating} placeholder="100" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Price / Bag (USD) *</label>
+                  <input type="number" step="0.01" value={formPricePerBag} onChange={(e) => setFormPricePerBag(e.target.value)} disabled={creating} placeholder="250.00" className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1.5">Valid Until *</label>
+                <input type="date" value={formValidUntil} onChange={(e) => setFormValidUntil(e.target.value)} disabled={creating} className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 focus:outline-none focus:border-[#4A3520] focus:ring-2 focus:ring-[#4A3520]/10" />
+              </div>
+              {createError && <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">{createError}</div>}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => !creating && setShowCreate(false)} className="flex-1 rounded-lg border border-gray-200 px-4 py-2 text-sm">Cancel</button>
+                <button type="submit" disabled={creating} className="flex-1 rounded-lg bg-[#4A3520] px-4 py-2 text-sm text-white disabled:opacity-60">
+                  {creating ? "Creating..." : "Create Quote"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Quote Detail Drawer */}
       {selected && (
