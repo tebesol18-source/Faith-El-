@@ -33,7 +33,7 @@ const CSRF_HEADER = "x-csrf-token";
 const ROUTE_LIMITS: { pattern: RegExp; limit: number; windowMs: number }[] = [
   { pattern: /^\/api\/auth\/login$/, limit: 30, windowMs: 60_000 },
   { pattern: /^\/api\/auth\/request-access$/, limit: 20, windowMs: 60_000 },
-  { pattern: /^\/api\/agents\/research-leads$/, limit: 10, windowMs: 60_000 },
+  { pattern: /^\/api\/agents\/research-leads$/, limit: 30, windowMs: 60_000 },
   { pattern: /^\/api\/approvals$/, limit: 30, windowMs: 60_000 },
 ];
 

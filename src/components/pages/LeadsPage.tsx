@@ -5,6 +5,7 @@ import {
   Bot, ChevronRight, Coffee, Filter, Mail, Plus, Send, Sparkles, X as XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/auth-client";
 import type { Insight } from "@/lib/types";
 
 const mockLeadsData = [];
@@ -51,7 +52,7 @@ export function LeadsPage() {
   const [leadsError, setLeadsError] = useState<string | null>(null);
 
   const refetchLeads = () => {
-    fetch("/api/leads")
+    apiFetch("/api/leads")
       .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
       .then((data) => {
         if (data.ok && Array.isArray(data.leads) && data.leads.length > 0) setLeadsData(data.leads);
@@ -68,9 +69,8 @@ export function LeadsPage() {
   const handleResearch = () => {
     setResearching(true);
     setResearchResult(null);
-    fetch("/api/agents/research-leads", {
+    apiFetch("/api/agents/research-leads", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ country: researchCountry, segment: researchSegment, count: researchCount }),
     })
       .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })

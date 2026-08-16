@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AIAgent, ApprovalItem, AuditEntry, Contract, Operator, OperatorRole, Page, Quote, Seller, SellerDeal, SellerRisk, Shipment } from "@/lib/types";
-import { getCsrfToken } from "@/lib/auth-client";
+import { getCsrfToken, apiFetch } from "@/lib/auth-client";
 
 
 
@@ -91,11 +91,11 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
 
   // ─── Pause/Resume handlers (REAL — calls backend API) ───
   const handlePauseAgent = (agentId: string) => {
-    fetch(`/api/agents/${encodeURIComponent(agentId)}/pause`, { method: "POST" })
+    apiFetch(`/api/agents/${encodeURIComponent(agentId)}/pause`, { method: "POST" })
       .then(() => fetchSupervisor()); // Refresh after pause
   };
   const handleResumeAgent = (agentId: string) => {
-    fetch(`/api/agents/${encodeURIComponent(agentId)}/resume`, { method: "POST" })
+    apiFetch(`/api/agents/${encodeURIComponent(agentId)}/resume`, { method: "POST" })
       .then(() => fetchSupervisor()); // Refresh after resume
   };
 
