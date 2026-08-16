@@ -24,7 +24,11 @@ const Database = require("better-sqlite3");
 const path = require("path");
 const fs = require("fs");
 
-const DB_PATH = "/app/coffee_export/data/coffee_export.db";
+const DB_PATH = process.env.COFFEE_DATABASE_URL
+  ? process.env.COFFEE_DATABASE_URL.replace("sqlite:///", "").replace("sqlite://", "")
+  : (require("fs").existsSync("/home/z/my-project/coffee_export/data/coffee_export.db")
+      ? "/home/z/my-project/coffee_export/data/coffee_export.db"
+      : "/home/z/my-project/state/coffee_export.db");
 const PID_FILE = "/tmp/coffee-export-supervisor.pid";
 
 // ─── Event → Agent routing ───

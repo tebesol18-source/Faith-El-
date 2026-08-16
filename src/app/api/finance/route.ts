@@ -12,9 +12,13 @@
  * Frontend expects: { ok, transactions: [...], stats: {...} }
  */
 
-import { NextResponse } from "next/server";
-import { getReadonlyDb } from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
+import { getReadonlyDb, getWritableDb } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
+
+function nowISO(): string {
+  return new Date().toISOString().replace("Z", "+03:00");
+}
 
 function relativeTime(ts: string | null): string {
   if (!ts) return "Never";
@@ -204,5 +208,254 @@ export async function GET(request: any) {
   } catch (error: any) {
     console.error("[/api/finance] Error:", error);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/finance
+ *
+ * Records a payment against a contract. If no invoice exists for the
+ * contract yet, one is created automatically (using the contract's
+ * total_value as the invoice total). The payment is then linked to the
+ * invoice and the invoice's paid_amount / outstanding_balance / status
+ * are updated.
+ *
+ * Body:
+ *   contractId: string       (required)
+ *   amountUsd: number        (required, > 0)
+ *   paymentDate: string      (required, ISO date)
+ *   paymentMethod: string    (required — wire|lc|paypal|crypto|other)
+ *   referenceNumber?: string (optional, bank ref)
+ *   bankName?: string        (optional)
+ *   notes?: string           (optional)
+ *
+ * Response: 201 { ok: true, payment: {...}, invoice: {...} } | 400 | 404 | 500
+ */
+const VALID_PAYMENT_METHODS = ["wire", "lc", "paypal", "crypto", "other"];
+
+export async function POST(request: NextRequest) {
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { contractId, amountUsd, paymentDate, paymentMethod, referenceNumber, bankName, notes } = body || {};
+
+  // ─── Validate required fields ───
+  const missing: string[] = [];
+  if (!contractId) missing.push("contractId");
+  if (amountUsd == null) missing.push("amountUsd");
+  if (!paymentDate) missing.push("paymentDate");
+  if (!paymentMethod) missing.push("paymentMethod");
+  if (missing.length > 0) {
+    return NextResponse.json(
+      { ok: false, error: `Missing required fields: ${missing.join(", ")}` },
+      { status: 400 }
+    );
+  }
+
+  if (!VALID_PAYMENT_METHODS.includes(paymentMethod)) {
+    return NextResponse.json(
+      { ok: false, error: `paymentMethod must be one of: ${VALID_PAYMENT_METHODS.join(", ")}` },
+      { status: 400 }
+    );
+  }
+
+  const amountNum = Number(amountUsd);
+  if (isNaN(amountNum) || amountNum <= 0) {
+    return NextResponse.json(
+      { ok: false, error: "amountUsd must be a positive number" },
+      { status: 400 }
+    );
+  }
+
+  const paymentDateTs = new Date(paymentDate);
+  if (isNaN(paymentDateTs.getTime())) {
+    return NextResponse.json(
+      { ok: false, error: "paymentDate must be a valid ISO date string" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const db = getWritableDb();
+    try {
+      // Verify contract exists (and grab lead_id + total_value for the invoice)
+      const contract = db.prepare(`
+        SELECT contract_id, lead_id, total_value, currency
+        FROM contracts
+        WHERE contract_id = ? AND organization_id = ? AND deleted_ts IS NULL
+      `).get(contractId, orgId) as {
+        contract_id: string;
+        lead_id: string;
+        total_value: number | null;
+        currency: string | null;
+      } | undefined;
+
+      if (!contract) {
+        return NextResponse.json(
+          { ok: false, error: `Contract not found: ${contractId}` },
+          { status: 404 }
+        );
+      }
+
+      const now = nowISO();
+      const yyyy = String(new Date().getFullYear());
+
+      // ─── Find or create the invoice for this contract ───
+      let invoice = db.prepare(`
+        SELECT invoice_id, total_usd, paid_amount_usd, outstanding_balance_usd, status
+        FROM invoices
+        WHERE contract_id = ? AND organization_id = ?
+        ORDER BY created_ts DESC LIMIT 1
+      `).get(contractId, orgId) as {
+        invoice_id: string;
+        total_usd: number;
+        paid_amount_usd: number;
+        outstanding_balance_usd: number;
+        status: string;
+      } | undefined;
+
+      let invoiceCreated = false;
+      if (!invoice) {
+        // Generate invoice_id: INV-YYYY-NNNN
+        const invPrefix = `INV-${yyyy}-`;
+        const lastInv = db.prepare(`
+          SELECT invoice_id FROM invoices
+          WHERE invoice_id LIKE ?
+          ORDER BY invoice_id DESC
+          LIMIT 1
+        `).get(`${invPrefix}%`) as { invoice_id: string } | undefined;
+
+        let invNum = 1;
+        if (lastInv?.invoice_id) {
+          const m = lastInv.invoice_id.match(/(\d+)$/);
+          if (m) invNum = parseInt(m[1], 10) + 1;
+        }
+        const invoiceId = `${invPrefix}${String(invNum).padStart(4, "0")}`;
+        const invoiceTotal = contract.total_value || 0;
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + 30);
+
+        db.prepare(`
+          INSERT INTO invoices (
+            invoice_id, contract_id, lead_id, organization_id,
+            invoice_number, issue_date, due_date,
+            currency, subtotal_usd, tax_usd, total_usd,
+            status, paid_amount_usd, outstanding_balance_usd,
+            created_ts, updated_ts
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'issued', 0, ?, ?, ?)
+        `).run(
+          invoiceId, contractId, contract.lead_id, orgId,
+          invoiceId,                 // invoice_number (human-readable)
+          now,                       // issue_date
+          dueDate.toISOString(),     // due_date (30 days from now)
+          contract.currency || "USD",
+          invoiceTotal,              // subtotal_usd
+          invoiceTotal,              // total_usd
+          invoiceTotal,              // outstanding_balance_usd
+          now, now
+        );
+
+        invoice = {
+          invoice_id: invoiceId,
+          total_usd: invoiceTotal,
+          paid_amount_usd: 0,
+          outstanding_balance_usd: invoiceTotal,
+          status: "issued",
+        };
+        invoiceCreated = true;
+      }
+
+      // ─── Generate payment_id: PAY-YYYY-NNNN ───
+      const payPrefix = `PAY-${yyyy}-`;
+      const lastPay = db.prepare(`
+        SELECT payment_id FROM payments
+        WHERE payment_id LIKE ?
+        ORDER BY payment_id DESC
+        LIMIT 1
+      `).get(`${payPrefix}%`) as { payment_id: string } | undefined;
+
+      let payNum = 1;
+      if (lastPay?.payment_id) {
+        const m = lastPay.payment_id.match(/(\d+)$/);
+        if (m) payNum = parseInt(m[1], 10) + 1;
+      }
+      const paymentId = `${payPrefix}${String(payNum).padStart(4, "0")}`;
+
+      // ─── Insert the payment ───
+      db.prepare(`
+        INSERT INTO payments (
+          payment_id, invoice_id, contract_id, lead_id, organization_id,
+          amount_usd, payment_date, payment_method,
+          reference_number, bank_name,
+          status, notes, created_ts
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)
+      `).run(
+        paymentId, invoice.invoice_id, contractId, contract.lead_id, orgId,
+        amountNum, paymentDate, paymentMethod,
+        referenceNumber || null, bankName || null,
+        notes || null, now
+      );
+
+      // ─── Update the invoice: paid_amount + outstanding_balance + status ───
+      const newPaidAmount = (invoice.paid_amount_usd || 0) + amountNum;
+      const totalUsd = invoice.total_usd || 0;
+      const newOutstanding = Math.max(0, totalUsd - newPaidAmount);
+      let newStatus = invoice.status;
+      if (totalUsd > 0 && newPaidAmount >= totalUsd) {
+        newStatus = "paid";
+      } else if (newPaidAmount > 0) {
+        newStatus = "partial";
+      }
+
+      db.prepare(`
+        UPDATE invoices
+        SET paid_amount_usd = ?, outstanding_balance_usd = ?, status = ?, updated_ts = ?
+        WHERE invoice_id = ? AND organization_id = ?
+      `).run(newPaidAmount, newOutstanding, newStatus, now, invoice.invoice_id, orgId);
+
+      return NextResponse.json({
+        ok: true,
+        payment: {
+          id: paymentId,
+          invoiceId: invoice.invoice_id,
+          contractId,
+          leadId: contract.lead_id,
+          amountUsd: amountNum,
+          paymentDate,
+          paymentMethod,
+          referenceNumber: referenceNumber || null,
+          bankName: bankName || null,
+          status: "confirmed",
+          notes: notes || null,
+          organization_id: orgId,
+          created_ts: now,
+        },
+        invoice: {
+          id: invoice.invoice_id,
+          contractId,
+          totalUsd: invoice.total_usd || 0,
+          paidAmountUsd: newPaidAmount,
+          outstandingBalanceUsd: newOutstanding,
+          status: newStatus,
+          created: invoiceCreated,
+        },
+      }, { status: 201 });
+    } finally {
+      db.close();
+    }
+  } catch (error: any) {
+    console.error("[/api/finance POST] Error:", error);
+    return NextResponse.json(
+      { ok: false, error: error.message || "Failed to record payment" },
+      { status: 500 }
+    );
   }
 }

@@ -14,8 +14,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getReadonlyDb } from "@/lib/db";
+import { getReadonlyDb, getWritableDb } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
+
+function nowISO(): string {
+  return new Date().toISOString().replace("Z", "+03:00");
+}
 
 /**
  * Map backend contract status → frontend contract status.
@@ -232,6 +236,192 @@ export async function GET(request: NextRequest) {
     console.error("[/api/contracts] Error:", error);
     return NextResponse.json(
       { ok: false, error: error.message || "Failed to fetch contracts" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * POST /api/contracts
+ *
+ * Creates a new contract.
+ *
+ * Body:
+ *   leadId: string               (required)
+ *   totalVolumeBags: number      (required)
+ *   totalValue: number           (required)
+ *   incoterm: string             (required — FOB|CIF|EXW|FCA|CFR)
+ *   currency: string             (required, e.g. "USD")
+ *   shipmentWindowStart: string  (required, ISO date)
+ *   shipmentWindowEnd: string    (required, ISO date)
+ *   paymentTerms: string         (required)
+ *   contractNumber?: string      (optional, defaults to contract_id)
+ *   notes?: string               (optional)
+ *
+ * Response: 201 { ok: true, contract: {...} } | 400 | 500
+ */
+const VALID_CONTRACT_INCOTERMS = ["FOB", "CIF", "EXW", "FCA", "CFR"];
+
+export async function POST(request: NextRequest) {
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const {
+    leadId, totalVolumeBags, totalValue, incoterm, currency,
+    shipmentWindowStart, shipmentWindowEnd, paymentTerms,
+    contractNumber, notes,
+  } = body || {};
+
+  // ─── Validate required fields ───
+  const missing: string[] = [];
+  if (!leadId) missing.push("leadId");
+  if (totalVolumeBags == null) missing.push("totalVolumeBags");
+  if (totalValue == null) missing.push("totalValue");
+  if (!incoterm) missing.push("incoterm");
+  if (!currency) missing.push("currency");
+  if (!shipmentWindowStart) missing.push("shipmentWindowStart");
+  if (!shipmentWindowEnd) missing.push("shipmentWindowEnd");
+  if (!paymentTerms) missing.push("paymentTerms");
+  if (missing.length > 0) {
+    return NextResponse.json(
+      { ok: false, error: `Missing required fields: ${missing.join(", ")}` },
+      { status: 400 }
+    );
+  }
+
+  if (!VALID_CONTRACT_INCOTERMS.includes(incoterm)) {
+    return NextResponse.json(
+      { ok: false, error: `incoterm must be one of: ${VALID_CONTRACT_INCOTERMS.join(", ")}` },
+      { status: 400 }
+    );
+  }
+
+  const volumeBagsNum = Number(totalVolumeBags);
+  const totalValueNum = Number(totalValue);
+  if (isNaN(volumeBagsNum) || volumeBagsNum <= 0) {
+    return NextResponse.json(
+      { ok: false, error: "totalVolumeBags must be a positive number" },
+      { status: 400 }
+    );
+  }
+  if (isNaN(totalValueNum) || totalValueNum < 0) {
+    return NextResponse.json(
+      { ok: false, error: "totalValue must be a non-negative number" },
+      { status: 400 }
+    );
+  }
+
+  // Validate shipment window dates
+  const windowStart = new Date(shipmentWindowStart);
+  const windowEnd = new Date(shipmentWindowEnd);
+  if (isNaN(windowStart.getTime())) {
+    return NextResponse.json(
+      { ok: false, error: "shipmentWindowStart must be a valid ISO date string" },
+      { status: 400 }
+    );
+  }
+  if (isNaN(windowEnd.getTime())) {
+    return NextResponse.json(
+      { ok: false, error: "shipmentWindowEnd must be a valid ISO date string" },
+      { status: 400 }
+    );
+  }
+  if (windowEnd < windowStart) {
+    return NextResponse.json(
+      { ok: false, error: "shipmentWindowEnd must be on or after shipmentWindowStart" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const db = getWritableDb();
+    try {
+      // Verify lead exists (FK enforcement)
+      const lead = db.prepare(`
+        SELECT lead_id FROM leads WHERE lead_id = ? AND organization_id = ? AND deleted_ts IS NULL
+      `).get(leadId, orgId) as { lead_id: string } | undefined;
+      if (!lead) {
+        return NextResponse.json(
+          { ok: false, error: `Lead not found: ${leadId}` },
+          { status: 404 }
+        );
+      }
+
+      const now = nowISO();
+      const yyyy = String(new Date().getFullYear());
+      const prefix = `CT-${yyyy}-`;
+
+      // ─── Generate contract_id: CT-YYYY-NNNN ───
+      const last = db.prepare(`
+        SELECT contract_id FROM contracts
+        WHERE contract_id LIKE ?
+        ORDER BY contract_id DESC
+        LIMIT 1
+      `).get(`${prefix}%`) as { contract_id: string } | undefined;
+
+      let nextNum = 1;
+      if (last?.contract_id) {
+        const m = last.contract_id.match(/(\d+)$/);
+        if (m) nextNum = parseInt(m[1], 10) + 1;
+      }
+      const contractId = `${prefix}${String(nextNum).padStart(4, "0")}`;
+
+      // ─── Insert the contract ───
+      db.prepare(`
+        INSERT INTO contracts (
+          contract_id, lead_id, organization_id,
+          contract_number, contract_date, contract_template,
+          incoterm, currency,
+          total_volume_bags, total_value,
+          shipment_window_start, shipment_window_end,
+          payment_terms, status, is_repeat,
+          created_ts, updated_ts
+        ) VALUES (?, ?, ?, ?, ?, 'ICC_ECE_7_21', ?, ?, ?, ?, ?, ?, ?, 'draft', 0, ?, ?)
+      `).run(
+        contractId, leadId, orgId,
+        contractNumber || contractId,   // contract_number (human-readable)
+        now,                            // contract_date
+        incoterm, currency,
+        volumeBagsNum, totalValueNum,
+        shipmentWindowStart, shipmentWindowEnd,
+        paymentTerms,
+        now, now
+      );
+
+      return NextResponse.json({
+        ok: true,
+        contract: {
+          id: contractId,
+          contractNumber: contractNumber || contractId,
+          leadId,
+          totalVolumeBags: volumeBagsNum,
+          totalValue: totalValueNum,
+          incoterm,
+          currency,
+          shipmentWindowStart,
+          shipmentWindowEnd,
+          paymentTerms,
+          status: "draft",
+          notes: notes || null,
+          organization_id: orgId,
+          created_ts: now,
+        },
+      }, { status: 201 });
+    } finally {
+      db.close();
+    }
+  } catch (error: any) {
+    console.error("[/api/contracts POST] Error:", error);
+    return NextResponse.json(
+      { ok: false, error: error.message || "Failed to create contract" },
       { status: 500 }
     );
   }

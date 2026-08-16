@@ -13,9 +13,13 @@
  * Joins with contracts for value and with lead_contacts for buyer info.
  */
 
-import { NextResponse } from "next/server";
-import { getReadonlyDb } from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
+import { getReadonlyDb, getWritableDb } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
+
+function nowISO(): string {
+  return new Date().toISOString().replace("Z", "+03:00");
+}
 
 function relativeTime(ts: string | null): string {
   if (!ts) return "Never";
@@ -151,5 +155,184 @@ export async function GET(request: any) {
   } catch (error: any) {
     console.error("[/api/deals] Error:", error);
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/deals
+ *
+ * Creates a deal from a lead. There is no `deals` table — deals are derived
+ * from leads (see GET above). So this endpoint:
+ *   1. Validates the lead exists (org-scoped).
+ *   2. Promotes the lead's current_state to QUALIFIED (idempotent if already
+ *      at or beyond QUALIFIED) and writes a lead_state_history audit row.
+ *   3. Returns a synthetic deal object with deal_id = DEAL-YYYY-NNNN.
+ *
+ * Body:
+ *   leadId: string         (required)
+ *   estimatedValue: number (required, >= 0)
+ *
+ * Response: 201 { ok: true, deal: {...} } | 400 | 404 | 500
+ *
+ * NOTE: The `leads` table has no `deal_value` column, so the estimated value
+ * is only returned in the response — it is not persisted on the lead.
+ */
+const DEAL_STATES = [
+  "QUALIFIED",
+  "SAMPLE_DISPATCHED",
+  "SAMPLE_FEEDBACK_DUE",
+  "DECIDED_APPROVED",
+  "DECIDED_NEEDS_ANOTHER",
+  "CONTRACTED",
+];
+
+export async function POST(request: NextRequest) {
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { leadId, estimatedValue } = body || {};
+
+  // ─── Validate required fields ───
+  const missing: string[] = [];
+  if (!leadId) missing.push("leadId");
+  if (estimatedValue == null) missing.push("estimatedValue");
+  if (missing.length > 0) {
+    return NextResponse.json(
+      { ok: false, error: `Missing required fields: ${missing.join(", ")}` },
+      { status: 400 }
+    );
+  }
+
+  const estimatedValueNum = Number(estimatedValue);
+  if (isNaN(estimatedValueNum) || estimatedValueNum < 0) {
+    return NextResponse.json(
+      { ok: false, error: "estimatedValue must be a non-negative number" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const db = getWritableDb();
+    try {
+      // Verify lead exists (org-scoped)
+      const lead = db.prepare(`
+        SELECT lead_id, company_name, headquarters_country, headquarters_city,
+               current_state, priority_tier, current_agent
+        FROM leads
+        WHERE lead_id = ? AND organization_id = ? AND deleted_ts IS NULL
+      `).get(leadId, orgId) as {
+        lead_id: string;
+        company_name: string;
+        headquarters_country: string | null;
+        headquarters_city: string | null;
+        current_state: string;
+        priority_tier: string | null;
+        current_agent: string;
+      } | undefined;
+
+      if (!lead) {
+        return NextResponse.json(
+          { ok: false, error: `Lead not found: ${leadId}` },
+          { status: 404 }
+        );
+      }
+
+      const now = nowISO();
+      const yyyy = String(new Date().getFullYear());
+      const previousState = lead.current_state;
+
+      // ─── Promote lead to QUALIFIED (only if not already past that stage) ───
+      if (!DEAL_STATES.includes(lead.current_state)) {
+        db.prepare(`
+          UPDATE leads
+          SET current_state = 'QUALIFIED', updated_ts = ?
+          WHERE lead_id = ? AND organization_id = ?
+        `).run(now, leadId, orgId);
+
+        // Append to lead_state_history (audit trail)
+        try {
+          db.prepare(`
+            INSERT INTO lead_state_history (lead_id, from_state, to_state, agent_id, ts, notes)
+            VALUES (?, ?, 'QUALIFIED', ?, ?, ?)
+          `).run(
+            leadId,
+            previousState,
+            auth.user.email,
+            now,
+            `Deal created (estimatedValue=$${estimatedValueNum.toFixed(2)})`
+          );
+        } catch (e) {
+          // Non-fatal — the lead update already succeeded
+          console.warn("[/api/deals POST] lead_state_history insert failed:", e);
+        }
+      }
+
+      // ─── Generate synthetic deal_id: DEAL-YYYY-NNNN ───
+      // Count existing deal-stage leads for this org to derive the next number.
+      const countRow = db.prepare(`
+        SELECT COUNT(*) AS cnt FROM leads
+        WHERE organization_id = ?
+          AND current_state IN (${DEAL_STATES.map(() => "?").join(", ")})
+      `).get(orgId, ...DEAL_STATES) as { cnt: number };
+
+      const nextNum = (countRow?.cnt || 0) + 1;
+      const dealId = `DEAL-${yyyy}-${String(nextNum).padStart(4, "0")}`;
+
+      // ─── Compose the synthetic deal object ───
+      // Stage mapping mirrors the GET handler's mapLeadStateToDealStage.
+      const newState = DEAL_STATES.includes(lead.current_state) ? lead.current_state : "QUALIFIED";
+      const stageMap: Record<string, { stage: string; health: string }> = {
+        QUALIFIED: { stage: "quoting", health: "healthy" },
+        SAMPLE_DISPATCHED: { stage: "sampling", health: "waiting" },
+        SAMPLE_FEEDBACK_DUE: { stage: "sampling", health: "waiting" },
+        DECIDED_APPROVED: { stage: "contract_drafted", health: "healthy" },
+        DECIDED_NEEDS_ANOTHER: { stage: "sampling", health: "at_risk" },
+        CONTRACTED: { stage: "closed_won", health: "healthy" },
+      };
+      const { stage, health } = stageMap[newState] || { stage: "quoting", health: "healthy" };
+      const stageProbabilities: Record<string, number> = {
+        prospecting: 10, qualified: 25, quoting: 40, sampling: 50,
+        negotiating: 60, contract_drafted: 80, closed_won: 100, closed_lost: 0,
+      };
+
+      return NextResponse.json({
+        ok: true,
+        deal: {
+          id: dealId,
+          lead: lead.company_name,
+          leadId: lead.lead_id,
+          stage,
+          origin: lead.headquarters_country || "Unknown",
+          value: estimatedValueNum,
+          probability: stageProbabilities[stage] || 40,
+          health,
+          status: "open",
+          previousState,
+          newState,
+          contact: null,
+          agent: lead.current_agent,
+          tier: lead.priority_tier,
+          organization_id: orgId,
+          created_ts: now,
+          note: "Synthetic deal — derived from lead (no deals table). estimatedValue is not persisted on the lead.",
+        },
+      }, { status: 201 });
+    } finally {
+      db.close();
+    }
+  } catch (error: any) {
+    console.error("[/api/deals POST] Error:", error);
+    return NextResponse.json(
+      { ok: false, error: error.message || "Failed to create deal" },
+      { status: 500 }
+    );
   }
 }

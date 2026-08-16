@@ -4,9 +4,13 @@
  * Maps shipments → frontend Shipment shape with vessel, container, route, ETA, status.
  * Joins with contracts for buyer + value info.
  */
-import { NextResponse } from "next/server";
-import { getReadonlyDb } from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
+import { getReadonlyDb, getWritableDb } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
+
+function nowISO(): string {
+  return new Date().toISOString().replace("Z", "+03:00");
+}
 
 function formatDate(ts: string | null): string {
   if (!ts) return "—";
@@ -116,5 +120,160 @@ export async function GET(request: any) {
     } finally { db.close(); }
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+}
+
+/**
+ * POST /api/shipments
+ *
+ * Creates a new shipment.
+ *
+ * Body:
+ *   contractId: string     (required)
+ *   carrier: string        (required)
+ *   departurePort: string  (required)
+ *   arrivalPort: string    (required)
+ *   etd: string            (required, ISO date — estimated time of departure)
+ *   eta: string            (required, ISO date — estimated time of arrival)
+ *   vesselName?: string    (optional)
+ *   containerNumber?: string  (optional)
+ *   billOfLadingNumber?: string  (optional)
+ *   notes?: string         (optional)
+ *
+ * Response: 201 { ok: true, shipment: {...} } | 400 | 500
+ */
+export async function POST(request: NextRequest) {
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const {
+    contractId, carrier, departurePort, arrivalPort, etd, eta,
+    vesselName, containerNumber, billOfLadingNumber, notes,
+  } = body || {};
+
+  // ─── Validate required fields ───
+  const missing: string[] = [];
+  if (!contractId) missing.push("contractId");
+  if (!carrier) missing.push("carrier");
+  if (!departurePort) missing.push("departurePort");
+  if (!arrivalPort) missing.push("arrivalPort");
+  if (!etd) missing.push("etd");
+  if (!eta) missing.push("eta");
+  if (missing.length > 0) {
+    return NextResponse.json(
+      { ok: false, error: `Missing required fields: ${missing.join(", ")}` },
+      { status: 400 }
+    );
+  }
+
+  // Validate dates
+  const etdDate = new Date(etd);
+  const etaDate = new Date(eta);
+  if (isNaN(etdDate.getTime())) {
+    return NextResponse.json(
+      { ok: false, error: "etd must be a valid ISO date string" },
+      { status: 400 }
+    );
+  }
+  if (isNaN(etaDate.getTime())) {
+    return NextResponse.json(
+      { ok: false, error: "eta must be a valid ISO date string" },
+      { status: 400 }
+    );
+  }
+  if (etaDate < etdDate) {
+    return NextResponse.json(
+      { ok: false, error: "eta must be on or after etd" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const db = getWritableDb();
+    try {
+      // Verify contract exists (FK enforcement)
+      const contract = db.prepare(`
+        SELECT contract_id FROM contracts
+        WHERE contract_id = ? AND organization_id = ? AND deleted_ts IS NULL
+      `).get(contractId, orgId) as { contract_id: string } | undefined;
+      if (!contract) {
+        return NextResponse.json(
+          { ok: false, error: `Contract not found: ${contractId}` },
+          { status: 404 }
+        );
+      }
+
+      const now = nowISO();
+      const yyyy = String(new Date().getFullYear());
+      const prefix = `SH-${yyyy}-`;
+
+      // ─── Generate shipment_id: SH-YYYY-NNNN ───
+      const last = db.prepare(`
+        SELECT shipment_id FROM shipments
+        WHERE shipment_id LIKE ?
+        ORDER BY shipment_id DESC
+        LIMIT 1
+      `).get(`${prefix}%`) as { shipment_id: string } | undefined;
+
+      let nextNum = 1;
+      if (last?.shipment_id) {
+        const m = last.shipment_id.match(/(\d+)$/);
+        if (m) nextNum = parseInt(m[1], 10) + 1;
+      }
+      const shipmentId = `${prefix}${String(nextNum).padStart(4, "0")}`;
+
+      // ─── Insert the shipment ───
+      db.prepare(`
+        INSERT INTO shipments (
+          shipment_id, contract_id, organization_id,
+          carrier, vessel_name, bill_of_lading_number, container_number,
+          departure_port, arrival_port, etd, eta,
+          status, notes,
+          created_ts, updated_ts
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+      `).run(
+        shipmentId, contractId, orgId,
+        carrier, vesselName || null, billOfLadingNumber || null, containerNumber || null,
+        departurePort, arrivalPort, etd, eta,
+        notes || null,
+        now, now
+      );
+
+      return NextResponse.json({
+        ok: true,
+        shipment: {
+          id: shipmentId,
+          contractId,
+          carrier,
+          vesselName: vesselName || null,
+          billOfLadingNumber: billOfLadingNumber || null,
+          containerNumber: containerNumber || null,
+          departurePort,
+          arrivalPort,
+          etd,
+          eta,
+          status: "draft",
+          notes: notes || null,
+          organization_id: orgId,
+          created_ts: now,
+        },
+      }, { status: 201 });
+    } finally {
+      db.close();
+    }
+  } catch (error: any) {
+    console.error("[/api/shipments POST] Error:", error);
+    return NextResponse.json(
+      { ok: false, error: error.message || "Failed to create shipment" },
+      { status: 500 }
+    );
   }
 }
