@@ -130,7 +130,7 @@ class Supervisor {
 
     // Fetch pending events (within transaction, they're locked)
     const events = this.db.prepare(`
-      SELECT * FROM events
+      SELECT id, event_type, entity_type, entity_id, payload, published_by, published_ts, status, organization_id FROM events
       WHERE status = 'pending' AND event_type IN (${placeholders})
       ORDER BY published_ts ASC
       LIMIT 10

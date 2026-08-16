@@ -106,23 +106,23 @@ function calculateScore(
   sequenceStep: number
 ): number {
   let score = 0;
-  // Tier bonus
-  if (tier === "S") score += 30;
-  else if (tier === "A") score += 20;
-  else if (tier === "B") score += 10;
-  else if (tier === "C") score += 5;
-  // State bonus
+  // Tier bonus (boosted)
+  if (tier === "S") score += 40;
+  else if (tier === "A") score += 35;
+  else if (tier === "B") score += 25;
+  else if (tier === "C") score += 15;
+  // State bonus (boosted)
   const stateBonus: Record<string, number> = {
-    NEW: 0,
-    ENRICHED: 10,
-    IN_SEQUENCE: 15,
-    QUALIFIED: 25,
-    SAMPLE_DISPATCHED: 30,
-    SAMPLE_FEEDBACK_DUE: 32,
-    DECIDED_APPROVED: 40,
-    CONTRACTED: 50,
-    DECIDED_REJECTED: 5,
-    DECIDED_NEEDS_ANOTHER: 25,
+    NEW: 10,
+    ENRICHED: 25,
+    IN_SEQUENCE: 35,
+    QUALIFIED: 45,
+    SAMPLE_DISPATCHED: 55,
+    SAMPLE_FEEDBACK_DUE: 57,
+    DECIDED_APPROVED: 70,
+    CONTRACTED: 80,
+    DECIDED_REJECTED: 10,
+    DECIDED_NEEDS_ANOTHER: 45,
     GHOSTED: 0,
     NURTURE: 5,
     BLOCKED: 0,

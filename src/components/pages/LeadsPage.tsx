@@ -169,7 +169,7 @@ export function LeadsPage() {
         <div className="flex items-center gap-2">
           <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"><Filter className="h-3.5 w-3.5" /> Filter</button>
           <button onClick={() => { setShowResearch(true); setResearchResult(null); }} className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"><Bot className="h-3.5 w-3.5" /> Research New Leads</button>
-          <button className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6B4E33]"><Plus className="h-3.5 w-3.5" /> Import Leads</button>
+          <button onClick={() => { setShowResearch(true); setResearchResult(null); }} className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6B4E33]"><Plus className="h-3.5 w-3.5" /> Import Leads</button>
         </div>
       </div>
 
@@ -324,21 +324,63 @@ export function LeadsPage() {
               {/* Actions */}
               <div className="space-y-2 pt-2">
                 {selected.state === "NEW" && (
-                  <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#4A3520] py-2.5 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+                  <button
+                    onClick={() => {
+                      apiFetch("/api/agents/research-leads", {
+                        method: "POST",
+                        body: JSON.stringify({ country: selected.country || "Germany", segment: "Roaster", count: 1, enrichLeadId: selected.id }),
+                      })
+                        .then((r) => r.json())
+                        .then((data) => {
+                          if (data.ok) {
+                            setSelectedLead(null);
+                            refetchLeads();
+                          }
+                        })
+                        .catch(() => {});
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#4A3520] py-2.5 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors"
+                  >
                     <Sparkles className="h-4 w-4" /> Enrich with AI
                   </button>
                 )}
                 {selected.state === "ENRICHED" && (
-                  <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#4A3520] py-2.5 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors">
+                  <button
+                    onClick={() => {
+                      apiFetch("/api/leads/" + selected.id + "/advance", { method: "POST" })
+                        .then((r) => r.json())
+                        .then((data) => {
+                          if (data.ok) {
+                            setSelectedLead(null);
+                            refetchLeads();
+                          }
+                        })
+                        .catch(() => {});
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#4A3520] py-2.5 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors"
+                  >
                     <Send className="h-4 w-4" /> Start Outreach Sequence
                   </button>
                 )}
                 {selected.state === "GHOSTED" && (
-                  <button className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                  <button
+                    onClick={() => {
+                      apiFetch("/api/leads/" + selected.id + "/advance", { method: "POST" })
+                        .then((r) => r.json())
+                        .then((data) => {
+                          if (data.ok) {
+                            setSelectedLead(null);
+                            refetchLeads();
+                          }
+                        })
+                        .catch(() => {});
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
                     <Mail className="h-4 w-4" /> Send Breakup Email
                   </button>
                 )}
-                <button className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                <button onClick={() => setSelectedLead(null)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
                   View Full Timeline
                 </button>
               </div>

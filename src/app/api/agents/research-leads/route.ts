@@ -225,7 +225,7 @@ export async function POST(request: NextRequest) {
     const orgId = user.organizationId;
 
     const body = await request.json();
-    const { country, segment, count } = body;
+    const { country, segment, count, enrichLeadId } = body;
 
     // Input validation
     if (!country || typeof country !== "string" || country.length > 100) {
@@ -246,6 +246,43 @@ export async function POST(request: NextRequest) {
     const db = getWritableDb();
 
     try {
+      // ─── If enrichLeadId is provided, enrich an existing lead instead of creating new ones ───
+      if (enrichLeadId) {
+        const lead = db.prepare("SELECT * FROM leads WHERE lead_id = ? AND organization_id = ? AND deleted_ts IS NULL").get(enrichLeadId, orgId) as any;
+        if (!lead) {
+          return NextResponse.json({ ok: false, error: "Lead not found" }, { status: 404 });
+        }
+
+        const seg = segment || "Roaster";
+        const tier = assignTier(seg);
+        const tags = [...(SEGMENT_PATTERNS[seg]?.tags || [])];
+        const vp = selectVP(seg, tags);
+        const lang = getLanguage(lead.headquarters_country || country);
+        const now = nowAddisISO();
+
+        db.prepare(`
+          UPDATE leads SET current_state = 'ENRICHED', current_agent = 'Agent 3',
+               priority_tier = ?, recommended_vp = ?, outreach_language = ?, updated_ts = ?
+          WHERE lead_id = ? AND organization_id = ?
+        `).run(tier, vp, lang, now, enrichLeadId, orgId);
+
+        // Publish LEAD_ENRICHED event
+        db.prepare(`
+          INSERT INTO events (event_type, entity_type, entity_id, payload, published_by, published_ts, status, organization_id)
+          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+        `).run("LEAD_ENRICHED", "lead", enrichLeadId,
+          JSON.stringify({ lead_id: enrichLeadId, tier, vp, language: lang, tags }),
+          "Agent 2", now, orgId);
+
+        return NextResponse.json({
+          ok: true,
+          created: 0,
+          enriched: 1,
+          leads: [{ id: enrichLeadId, tier, vp, language: lang }],
+          agentRun: { agentId: "Agent 2", task: "Lead Enrichment", enrichedCount: 1, timestamp: now },
+        });
+      }
+
       // Get the next lead ID
       const lastLead = db.prepare("SELECT lead_id FROM leads ORDER BY lead_id DESC LIMIT 1").get() as any;
       let nextNum = 1;
@@ -309,20 +346,20 @@ export async function POST(request: NextRequest) {
           db.prepare(`
             INSERT INTO events (
               event_type, entity_type, entity_id, payload,
-              published_by, published_ts, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+              published_by, published_ts, status, organization_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             "LEAD_CREATED", "lead", leadId,
             JSON.stringify({ lead_id: leadId, company_name: companyName, country }),
-            "Agent 2", now, "pending"
+            "Agent 2", now, "pending", orgId
           );
 
           // Publish LEAD_ENRICHED event
           db.prepare(`
             INSERT INTO events (
               event_type, entity_type, entity_id, payload,
-              published_by, published_ts, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+              published_by, published_ts, status, organization_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             "LEAD_ENRICHED", "lead", leadId,
             JSON.stringify({
@@ -330,7 +367,7 @@ export async function POST(request: NextRequest) {
               segment, vp, tier, language, tags,
               llm_used: false, llm_reasoning: "Rule-based enrichment",
             }),
-            "Agent 2", now, "pending"
+            "Agent 2", now, "pending", orgId
           );
 
           createdLeads.push({
