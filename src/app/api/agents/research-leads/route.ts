@@ -234,12 +234,19 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!segment || !["Specialty Importer", "Commercial Importer", "Roaster", "Distributor"].includes(segment)) {
+    // Normalize segment to title case for case-insensitive matching
+    const segmentNormalized = segment 
+      ? segment.split(' ').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ')
+      : null;
+    
+    if (!segmentNormalized || !["Specialty Importer", "Commercial Importer", "Roaster", "Distributor"].includes(segmentNormalized)) {
       return NextResponse.json(
         { ok: false, error: "Invalid segment — must be one of: Specialty Importer, Commercial Importer, Roaster, Distributor" },
         { status: 400 }
       );
     }
+
+    const segment = segmentNormalized;
 
     const leadCount = Math.min(Math.max(parseInt(count) || 5, 1), 20);
 

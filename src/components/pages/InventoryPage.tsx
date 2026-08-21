@@ -158,9 +158,8 @@ export function InventoryPage() {
   const handleUpload = () => {
     setUploading(true);
     setUploadResult(null);
-    fetch("/api/inventory/upload", {
+    apiFetch("/api/inventory/upload", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ csv: csvText }),
     })
       .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })

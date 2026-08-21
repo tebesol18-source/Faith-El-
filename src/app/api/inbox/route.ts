@@ -101,6 +101,9 @@ export async function GET(request: NextRequest) {
   if ("error" in auth) return auth.error;
   const orgId = auth.user.organizationId;
 
+  const { searchParams } = new URL(request.url);
+  const threadIdFilter = searchParams.get("threadId");
+
   try {
     const db = getReadonlyDb();
 
@@ -212,6 +215,7 @@ export async function GET(request: NextRequest) {
 
         conversations.push({
           id: i + 1, // 1-based ID for frontend compatibility
+          threadId: t.thread_id, // ADD THIS for frontend to fetch specific thread
           buyer: buyerPart,
           subject: t.subject || "(no subject)",
           preview,
@@ -223,13 +227,22 @@ export async function GET(request: NextRequest) {
         });
       }
 
+      // If a specific threadId is requested, return only that thread's messages
+      if (threadIdFilter && messagesByThread[threadIdFilter]) {
+        return NextResponse.json({
+          ok: true,
+          count: conversations.length,
+          conversations,
+          messages: messagesByThread[threadIdFilter],
+        });
+      }
+
       return NextResponse.json({
         ok: true,
         count: conversations.length,
         conversations,
-        // Return messages of the FIRST thread (the frontend shows messages[] statically,
-        // matching the original mock-data behavior)
-        messages: messagesByThread[threads[0].thread_id] || [],
+        // Default: return messages of the FIRST thread (backward compat)
+        messages: threads.length > 0 ? (messagesByThread[threads[0].thread_id] || []) : [],
       });
     } finally {
       db.close();
@@ -241,4 +254,39 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function POST(request: NextRequest) {
+  const auth = requireAuth(request);
+  if ("error" in auth) return auth.error;
+  const orgId = auth.user.organizationId;
+
+  let body: any;
+  try { body = await request.json(); } catch { return NextResponse.json({ok: false, error: "Invalid JSON"}, {status: 400}); }
+  const { threadId, bodyText, subject } = body || {};
+  if (!threadId || !bodyText) return NextResponse.json({ok: false, error: "threadId and bodyText required"}, {status: 400});
+
+  const db = getWritableDb();
+  try {
+    // Strict IDOR check - verify thread belongs to this organization
+    const thread = db.prepare(`
+      SELECT t.thread_id, t.buyer_email, t.subject, t.inbox_id, ei.masked_email
+      FROM message_threads t LEFT JOIN exporter_inboxes ei ON t.inbox_id = ei.id
+      WHERE t.thread_id = ? AND t.organization_id = ?
+    `).get(threadId, orgId) as any;
+
+    if (!thread) return NextResponse.json({ok: false, error: "Thread not found"}, {status: 404});
+
+    const now = new Date().toISOString().replace("Z", "+03:00");
+    db.prepare(`
+      INSERT INTO inbox_messages (thread_id, direction, from_addr, to_addr, subject, body_text, sent_ts, created_ts, updated_ts, organization_id, ai_processed, status)
+      VALUES (?, 'outbound', ?, ?, ?, ?, ?, ?, ?, ?, 0, 'sent')
+    `).run(threadId, thread.masked_email || "exporter@faithelexport.com", thread.buyer_email, subject || thread.subject, bodyText, now, now, now, orgId);
+
+    db.prepare(`
+      UPDATE message_threads SET last_message_ts = ?, last_message_direction = 'outbound', message_count = message_count + 1, unread_count = 0, updated_ts = ? WHERE thread_id = ?
+    `).run(now, now, threadId);
+
+    return NextResponse.json({ok: true, sent: true});
+  } finally { db.close(); }
 }

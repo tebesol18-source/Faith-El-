@@ -44,6 +44,21 @@ export function InboxPage() {
     return () => { cancelled = true; };
   }, []);
 
+
+  // Fetch messages for selected conversation
+  useEffect(() => {
+    if (!conversations || selectedConv === null) return;
+    const conv = conversations.find(c => c.id === selectedConv);
+    if (!conv || !conv.threadId) return;
+
+    let cancelled = false;
+    apiFetch(`/api/inbox?threadId=${conv.threadId}`)
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled && data.ok) setMessages(data.messages); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedConv, conversations]);
+
   // Loading state
   if (!conversations || !messages) {
     return (
@@ -200,7 +215,21 @@ export function InboxPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-400">Reply from: marcus.bell@faithelexport.com</span>
                     <button
-                      onClick={() => setReplyText("")}
+                      onClick={() => {
+                        if (!replyText.trim() || !conversations) return;
+                        const conv = conversations.find(c => c.id === selectedConv);
+                        if (!conv || !conv.threadId) return;
+
+                        apiFetch("/api/inbox", {
+                          method: "POST",
+                          body: JSON.stringify({ threadId: conv.threadId, bodyText: replyText.trim() }),
+                        }).then((r) => r.json()).then((data) => {
+                          if (data.ok) {
+                            setReplyText("");
+                            apiFetch(`/api/inbox?threadId=${conv.threadId}`).then(r => r.json()).then(d => { if (d.ok) setMessages(d.messages); });
+                          }
+                        });
+                      }}
                       className="rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors flex items-center gap-1.5"
                     >
                       <Send className="h-3.5 w-3.5" /> Send
