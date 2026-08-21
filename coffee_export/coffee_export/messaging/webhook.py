@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import os
 from typing import Any
+import hmac
+from pydantic import BaseModel
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -35,6 +37,28 @@ from coffee_export.utils.logging import get_logger, setup_logging
 
 log = get_logger(__name__)
 
+
+
+class BridgeSendRequest(BaseModel):
+    """Request body for POST /api/bridge/send"""
+    operator_id: str
+    operator_name: str | None = None
+    display_name: str
+    lead_id: str
+    buyer_email: str
+    subject: str
+    body_text: str
+    body_html: str | None = None
+    organization_id: str | None = None  # Audit only; never trusted for auth
+
+
+class BridgeReplyRequest(BaseModel):
+    """Request body for POST /api/bridge/reply"""
+    message_id: int
+    body_text: str
+    body_html: str | None = None
+    operator_id: str | None = None
+    organization_id: str | None = None  # Audit only; never trusted for auth
 
 def create_inbound_app(
     gateway: EmailGateway | None = None,
@@ -123,6 +147,129 @@ def create_inbound_app(
         status_code = 200 if result.get("action") == "received" else 202
         return JSONResponse(status_code=status_code, content=result)
 
+
+    @app.post("/api/bridge/send")
+    async def bridge_send(
+        req: BridgeSendRequest,
+        authorization: str | None = Header(None),
+    ) -> JSONResponse:
+        """
+        Authenticated bridge endpoint used by Next.js to send outbound email.
+
+        This reuses the existing EmailGateway.send() flow:
+        - masked sender address
+        - get-or-create exporter inbox
+        - get-or-create thread
+        - Resend provider send
+        - DB message logging
+        - event publishing
+        """
+        if not _verify_bridge_token(authorization):
+            raise HTTPException(status_code=401, detail="invalid or missing bearer token")
+
+        gw = _get_gateway()
+
+        try:
+            result = gw.send(
+                operator_id=req.operator_id,
+                display_name=req.display_name,
+                lead_id=req.lead_id,
+                buyer_email=req.buyer_email,
+                subject=req.subject,
+                body_text=req.body_text,
+                body_html=req.body_html,
+                operator_name=req.operator_name,
+            )
+        except Exception as exc:
+            log.exception(f"Bridge send failed: {exc}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "ok": False,
+                    "action": "send_failed",
+                    "error": f"email gateway error: {str(exc)}",
+                },
+            )
+
+        if result.get("action") == "sent":
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "ok": True,
+                    "action": "sent",
+                    "message_id": result.get("message_id"),
+                    "thread_id": result.get("thread_id"),
+                    "masked_from": result.get("masked_from"),
+                    "provider_message_id": result.get("provider_message_id"),
+                    "dry_run": result.get("dry_run", False),
+                },
+            )
+
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "action": result.get("action", "send_failed"),
+                "error": result.get("error", "unknown email send failure"),
+                "dry_run": result.get("dry_run", False),
+            },
+        )
+
+
+    @app.post("/api/bridge/reply")
+    async def bridge_reply(
+        req: BridgeReplyRequest,
+        authorization: str | None = Header(None),
+    ) -> JSONResponse:
+        """
+        Authenticated bridge endpoint used by Next.js to reply through EmailGateway.reply().
+        """
+        if not _verify_bridge_token(authorization):
+            raise HTTPException(status_code=401, detail="invalid or missing bearer token")
+
+        gw = _get_gateway()
+
+        try:
+            result = gw.reply(
+                message_id=req.message_id,
+                body_text=req.body_text,
+                body_html=req.body_html,
+                operator_id=req.operator_id,
+            )
+        except Exception as exc:
+            log.exception(f"Bridge reply failed: {exc}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "ok": False,
+                    "action": "reply_failed",
+                    "error": f"email gateway error: {str(exc)}",
+                },
+            )
+
+        if result.get("action") == "replied":
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "ok": True,
+                    "action": "replied",
+                    "outbound_message_id": result.get("outbound_message_id"),
+                    "in_reply_to_message_id": result.get("in_reply_to_message_id"),
+                    "thread_id": result.get("thread_id"),
+                    "dry_run": result.get("dry_run", False),
+                },
+            )
+
+        return JSONResponse(
+            status_code=502,
+            content={
+                "ok": False,
+                "action": result.get("action", "reply_failed"),
+                "error": result.get("error") or result.get("reason", "unknown reply failure"),
+                "dry_run": result.get("dry_run", False),
+            },
+        )
+
     @app.get("/webhooks/email/test")
     async def test_endpoint() -> dict[str, Any]:
         gw = _get_gateway()
@@ -130,10 +277,8 @@ def create_inbound_app(
             "provider": gw.provider.name,
             "inbound_domain": gw.inbound_domain,
             "dry_run": gw.provider.dry_run,
-            "webhook_secret_configured": bool(
-                os.environ.get("RESEND_WEBHOOK_SECRET")
-            ),
-        }
+            "webhook_secret_configured": bool(os.environ.get("RESEND_WEBHOOK_SECRET")),
+            "bridge_secret_configured": bool(os.environ.get("EMAIL_BRIDGE_SECRET")),        }
 
     return app
 

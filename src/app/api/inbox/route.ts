@@ -262,31 +262,119 @@ export async function POST(request: NextRequest) {
   const orgId = auth.user.organizationId;
 
   let body: any;
-  try { body = await request.json(); } catch { return NextResponse.json({ok: false, error: "Invalid JSON"}, {status: 400}); }
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  }
+
   const { threadId, bodyText, subject } = body || {};
-  if (!threadId || !bodyText) return NextResponse.json({ok: false, error: "threadId and bodyText required"}, {status: 400});
+  if (!threadId || !bodyText) {
+    return NextResponse.json(
+      { ok: false, error: "threadId and bodyText required" },
+      { status: 400 }
+    );
+  }
 
   const db = getWritableDb();
+
   try {
-    // Strict IDOR check - verify thread belongs to this organization
+    // Strict IDOR protection:
+    // The thread must belong to the authenticated user's organization.
+    // The client is never allowed to supply or override organization_id.
     const thread = db.prepare(`
-      SELECT t.thread_id, t.buyer_email, t.subject, t.inbox_id, ei.masked_email
-      FROM message_threads t LEFT JOIN exporter_inboxes ei ON t.inbox_id = ei.id
+      SELECT
+        t.thread_id,
+        t.lead_id,
+        t.buyer_email,
+        t.subject,
+        t.inbox_id,
+        ei.masked_email,
+        ei.display_name,
+        ei.operator_id AS inbox_operator_id
+      FROM message_threads t
+      LEFT JOIN exporter_inboxes ei ON t.inbox_id = ei.id
       WHERE t.thread_id = ? AND t.organization_id = ?
     `).get(threadId, orgId) as any;
 
-    if (!thread) return NextResponse.json({ok: false, error: "Thread not found"}, {status: 404});
+    if (!thread) {
+      return NextResponse.json({ ok: false, error: "Thread not found" }, { status: 404 });
+    }
 
-    const now = new Date().toISOString().replace("Z", "+03:00");
-    db.prepare(`
-      INSERT INTO inbox_messages (thread_id, direction, from_addr, to_addr, subject, body_text, sent_ts, created_ts, updated_ts, organization_id, ai_processed, status)
-      VALUES (?, 'outbound', ?, ?, ?, ?, ?, ?, ?, ?, 0, 'sent')
-    `).run(threadId, thread.masked_email || "exporter@faithelexport.com", thread.buyer_email, subject || thread.subject, bodyText, now, now, now, orgId);
+    const finalSubject = subject || thread.subject || "(no subject)";
+    const bridgeUrl = process.env.EMAIL_BRIDGE_URL || "http://localhost:8000";
+    const bridgeSecret = process.env.EMAIL_BRIDGE_SECRET || "";
+    const operatorId = thread.inbox_operator_id || auth.user.operatorId;
 
-    db.prepare(`
-      UPDATE message_threads SET last_message_ts = ?, last_message_direction = 'outbound', message_count = message_count + 1, unread_count = 0, updated_ts = ? WHERE thread_id = ?
-    `).run(now, now, threadId);
+    // Call Python EmailGateway bridge.
+    // Do NOT expose bridge secret or Resend credentials to the browser.
+    let bridgeResult: any;
+    let response: Response;
 
-    return NextResponse.json({ok: true, sent: true});
-  } finally { db.close(); }
+    try {
+      response = await fetch(`${bridgeUrl}/api/bridge/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(bridgeSecret ? { Authorization: `Bearer ${bridgeSecret}` } : {}),
+        },
+        body: JSON.stringify({
+          operator_id: operatorId,
+          operator_name: null,
+          display_name: thread.display_name || "Faith Export",
+          lead_id: thread.lead_id,
+          buyer_email: thread.buyer_email,
+          subject: finalSubject,
+          body_text: bodyText,
+          organization_id: orgId, // Audit only; Python must not trust this for auth.
+        }),
+      });
+
+      bridgeResult = await response.json();
+    } catch (error: any) {
+      console.error("[/api/inbox POST] Python email bridge unreachable:", error);
+      return NextResponse.json(
+        {
+          ok: false,
+          sent: false,
+          error: "Email service unavailable. Message was not sent.",
+        },
+        { status: 503 }
+      );
+    }
+
+    if (!response.ok || !bridgeResult.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          sent: false,
+          error: bridgeResult?.error || "Email gateway failed to send message",
+          action: bridgeResult?.action || "send_failed",
+          dry_run: bridgeResult?.dry_run || false,
+        },
+        { status: 502 }
+      );
+    }
+
+    // Important:
+    // We do NOT write a fake message here.
+    // Python EmailGateway.send() is responsible for:
+    // - Resend delivery or dry-run
+    // - masked sender address
+    // - thread handling
+    // - inbox_messages insert
+    // - event publishing
+    return NextResponse.json({
+      ok: true,
+      sent: true,
+      action: bridgeResult.action,
+      message_id: bridgeResult.message_id,
+      thread_id: bridgeResult.thread_id,
+      provider_message_id: bridgeResult.provider_message_id,
+      dry_run: bridgeResult.dry_run || false,
+      masked_from: bridgeResult.masked_from,
+    });
+  } finally {
+    db.close();
+  }
 }
