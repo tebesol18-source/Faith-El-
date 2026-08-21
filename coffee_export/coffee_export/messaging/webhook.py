@@ -36,7 +36,18 @@ from coffee_export.messaging.gateway import EmailGateway
 from coffee_export.utils.logging import get_logger, setup_logging
 
 log = get_logger(__name__)
+def _verify_bridge_token(authorization: str | None) -> bool:
+    """Verify Bearer token for Next.js → Python bridge endpoints."""
+    bridge_secret = os.environ.get("EMAIL_BRIDGE_SECRET", "")
+    if not bridge_secret:
+        log.warning("EMAIL_BRIDGE_SECRET not set - bridge authentication DISABLED.")
+        return True
 
+    if not authorization or not authorization.startswith("Bearer "):
+        return False
+
+    token = authorization[7:]
+    return hmac.compare_digest(token, bridge_secret)
 
 
 class BridgeSendRequest(BaseModel):
