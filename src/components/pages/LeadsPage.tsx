@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Bot, ChevronRight, Coffee, Filter, Mail, Plus, Send, Sparkles, X as XIcon,
 } from "lucide-react";
@@ -44,6 +44,56 @@ export function LeadsPage() {
   const [researchCount, setResearchCount] = useState(5);
   const [researching, setResearching] = useState(false);
   const [researchResult, setResearchResult] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
+
+  const handleCSVFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const text = String(reader.result || "");
+      const lines = text.split(/\r?\n/).filter((line) => line.trim());
+      if (lines.length < 2) {
+        setImportResult("CSV must have a header row + at least one data row.");
+        return;
+      }
+
+      const headers = lines[0].split(",").map((header) => header.trim().toLowerCase().replace(/\s+/g, "_"));
+      const leads = lines.slice(1).map((line) => {
+        const values = line.split(",").map((value) => value.trim());
+        const obj: Record<string, string> = {};
+        headers.forEach((header, index) => {
+          obj[header] = values[index] || "";
+        });
+        return obj;
+      });
+
+      setImporting(true);
+      setImportResult(null);
+      try {
+        const res = await apiFetch("/api/leads/import", {
+          method: "POST",
+          body: JSON.stringify({ leads }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setImportResult(`Imported ${data.created} lead(s) successfully.`);
+          setTimeout(() => window.location.reload(), 1200);
+        } else {
+          setImportResult(`Import failed: ${data.error || "unknown error"}`);
+        }
+      } catch (err: any) {
+        setImportResult(`Import failed: ${err.message}`);
+      } finally {
+        setImporting(false);
+      }
+    };
+    reader.readAsText(file);
+  };
 
   // ─── Live data from backend ───
   // Replaces the old static `leadsData` array. Falls back to mock data
@@ -169,9 +219,25 @@ export function LeadsPage() {
         <div className="flex items-center gap-2">
           <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"><Filter className="h-3.5 w-3.5" /> Filter</button>
           <button onClick={() => { setShowResearch(true); setResearchResult(null); }} className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"><Bot className="h-3.5 w-3.5" /> Research New Leads</button>
-          <button onClick={() => { setShowResearch(true); setResearchResult(null); }} className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6B4E33]"><Plus className="h-3.5 w-3.5" /> Import Leads</button>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            ref={fileInputRef}
+            className="hidden"
+            onChange={handleCSVFile}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6B4E33] transition-colors disabled:opacity-60"
+          >
+            <Plus className="h-3.5 w-3.5" /> {importing ? "Importing..." : "Import Leads"}
+          </button>
         </div>
       </div>
+      {importResult && (
+        <div className="mb-4 text-xs text-[#4A3520]">{importResult}</div>
+      )}
 
       {/* Table */}
       <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
