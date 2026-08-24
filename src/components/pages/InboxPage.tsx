@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import {
-  Archive, Filter, MoreHorizontal, Paperclip, Search, Send, Sparkles,
+  Archive, Calendar, CheckCircle, FileText, Filter, MoreHorizontal, Package,
+  Paperclip, Search, Send, Sparkles, Truck, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Contract, Priority, Quote, Shipment } from "@/lib/types";
@@ -79,6 +80,77 @@ export function InboxPage() {
   }
 
   const conv = conversations.find(c => c.id === selectedConv) || conversations[0] || null;
+
+  const handleCreateQuote = (message: any) => {
+    const conv = conversations?.find(c => c.id === selectedConv);
+    const threadId = conv?.threadId || "";
+
+    const params = new URLSearchParams({
+      threadId,
+      buyerEmail: message.from || "",
+      subject: message.subject || "",
+      volume: message.ai?.volume?.toString() || "",
+      origin: message.ai?.origin || "",
+      grade: message.ai?.grade || "",
+      destination: message.ai?.destination || "",
+      incoterm: message.ai?.incoterm || "",
+    });
+
+    window.location.href = `/quotes/new?${params.toString()}`;
+  };
+
+  const handleCreateSample = (message: any) => {
+    const conv = conversations?.find(c => c.id === selectedConv);
+    const threadId = conv?.threadId || "";
+
+    const params = new URLSearchParams({
+      threadId,
+      buyerEmail: message.from || "",
+      subject: message.subject || "",
+      origin: message.ai?.origin || "",
+      grade: message.ai?.grade || "",
+    });
+
+    window.location.href = `/samples/new?${params.toString()}`;
+  };
+
+  const handleScheduleCall = (message: any) => {
+    alert("Calendar integration coming in Phase 3! For now, manually coordinate with the buyer.");
+  };
+
+  const handleCreateShipment = (message: any) => {
+    const conv = conversations?.find(c => c.id === selectedConv);
+    const threadId = conv?.threadId || "";
+
+    const params = new URLSearchParams({
+      threadId,
+      buyerEmail: message.from || "",
+      subject: message.subject || "",
+      destination: message.ai?.destination || "",
+      incoterm: message.ai?.incoterm || "",
+      volume: message.ai?.volume?.toString() || "",
+    });
+
+    window.location.href = `/shipments/new?${params.toString()}`;
+  };
+
+  const handleCreateContract = (message: any) => {
+    const conv = conversations?.find(c => c.id === selectedConv);
+    const threadId = conv?.threadId || "";
+
+    const params = new URLSearchParams({
+      threadId,
+      buyerEmail: message.from || "",
+      subject: message.subject || "",
+      volume: message.ai?.volume?.toString() || "",
+      origin: message.ai?.origin || "",
+      grade: message.ai?.grade || "",
+      destination: message.ai?.destination || "",
+      incoterm: message.ai?.incoterm || "",
+    });
+
+    window.location.href = `/contracts/new?${params.toString()}`;
+  };
 
   return (
     <main className="flex h-[calc(100vh-4rem)]">
@@ -189,6 +261,56 @@ export function InboxPage() {
                             <button className="ml-auto rounded-md bg-indigo-500 px-2 py-1 text-[11px] font-medium text-white hover:bg-indigo-600">Auto-Action</button>
                           </div>
                         </div>
+
+                        {m.ai && m.direction === "inbound" && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {m.ai.intent === "pricing_question" && (
+                              <button
+                                onClick={() => handleCreateQuote(m)}
+                                className="px-3 py-1.5 text-xs font-medium bg-[#4A3520] text-white rounded-lg hover:bg-[#6B4E33] transition-colors flex items-center gap-1.5"
+                              >
+                                <FileText className="h-3.5 w-3.5" />
+                                Create Quote
+                              </button>
+                            )}
+                            {m.ai.intent === "sample_request" && (
+                              <button
+                                onClick={() => handleCreateSample(m)}
+                                className="px-3 py-1.5 text-xs font-medium bg-[#4A3520] text-white rounded-lg hover:bg-[#6B4E33] transition-colors flex items-center gap-1.5"
+                              >
+                                <Package className="h-3.5 w-3.5" />
+                                Send Sample
+                              </button>
+                            )}
+                            {m.ai.intent === "meeting_request" && (
+                              <button
+                                onClick={() => handleScheduleCall(m)}
+                                className="px-3 py-1.5 text-xs font-medium bg-[#4A3520] text-white rounded-lg hover:bg-[#6B4E33] transition-colors flex items-center gap-1.5"
+                              >
+                                <Calendar className="h-3.5 w-3.5" />
+                                Schedule Call
+                              </button>
+                            )}
+                            {m.ai.intent === "logistics_question" && (
+                              <button
+                                onClick={() => handleCreateShipment(m)}
+                                className="px-3 py-1.5 text-xs font-medium bg-[#4A3520] text-white rounded-lg hover:bg-[#6B4E33] transition-colors flex items-center gap-1.5"
+                              >
+                                <Truck className="h-3.5 w-3.5" />
+                                Create Shipment
+                              </button>
+                            )}
+                            {m.ai.intent === "confirmation" && (
+                              <button
+                                onClick={() => handleCreateContract(m)}
+                                className="px-3 py-1.5 text-xs font-medium bg-green-700 text-white rounded-lg hover:bg-green-800 transition-colors flex items-center gap-1.5"
+                              >
+                                <CheckCircle className="h-3.5 w-3.5" />
+                                Create Contract
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
