@@ -246,8 +246,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const segment = segmentNormalized;
-
     const leadCount = Math.min(Math.max(parseInt(count) || 5, 1), 20);
 
     const db = getWritableDb();
@@ -260,7 +258,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ ok: false, error: "Lead not found" }, { status: 404 });
         }
 
-        const seg = segment || "Roaster";
+        const seg = segmentNormalized || "Roaster";
         const tier = assignTier(seg);
         const tags = [...(SEGMENT_PATTERNS[seg]?.tags || [])];
         const vp = selectVP(seg, tags);
@@ -307,15 +305,15 @@ export async function POST(request: NextRequest) {
       const insert = db.transaction(() => {
         for (let i = 0; i < leadCount; i++) {
           const leadId = `L-2026-${String(nextNum + i).padStart(5, "0")}`;
-          const companyName = generateCompanyName(segment);
+          const companyName = generateCompanyName(segmentNormalized);
           const city = randomChoice(cities);
           const website = generateWebsite(companyName);
-          const tier = assignTier(segment);
-          const tags = [...(SEGMENT_PATTERNS[segment]?.tags || [])];
+          const tier = assignTier(segmentNormalized);
+          const tags = [...(SEGMENT_PATTERNS[segmentNormalized]?.tags || [])];
           // Add a random extra tag sometimes
           if (Math.random() > 0.6) tags.push("organic");
           if (Math.random() > 0.7) tags.push("fairtrade");
-          const vp = selectVP(segment, tags);
+          const vp = selectVP(segmentNormalized, tags);
           const contact = generateContactName(country);
           const sourceHash = crypto.createHash("md5").update(leadId + companyName).digest("hex");
 
