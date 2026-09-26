@@ -441,3 +441,31 @@ Work Log:
 
 Stage Summary:
 - 11 commits total on origin/main (HEAD f4e5869). Python half of the product now boots and is regression-covered. Email masking still operationally BLOCKED on external credentials — documented honestly.
+
+---
+Task ID: phase1-lead-intake
+Agent: main (super-z)
+Task: Phase 1 — replace fictional buyers with real, verifiable leads (owner's roadmap, first priority).
+
+Work Log:
+- Schema migration (scripts/migrations/2026-09-26-lead-evidence.mjs, idempotent, proven by double-run): verification_status/verified_by/verified_ts on leads + lead_contacts (value domains + actor requirement enforced by DB triggers), new lead_sources (evidence rows; org-match + citation triggers), new lead_verification_log (append-only audit), and leads UNIQUE(company,country) rebuilt as UNIQUE(company,country,organization_id) via the 12-step SQLite rebuild (two orgs can now each track the same real company). FK + integrity checks ok; CHECK domains preserved as triggers.
+- Fictional data purged from the committed production DB (scripts/purge-fictional-leads.mjs, dry-run first, timestamped backup outside repo): 6 generated leads, 6 @example.com contacts, 15 tags, 15 events, 3 draft quotes/contract, 1 pretend-paid invoice + payment, 1 "Test Buyer Co" sample request, 1 draft shipment. Admin audit rows kept (P3 policy). Leads table now empty — clean slate for real intake.
+- Curated directory data/lead-directory.json: 45 real, publicly documented green-coffee companies (importers/traders/roasters, 18 countries), each with source URL + product interest + compiled date + honesty disclaimer. No contacts included BY DESIGN.
+- New lib src/lib/leads-evidence.ts: fiction guard (reserved email domains incl. the platform's own masked domain; generated/placeholder company-name patterns; no sandbox flag — fiction never enters production), evidence helpers, and the outreach gate (verified company + >=1 verified non-fictional contact).
+- /api/agents/research-leads REWRITTEN: GET browses the directory (no writes); POST imports selected real entries as UNVERIFIED leads with evidence (explicit keys or country/segment/count convenience); enrichLeadId mode kept for rule-based classification. THE FICTION GENERATOR IS DELETED.
+- /api/leads/import hardened: source_url (or note) required per row, fiction guard per row, evidence rows written, per-row error reporting; duplicates within org skipped with reason.
+- New routes: /api/leads/[id]/verify (check/confirm/reject/reset at company+contact level, advisory reachability checks, full audit log), /api/leads/[id]/contacts (add with mandatory evidence, delete soft), /api/leads/[id]/evidence (drawer payload, org-scoped).
+- Outreach gate enforced server-side in /api/leads/[id]/advance: ENRICHED->IN_SEQUENCE (incl. GHOSTED re-engage) requires verified company + verified contact; rejected leads blocked with reason.
+- /api/leads GET exposes verificationStatus/verifiedBy/verifiedTs/evidenceCount/contactCount/verifiedContactCount.
+- LeadsPage.tsx rewritten: directory browse+multi-select import modal (with disclaimer), verification & evidence panel in the drawer (evidence rows with check status, reachability check, company verify/reject/reset, contacts with per-contact verification + add-with-evidence form), VERIFIED/UNVERIFIED/REJECTED badges, gated outreach button with explanation, honest "Classify Lead" label replacing the fake "Enrich with AI".
+- Python parity: Lead/LeadContact models extended, LeadSource + LeadVerificationLog models added, alembic revision b7e1f3c9a2d4 (documenting lineage; stamped, not run — canonical applier is the Node script), legacy scripts/state_manager.py DDL aligned.
+- Tests: tests/lib/leads-evidence.test.ts (25 unit tests incl. gate semantics on in-memory SQLite) + tests/integration/leads-intake.test.ts (12 full-chain integration tests: browse-no-write, evidence-backed import, org attribution, same-company-two-orgs, fiction rejection, gate journey, rejected-lead block, evidence-less confirm refused, reachability check, cross-org 404s, listing fields).
+- Regression: tsc 0 errors; JS suite 266/266 (was 227) hermetic + committed DB sha-identical after run; Python suite all green + supervisor tick; next build green.
+- Runtime verification /home/z/my-project/scripts/verify-lead-intake.mjs: 30/30 live checks (own isolated server on :3117, throwaway DB copy, process-group kill, committed DB byte-identical). Notably: real reachability check DID reach belco.fr from this environment.
+- Old /home/z/my-project/scripts/verify-runtime.mjs section 3 updated — it used to "verify" import with an @example.com contact; that row is now (correctly) rejected, so the check uses a real-format email + source_url.
+- docs/lead-intake.md: the Phase 1 contract (five rules, API surface, purge record, honest boundaries).
+
+Stage Summary:
+- The pass condition is met with evidence: a user can research (browse the real-company directory without writes), import real companies (evidence attached, unverified, org-attributed), inspect evidence for each one (sources + advisory reachability checks + audit trail), and select actual prospects for outreach (gate blocks unverified companies / unverified contacts / rejected leads / fictional data).
+- Fictional records are out of production by construction, not by convention: the generator is deleted, all intake paths enforce evidence + fiction guards, and the pre-existing fictional demo chain is purged with backup.
+- Outreach sending itself still awaits Phase 2 (real email relay credentials).
