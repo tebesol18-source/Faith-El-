@@ -12,11 +12,16 @@
  *        file before deleting (TODO).
  *
  * Usage:
+ *   npm run cleanup                       (recommended — runs via tsx + node)
  *   npx tsx scripts/cleanup.ts
- *   AUDIT_LOG_RETENTION_DAYS=180 npx tsx scripts/cleanup.ts
+ *   AUDIT_LOG_RETENTION_DAYS=180 npm run cleanup
+ *
+ * NOTE: run with Node (npm run cleanup), NOT bun — bun 1.3.x's NAPI support
+ * is incompatible with better-sqlite3 13.x native bindings and crashes
+ * (NAPI fatal error) when this script opens the database.
  *
  * Recommended cron schedule (daily at 3 AM — after backups):
- *   0 3 * * * cd /home/z/my-project && npx tsx scripts/cleanup.ts >> /var/log/coffee-export-cleanup.log 2>&1
+ *   0 3 * * * cd /opt/faith-el-erp && npm run cleanup >> /var/log/coffee-export-cleanup.log 2>&1
  */
 
 import { getWritableDb, getDbPath } from "../src/lib/db";

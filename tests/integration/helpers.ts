@@ -13,7 +13,12 @@
  *   const r = await client.fetch("/api/admin/operators", { method: "POST", body: ... });
  */
 
-const BASE_URL = "http://localhost:3000";
+// Base URL of the server under test.
+// - Default: a dev server the developer started themselves (npm run dev).
+// - scripts/run-tests.mjs sets TEST_BASE_URL to an ISOLATED server it boots
+//   against a throwaway COPY of the committed DB (state/test-coffee_export.db)
+//   so the test suite can never pollute the committed database.
+const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:3000";
 
 interface TestClient {
   /** The session token (for backward-compat header auth). */

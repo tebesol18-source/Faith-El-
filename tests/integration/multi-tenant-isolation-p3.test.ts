@@ -11,7 +11,7 @@ import { getWritableDb } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { createTestClient } from "./helpers";
 
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:3000";
 
 const serverAvailable = await (async () => {
   try {

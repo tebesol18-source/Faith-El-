@@ -13,7 +13,7 @@
 import { describe, it, expect } from "vitest";
 import { createTestClient } from "./helpers";
 
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:3000";
 
 const serverAvailable = await (async () => {
   try {
