@@ -32,6 +32,11 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# throwaway test DB + logs created by scripts/run-tests.mjs
+/state/test-coffee_export.db*
+/state/test-server.log
 
 # vercel
 .vercel
@@ -65,3 +70,6 @@ coffee_export/data/backups/
 # SQLite transient files — must never be committed (stale WAL replays over the DB on clone)
 *.db-shm
 *.db-wal
+
+# stale runtime DB backups — git history already retains every committed state
+/state/*.bak
