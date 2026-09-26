@@ -428,3 +428,16 @@ Work Log:
 Stage Summary:
 - ALL audit work is now on GitHub. Local and remote in sync.
 - Remaining owner decisions (flagged, not blocking): tracked zip artifacts + zero-byte '0' file (repo bloat); two-way masked email still BLOCKED pending real relay credentials.
+
+---
+Task ID: audit-final-python-gap
+Agent: main (super-z)
+Task: Close the Python-side evidence gap (final report #37) — run the Python/agent test stack for the first time, fix what it surfaced, push.
+
+Work Log:
+- Found + fixed 4 new root causes (commit f4e5869, pushed): (1) config.py DATABASE_URL fallback crashed the entire Python stack (bridge/agents/dashboard) whenever .env was present — now COFFEE_DATABASE_URL-only + file: normalization, regression-tested; (2) requirements.txt missing fastapi/uvicorn/httpx; (3) test_multi_tenant_event_bus non-hermetic (DB pollution + 2nd-run failure) — now self-cleaning; (4) agent smoke tests fail when run sequentially on one shared DB — new scripts/run-python-tests.sh gives every suite a fresh throwaway DB and sha-asserts the committed DB. Also: db.ts DATABASE_PATH made strictly authoritative (fail-fast), .env.example documents the canonical shared URL, deploy units get explicit env + commented bridge service.
+- Agent evidence: agents 2-7 + state manager + supervisor tick ALL PASS on fresh DBs (twice consecutively); agent 2 generates SYNTHETIC leads (documented); market-prices + vessel-tracking are simulated data.
+- Regression: tsc 0 · JS 227/227 (16 files) · Python 11/11 suites ×2 · next build green · committed DB sha identical through every run.
+
+Stage Summary:
+- 11 commits total on origin/main (HEAD f4e5869). Python half of the product now boots and is regression-covered. Email masking still operationally BLOCKED on external credentials — documented honestly.
