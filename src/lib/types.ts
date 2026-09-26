@@ -281,7 +281,6 @@ export type Operator = {
 export type AIAgent = {
   id: string;
   name: string;
-  model: string;
   status: "active" | "idle" | "error" | "paused";
   lastAction: string;
   lastActionTime: string;

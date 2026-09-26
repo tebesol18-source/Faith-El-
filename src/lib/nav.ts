@@ -26,7 +26,7 @@ export type NavGroup = {
 export const navGroups: NavGroup[] = [
   { label: null, items: [{ icon: LayoutDashboard, label: "Dashboard", page: "dashboard", highlight: true }] },
   { label: "Sales", items: [
-    { icon: InboxIcon, label: "Inbox", page: "inbox", badge: 8, highlight: true },
+    { icon: InboxIcon, label: "Inbox", page: "inbox", highlight: true },
     { icon: Users, label: "Leads", page: "leads" },
     { icon: Handshake, label: "Deals", page: "deals", highlight: true },
   ]},
@@ -40,7 +40,7 @@ export const navGroups: NavGroup[] = [
   ]},
   { label: "Operations", items: [
     { icon: Truck, label: "Shipments", page: "shipments" },
-    { icon: ShieldCheck, label: "Compliance", page: "compliance", badge: 3, highlight: true },
+    { icon: ShieldCheck, label: "Compliance", page: "compliance", highlight: true },
   ] },
   { label: null, items: [
     { icon: DollarSign, label: "Finance", page: "finance", highlight: true },

@@ -7,9 +7,16 @@ import { cn } from "@/lib/utils";
 import type { Page } from "@/lib/types";
 import { navGroups, type NavGroup } from "@/lib/nav";
 
-export function Sidebar({ currentPage, onNavigate, expanded, onToggle, navGroups: groups, orgName }: { currentPage: Page; onNavigate: (p: Page) => void; expanded: boolean; onToggle: () => void; navGroups?: typeof navGroups; orgName?: string }) {
+export function Sidebar({ currentPage, onNavigate, expanded, onToggle, navGroups: groups, orgName, userName }: { currentPage: Page; onNavigate: (p: Page) => void; expanded: boolean; onToggle: () => void; navGroups?: typeof navGroups; orgName?: string; userName?: string }) {
   const renderedGroups = groups ?? navGroups;
   const displayName = orgName || "Faith-El";
+  const userDisplayName = userName || "Faith-El User";
+  const initials = (userName || "FE")
+    .split(/\s+/)
+    .map((w) => w[0] || "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
   return (
     <aside className={cn(
       "fixed left-0 top-0 z-40 h-screen border-r border-gray-200 bg-white flex flex-col transition-all duration-300",
@@ -80,10 +87,10 @@ export function Sidebar({ currentPage, onNavigate, expanded, onToggle, navGroups
       {/* User Profile */}
       <div className="border-t border-gray-100" style={{ padding: expanded ? "1rem" : "0.75rem 0.5rem" }}>
         <button className={cn("flex items-center rounded-lg transition-colors hover:bg-gray-50", expanded ? "w-full gap-3 p-1" : "w-full justify-center p-1")}>
-          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#4A3520] to-[#6B4E33] flex items-center justify-center text-white font-semibold text-sm shrink-0">AS</div>
+          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-[#4A3520] to-[#6B4E33] flex items-center justify-center text-white font-semibold text-sm shrink-0">{initials}</div>
           {expanded && (
             <div className="flex-1 text-left overflow-hidden">
-              <p className="text-sm font-semibold text-gray-900 truncate">Abi Solomon</p>
+              <p className="text-sm font-semibold text-gray-900 truncate">{userDisplayName}</p>
               <p className="text-xs text-gray-400 truncate">{displayName}</p>
             </div>
           )}

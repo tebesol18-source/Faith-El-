@@ -177,6 +177,7 @@ export default function App() {
         onToggle={() => setSidebarExpanded(!sidebarExpanded)}
         navGroups={visibleNavGroups}
         orgName={orgName}
+        userName={userName}
       />
       <div className={cn("transition-all duration-300", sidebarExpanded ? "ml-[240px]" : "ml-[64px]")}>
         <TopHeader userRole={userRole} onLogout={handleLogout} />

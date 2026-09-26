@@ -26,7 +26,6 @@ type FrontendOperator = {
 type FrontendAIAgent = {
   id: string;
   name: string;
-  model: string;
   status: "active" | "idle" | "error" | "paused";
   lastAction: string;
   lastActionTime: string;
@@ -107,7 +106,6 @@ export async function GET(request: any) {
         return {
           id: ag.agent_id,
           name: ag.name,
-          model: "Llama 3.3 70B", // static — backend doesn't track model per agent
           status: (ag.status === "active" ? "active" : "idle") as "active" | "idle",
           lastAction,
           lastActionTime: lastCall ? relativeTime(lastCall.called_ts) : "Never",
