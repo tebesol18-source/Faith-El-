@@ -62,5 +62,13 @@ export function getWritableDb(): Database.Database {
   const db = new Database(getDbPath());
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
+  // Enforce the FK constraints declared in the schema (46 of them: cascades
+  // for lead children, invoices→payments, exporter_inboxes→operators, etc.).
+  // SQLite leaves FK enforcement OFF by default — without this pragma every
+  // declared ON DELETE CASCADE / SET NULL was silently ignored and deletes
+  // left orphaned child rows (verified: orphans existed for previously
+  // deleted operators). PRAGMA foreign_key_check is clean on the committed
+  // DB, so enabling enforcement changes no existing behavior for valid data.
+  db.pragma("foreign_keys = ON");
   return db;
 }

@@ -207,7 +207,22 @@ export async function DELETE(
       // ─── Revoke all sessions for this operator (so they can't log in with old tokens) ───
       revokeAllSessionsForOperator(operatorId, `admin (${auth.user.email}) — account deleted`);
 
-      db.prepare("DELETE FROM operators WHERE operator_id = ?").run(operatorId);
+      // ─── Delete the operator AND all rows that reference them, atomically ───
+      // exporter_inboxes has a declared FK ON DELETE CASCADE (enforced now that
+      // getWritableDb enables foreign_keys), but password_history, sessions and
+      // account_requests carry no declared FK — deleting the operator row alone
+      // used to leave those rows orphaned (verified in the committed DB:
+      // orphans existed for previously deleted operators). Delete them
+      // explicitly, in one transaction, so an operator deletion leaves no trace
+      // rows pointing at a non-existent operator.
+      const cascadeDelete = db.transaction(() => {
+        db.prepare("DELETE FROM password_history WHERE operator_id = ?").run(operatorId);
+        db.prepare("DELETE FROM sessions WHERE operator_id = ?").run(operatorId);
+        db.prepare("DELETE FROM account_requests WHERE created_operator_id = ?").run(operatorId);
+        db.prepare("DELETE FROM exporter_inboxes WHERE operator_id = ?").run(operatorId);
+        db.prepare("DELETE FROM operators WHERE operator_id = ?").run(operatorId);
+      });
+      cascadeDelete();
 
       // ─── Audit log ───
       writeAuditLog({
