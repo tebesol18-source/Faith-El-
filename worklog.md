@@ -387,3 +387,29 @@ Stage Summary:
 - 16 files changed (13 src/config + 1 test helper + .gitignore + worklog). Regression: tsc 0 errors, 222/222 tests, build green.
 - Tenant isolation now enforced on supervisor metrics + agent controls; IDOR + org attribution verified at runtime with DB-level evidence.
 - Zero fake data added; multiple fake-data leftovers removed. Every fix verified through the full UI→API→auth→DB chain.
+
+---
+Task ID: audit-followup-p3
+Agent: main (super-z)
+Task: Implement remaining audit findings in priority order (user: "implement them in priority but first lets push and commit to git repo")
+
+Work Log:
+- PUSH BLOCKED: the GitHub PAT provided by the user is rejected by GitHub itself — HTTP 401 "Bad credentials" from api.github.com (/user and /repos), and git push fails identically under both token-as-username and x-access-token formats. Token is expired/revoked/typo'd — needs a fresh fine-grained PAT (repo tebesol18-source/Faith-El- , Contents: Read and write). All 9 fix commits (5 prior + 4 new) are local and ready to push the moment a valid token exists.
+- Fixed (P3 root cause — orphaned rows): getWritableDb() now enables PRAGMA foreign_keys=ON (schema declares 46 FKs that were never enforced; foreign_key_check clean on existing data, so zero behavior change for valid writes). DELETE /api/admin/operators/[id] now cascades password_history + sessions + account_requests + exporter_inboxes in one transaction before the operator row. New regression test operator-delete-cascade.test.ts proves the chain with DB-level evidence (zero rows in every referencing table after delete).
+- Fixed (P3 root cause — recurring test-data leaks): scripts/run-tests.mjs hermetic runner — copies the committed DB to a throwaway state/test-coffee_export.db, boots a dedicated next dev on :3100 with DATABASE_PATH override, warms every /api route, runs vitest with TEST_BASE_URL, tears down. All 10 integration files now honor TEST_BASE_URL (they had hardcoded localhost:3000, which made 9 files silently SKIP against the isolated server — fixed rather than accepting a gutted green suite). Proven: committed DB sha256 identical before/after a full 224-test run.
+- Fixed (P3 data — the leaked test operators + MORE than originally logged): offline purge with timestamped backup outside the repo, every DELETE asserting its exact change count in one transaction:
+  * DISCOVERY: full integrity_check (the earlier check used .get() and only read the first row) revealed CORRUPT INDEXES — 'wrong # of entries' in ix_sessions_org_id + sessions PK autoindex, rows 234-238 missing; COUNT(*) was undercounting (244 vs 249 real); the cleanup job's expired-session DELETE had been failing SQLITE_CORRUPT_INDEX silently. REINDEX + VACUUM repaired; final integrity_check: ok.
+  * Purged: 8 test operators (exporter-003..011), test org org-msvs10kf-606e, 249 dead sessions (all of them — zero live), 21/21 password_history rows (100% test residue), 38/38 account_requests (24 @test.com + 14 test-/dup-@example.com), 170/190 audit rows (test targets/actors). Kept: admin-001, exporter-002, both real orgs, admin inbox, 20 genuine admin audit actions, 6 leads, 3 contracts, 1 invoice.
+- Fixed (P3 tooling): cleanup job runnable again — npm run cleanup via tsx devDep (bun 1.3.x NAPI is incompatible with better-sqlite3 13.x; header documents Node-only). Smoke-tested end-to-end on a DB copy — which is what surfaced the corrupt indexes.
+- Fixed (P3 hygiene): .env untracked (carried EMAIL_BRIDGE_SECRET + a broken DATABASE_URL pointing at a non-existent path); .env.example added with real values + placeholder secret; .gitignore: !.env.example, test-DB artifacts, /state/*.bak; stale unreferenced state/coffee_export.db.bak untracked (git history retains every state anyway).
+- Regression: tsc 0 errors · 224/224 tests (16 files, ZERO skips) · next build green · committed DB byte-identical after the suite.
+
+Open findings (owner decisions):
+- Tracked repo bloat candidates NOT removed (outside finding scope): zero-byte file '0', coffee_export_complete.zip (266KB), download/*.zip (6 phase-export zips).
+- 13 of the 20 surviving audit rows reference now-deleted test entities (exporter-007/012/013 resets, rejected test requests, revoked test sessions) — kept because they are the real admin's genuine action log; cosmetic dangling target_ids.
+- Two-way masked email still BLOCKED pending real relay credentials (unchanged).
+
+Stage Summary:
+- 4 new commits: 651b3e3 (FK+cascade) · 2608c79 (hermetic tests+tooling) · 31fc363 (DB purge+repair) · 0a434ac (env hygiene). Local main is 9 ahead of origin/main.
+- The committed dev DB is now clean, integrity-verified ok, and structurally protected: FK enforcement + cascade deletes + hermetic tests mean neither app deletes nor test runs can create orphans or leak test data into it again.
+- PUSH STILL BLOCKED on credentials, not on work.
