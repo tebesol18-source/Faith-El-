@@ -90,7 +90,9 @@ export async function GET(request: any) {
         let pendingCount = 0;
         if (eventTypes.length > 0) {
           const placeholders = eventTypes.map(() => "?").join(",");
-          pendingCount = (db.prepare(`SELECT COUNT(*) as n FROM events WHERE status = 'pending' AND event_type IN (${placeholders})`).get(...eventTypes) as any).n;
+          // Tenant-scoped: only count THIS organization's pending events.
+          // (events is a tenant table — counts must not include other orgs' queues.)
+          pendingCount = (db.prepare(`SELECT COUNT(*) as n FROM events WHERE status = 'pending' AND organization_id = ? AND event_type IN (${placeholders})`).get(orgId, ...eventTypes) as any).n;
         }
 
         // Determine display status
@@ -104,7 +106,6 @@ export async function GET(request: any) {
         return {
           id: c.agent_id,
           name: AGENT_NAMES[c.agent_id] || c.name || c.agent_id,
-          model: "Llama 3.3 70B",
           status: displayStatus,
           isPaused: c.is_paused === 1,
           pausedBy: c.paused_by,
@@ -144,22 +145,25 @@ export async function GET(request: any) {
       }));
 
       // ─── Pending agent actions (approval queue) ───
+      // Tenant-scoped: pending_agent_actions carries organization_id.
       const pendingActions = db.prepare(`
         SELECT id, agent_id, action_type, action_description, target_entity_type, target_entity_id,
                risk_level, status, submitted_ts
         FROM pending_agent_actions
-        WHERE status = 'pending'
+        WHERE status = 'pending' AND organization_id = ?
         ORDER BY submitted_ts DESC
-      `).all() as any[];
+      `).all(orgId) as any[];
 
       // ─── Stats ───
+      // Tenant-scoped: event totals reflect this organization's queue only.
       const eventStats = db.prepare(`
         SELECT
           COUNT(*) as total,
           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
           SUM(CASE WHEN status = 'consumed' THEN 1 ELSE 0 END) as consumed
         FROM events
-      `).get() as any;
+        WHERE organization_id = ?
+      `).get(orgId) as any;
 
       const totalRuns = db.prepare("SELECT COALESCE(SUM(run_count), 0) as n FROM agent_controls").get() as any;
       const totalErrors = db.prepare("SELECT COALESCE(SUM(error_count), 0) as n FROM agent_controls").get() as any;

@@ -71,9 +71,9 @@ export async function POST(request: NextRequest) {
 
         if (contactName || contactEmail) {
           db.prepare(`
-            INSERT INTO lead_contacts (lead_id, name, title, email, is_primary, is_buyer, created_ts, updated_ts)
-            VALUES (?, ?, ?, ?, 1, 1, ?, ?)
-          `).run(leadId, contactName || "Primary Contact", "", contactEmail || null, now, now);
+            INSERT INTO lead_contacts (lead_id, name, title, email, is_primary, is_buyer, organization_id, created_ts, updated_ts)
+            VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?)
+          `).run(leadId, contactName || "Primary Contact", "", contactEmail || null, orgId, now, now);
         }
 
         created++;

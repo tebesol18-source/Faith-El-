@@ -202,9 +202,9 @@ export async function GET(request: NextRequest) {
           lc.title AS contact_title,
           lc.email AS contact_email,
           lc.phone AS contact_phone,
-          (SELECT GROUP_CONCAT(tag, ', ') FROM lead_tags WHERE lead_id = l.lead_id) AS tags_csv
+          (SELECT GROUP_CONCAT(tag, ', ') FROM lead_tags WHERE lead_id = l.lead_id AND organization_id = l.organization_id) AS tags_csv
         FROM leads l
-        LEFT JOIN lead_contacts lc ON l.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL
+        LEFT JOIN lead_contacts lc ON l.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL AND lc.organization_id = l.organization_id
         WHERE l.deleted_ts IS NULL AND l.organization_id = ?
       `;
       const params: (string | number)[] = [auth.user.organizationId];

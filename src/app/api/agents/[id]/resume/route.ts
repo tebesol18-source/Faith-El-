@@ -3,7 +3,7 @@
  * Resumes a paused agent — the supervisor will process its events on subsequent ticks.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { getWritableDb } from "@/lib/db";
 
 function nowISO() {
@@ -15,10 +15,13 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = requireAuth(request);
+    // Agent controls are platform-level infrastructure — resuming affects ALL
+    // organizations' processing, so this must be admin-only.
+    const auth = requireAdmin(request);
     if ("error" in auth) return auth.error;
 
     const { id: agentId } = await params;
+    const actor = auth.user.email;
     const db = getWritableDb();
 
     try {
@@ -34,11 +37,11 @@ export async function POST(
         return NextResponse.json({ ok: false, error: "Agent not found" }, { status: 404 });
       }
 
-      // Log to supervisor_log
+      // Log to supervisor_log — with the REAL actor, not a hardcoded role
       db.prepare(`
         INSERT INTO supervisor_log (timestamp, agent_id, event_type, severity, message, action_taken)
         VALUES (?, ?, 'AGENT_RESUMED', 'info', ?, 'Agent resumed via admin UI')
-      `).run(nowISO(), agentId, `${agentId} resumed by admin`);
+      `).run(nowISO(), agentId, `${agentId} resumed by ${actor}`);
 
       return NextResponse.json({ ok: true, agentId, action: "resumed" });
     } finally {
