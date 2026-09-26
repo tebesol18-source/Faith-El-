@@ -31,7 +31,10 @@ const CSRF_HEADER = "x-csrf-token";
 
 /** Routes that should be rate-limited, with per-route overrides. */
 const ROUTE_LIMITS: { pattern: RegExp; limit: number; windowMs: number }[] = [
-  { pattern: /^\/api\/auth\/login$/, limit: 30, windowMs: 60_000 },
+  // Login: strict 10/min per IP — this is the ONLY brute-force control
+  // (accounts have no lockout), and it's the contract documented in
+  // tests/integration/rate-limit.test.ts.
+  { pattern: /^\/api\/auth\/login$/, limit: 10, windowMs: 60_000 },
   { pattern: /^\/api\/auth\/request-access$/, limit: 20, windowMs: 60_000 },
   { pattern: /^\/api\/agents\/research-leads$/, limit: 30, windowMs: 60_000 },
   { pattern: /^\/api\/approvals$/, limit: 30, windowMs: 60_000 },

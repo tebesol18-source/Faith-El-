@@ -38,10 +38,26 @@ function extractCookies(response: Response): Record<string, string> {
   return cookies;
 }
 
+let _ipCounter = 0;
+
+/** Unique-per-login test IP — prevents the suite from self-rate-limiting when
+ * many parallel test files log in within the same minute. Vitest runs each
+ * test file in its OWN worker process, so a plain counter would restart at 0
+ * in every file and collide across files. Mixing process.pid (unique per
+ * worker) + a per-call counter + randomness makes collisions effectively
+ * impossible. Explicitly passed IPs always win. */
+function nextTestIp(): string {
+  _ipCounter++;
+  const pidSlot = (typeof process !== "undefined" ? process.pid : 1) % 200 + 1;
+  const counter = (_ipCounter % 250) + 1;
+  const rand = Math.floor(Math.random() * 250) + 1;
+  return `10.${pidSlot}.${counter}.${rand}`;
+}
+
 export async function createTestClient(
   email: string = "admin@faithel.com",
   password: string = "admin123",
-  ip: string = "150.0.0.1"
+  ip: string = nextTestIp()
 ): Promise<TestClient> {
   const loginR = await fetch(`${BASE_URL}/api/auth/login`, {
     method: "POST",
@@ -82,6 +98,15 @@ export async function createTestClient(
       // Also send x-auth-token for backward compat (some routes may still check it)
       headers.set("x-auth-token", sessionToken);
 
+      // Send the client IP — otherwise every test client lands in the shared
+      // "anonymous" rate-limit bucket and the suite 429s itself once it
+      // exceeds the default 120 req/min. Per-client IPs give each test its
+      // own bucket (matches real-world distinct clients). Explicit
+      // per-request overrides still win.
+      if (!headers.has("x-forwarded-for")) {
+        headers.set("x-forwarded-for", ip);
+      }
+
       // Add CSRF token for mutations
       const method = (options.method || "GET").toUpperCase();
       if (["POST", "PATCH", "PUT", "DELETE"].includes(method)) {
@@ -103,7 +128,7 @@ export function fetchWithHeader(
   url: string,
   token: string,
   options: RequestInit = {},
-  ip: string = "150.0.0.99"
+  ip: string = nextTestIp()
 ): Promise<Response> {
   const headers = new Headers(options.headers);
   headers.set("x-auth-token", token);
@@ -118,18 +143,18 @@ export function fetchWithHeader(
 let _adminClient: Promise<TestClient> | null = null;
 let _sellerClient: Promise<TestClient> | null = null;
 
-/** Get a cached admin test client (creates one on first call). */
+/** Get a cached admin test client (creates one on first call — unique IP per file/process). */
 export function getAdminClient(): Promise<TestClient> {
   if (!_adminClient) {
-    _adminClient = createTestClient("admin@faithel.com", "admin123", "150.0.0.10");
+    _adminClient = createTestClient("admin@faithel.com", "admin123", nextTestIp());
   }
   return _adminClient;
 }
 
-/** Get a cached seller test client (creates one on first call). */
+/** Get a cached seller test client (creates one on first call — unique IP per file/process). */
 export function getSellerClient(): Promise<TestClient> {
   if (!_sellerClient) {
-    _sellerClient = createTestClient("abi@faithel.com", "coffee123", "150.0.0.11");
+    _sellerClient = createTestClient("abi@faithel.com", "coffee123", nextTestIp());
   }
   return _sellerClient;
 }
