@@ -36,7 +36,11 @@ yarn-error.log*
 
 # throwaway test DB + logs created by scripts/run-tests.mjs
 /state/test-coffee_export.db*
+/state/test-python-coffee_export.db*
+/state/test-dbpath-override.db
 /state/test-server.log
+# Python virtualenv for the hermetic Python test runner (npm run test:python)
+/.venv/
 
 # vercel
 .vercel

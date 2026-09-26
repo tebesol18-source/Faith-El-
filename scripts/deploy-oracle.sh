@@ -180,6 +180,9 @@ WorkingDirectory=$APP_DIR
 Environment=NODE_ENV=production
 Environment=PORT=$PORT
 Environment=HOSTNAME=0.0.0.0
+# Canonical DB URL — shared by the Next.js app, the Node supervisor, and the
+# Python stack. Absolute form so it is unambiguous regardless of service cwd.
+Environment=COFFEE_DATABASE_URL=sqlite:///$APP_DIR/state/coffee_export.db
 ExecStart=$(which node) $APP_DIR/.next/standalone/server.js
 Restart=always
 RestartSec=5
@@ -199,6 +202,7 @@ Type=simple
 User=$APP_USER
 Group=$APP_GROUP
 WorkingDirectory=$APP_DIR
+Environment=COFFEE_DATABASE_URL=sqlite:///$APP_DIR/state/coffee_export.db
 ExecStart=$(which node) $APP_DIR/scripts/supervisor.js
 Restart=always
 RestartSec=10
@@ -206,6 +210,30 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# Email bridge service (Python FastAPI — masked outbound + inbound webhook).
+# DISABLED BY DEFAULT: two-way masked email requires external configuration
+# (RESEND_API_KEY for a verified sending domain, a shared EMAIL_BRIDGE_SECRET,
+# and a public webhook URL). Uncomment after configuring coffee_export/.env.
+# cat > /etc/systemd/system/${APP_NAME}-bridge.service << EOF
+# [Unit]
+# Description=Faith-El ERP — Email bridge (masked two-way email)
+# After=network.target ${APP_NAME}.service
+#
+# [Service]
+# Type=simple
+# User=$APP_USER
+# Group=$APP_GROUP
+# WorkingDirectory=$APP_DIR/coffee_export
+# Environment=COFFEE_DATABASE_URL=sqlite:///$APP_DIR/state/coffee_export.db
+# EnvironmentFile=-$APP_DIR/coffee_export/.env
+# ExecStart=$APP_DIR/coffee_export/venv/bin/uvicorn coffee_export.messaging.webhook:app --host 127.0.0.1 --port 8000
+# Restart=always
+# RestartSec=10
+#
+# [Install]
+# WantedBy=multi-user.target
+# EOF
 
 # Keep-alive monitor
 cat > /etc/systemd/system/${APP_NAME}-keepalive.service << EOF

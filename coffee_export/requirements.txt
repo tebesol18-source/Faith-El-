@@ -34,6 +34,14 @@ rich>=13.0                    # Pretty console output + structured logging
 # ── Testing ──
 pytest>=7.0                   # Test framework
 pytest-cov>=4.0               # Coverage reporting
+httpx>=0.27                   # HTTP client used by FastAPI's TestClient in tests
+
+# ── Email Bridge Service (coffee_export/messaging/) ──
+# The FastAPI bridge (inbox POST /api/bridge/send → EmailGateway) and its
+# tests need these; they were missing, so the bridge could not be started or
+# tested from a fresh `pip install -r requirements.txt`.
+fastapi>=0.111                # Bridge HTTP API (masked send + inbound webhook)
+uvicorn>=0.30                 # ASGI server to run the bridge
 
 # ── Database Migrations ──
 alembic>=1.13                 # Schema migrations (versioned, reversible)

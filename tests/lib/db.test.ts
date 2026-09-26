@@ -2,10 +2,57 @@
  * Tests for src/lib/db.ts
  * Verifies the database path resolver and connection helpers work correctly.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
+import fs from "fs";
+import path from "path";
 import { getDbPath, getReadonlyDb, getWritableDb } from "@/lib/db";
 
+/** Import a FRESH copy of the db module (busts the getDbPath() cache) */
+let importCounter = 0;
+async function freshDbModule() {
+  importCounter += 1;
+  return await import(/* @vite-ignore */ `@/lib/db?resolution=${importCounter}`);
+}
+
 describe("lib/db", () => {
+  const savedDbPath = process.env.DATABASE_PATH;
+  const savedCoffeeUrl = process.env.COFFEE_DATABASE_URL;
+
+  afterEach(() => {
+    if (savedDbPath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = savedDbPath;
+    if (savedCoffeeUrl === undefined) delete process.env.COFFEE_DATABASE_URL;
+    else process.env.COFFEE_DATABASE_URL = savedCoffeeUrl;
+  });
+
+  describe("getDbPath resolution order", () => {
+    it("DATABASE_PATH (explicit override) wins over COFFEE_DATABASE_URL", async () => {
+      const override = path.resolve("state/test-dbpath-override.db");
+      fs.copyFileSync(path.resolve("state/coffee_export.db"), override);
+      try {
+        process.env.DATABASE_PATH = override;
+        process.env.COFFEE_DATABASE_URL = "sqlite:///state/coffee_export.db";
+        const mod = await freshDbModule();
+        expect(mod.getDbPath()).toBe(override);
+      } finally {
+        fs.rmSync(override, { force: true });
+      }
+    });
+
+    it("COFFEE_DATABASE_URL (sqlite:/// form) is honored when DATABASE_PATH is unset", async () => {
+      delete process.env.DATABASE_PATH;
+      process.env.COFFEE_DATABASE_URL = "sqlite:///state/coffee_export.db";
+      const mod = await freshDbModule();
+      expect(mod.getDbPath()).toBe(path.resolve("state/coffee_export.db"));
+    });
+
+    it("a missing DATABASE_PATH target fails loudly instead of silently using another DB", async () => {
+      process.env.DATABASE_PATH = path.resolve("state/does-not-exist-xyz.db");
+      const mod = await freshDbModule();
+      expect(() => mod.getDbPath()).toThrow(/DATABASE_PATH is set but its target is missing/);
+    });
+  });
+
   describe("getDbPath", () => {
     it("returns a string path", () => {
       const p = getDbPath();

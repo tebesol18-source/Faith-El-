@@ -89,6 +89,25 @@ def _get_list(key: str, default: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _resolve_database_url() -> str:
+    """Resolve the SQLAlchemy database URL.
+
+    Priority:
+      1. COFFEE_DATABASE_URL env var (canonical, shared with the JS side)
+      2. sqlite:///{DB_PATH} default
+
+    Defensive normalization: a Prisma-style ``file:...`` value is converted to
+    a ``sqlite:///`` URL instead of crashing SQLAlchemy at engine creation.
+    """
+    raw = os.environ.get("COFFEE_DATABASE_URL", "").strip()
+    if raw.startswith("file:"):
+        p = Path(raw[len("file:"):])
+        if not p.is_absolute():
+            p = BASE_DIR / p
+        raw = f"sqlite:///{p}"
+    return raw or f"sqlite:///{DB_PATH}"
+
+
 @dataclass(frozen=True)
 class Settings:
     """All application settings, loaded from environment variables."""
@@ -102,9 +121,17 @@ class Settings:
     APP_LOG_LEVEL: str = field(default_factory=lambda: os.getenv("APP_LOG_LEVEL", "INFO"))
 
     # ── Database ──
-    DATABASE_URL: str = field(
-        default_factory=lambda: os.getenv("COFFEE_DATABASE_URL") or os.getenv("DATABASE_URL") or f"sqlite:///{DB_PATH}"
-    )
+    # COFFEE_DATABASE_URL is the canonical var shared by every runtime in this
+    # repo (Next.js src/lib/db.ts, scripts/supervisor.js, and this Python
+    # stack). It must be a SQLAlchemy-style URL: sqlite:///relative/path.db or
+    # sqlite:////absolute/path.db.
+    #
+    # NOTE: we deliberately do NOT fall back to DATABASE_URL. In this repo
+    # DATABASE_URL belongs to the Prisma CLI (prisma/schema.prisma) and uses
+    # Prisma's `file:` format, which SQLAlchemy cannot parse — falling back to
+    # it crashed every Python component (bridge, agents, dashboard) at import
+    # time with "Could not parse SQLAlchemy URL" whenever .env was present.
+    DATABASE_URL: str = field(default_factory=_resolve_database_url)
 
     # ── Sample Budget (weekly caps) ──
     SAMPLE_BUDGET_FULL_SETS: int = field(

@@ -12,6 +12,7 @@
     "start:all": "npm run build && (node scripts/supervisor.js > supervisor.log 2>&1 &) && (node scripts/keep-alive.js > keep-alive.log 2>&1 &) && NODE_ENV=production node .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "test": "node scripts/run-tests.mjs",
+    "test:python": "bash scripts/run-python-tests.sh",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:unit": "vitest run tests/lib",

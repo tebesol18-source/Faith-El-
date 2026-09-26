@@ -11,17 +11,38 @@ let dbPath: string | null = null;
 /** Resolve the database path once and cache it.
  *
  *  Resolution order:
- *    1. DATABASE_PATH env var (explicit override — use in production)
- *    2. ../coffee_export/data/coffee_export.db (dev: project root + ../coffee_export)
- *    3. ./coffee_export/data/coffee_export.db (alt dev layout)
- *    4. /home/z/my-project/coffee_export/data/coffee_export.db (last-resort absolute)
+ *    1. DATABASE_PATH env var (explicit per-process override — wins over
+ *       everything, including any COFFEE_DATABASE_URL that .env may carry.
+ *       This is what the hermetic test runner relies on.)
+ *    2. COFFEE_DATABASE_URL env var (canonical shared URL — same variable
+ *       the Python stack and scripts/supervisor.js read; sqlite:/// format)
+ *    3. ../coffee_export/data/coffee_export.db (dev: project root + ../coffee_export)
+ *    4. ./coffee_export/data/coffee_export.db (alt dev layout)
+ *    5. ./state/coffee_export.db
+ *    6. /home/z/my-project/coffee_export/data/coffee_export.db (last-resort absolute)
  */
 export function getDbPath(): string {
   if (dbPath) return dbPath;
 
   const candidates: string[] = [];
 
-  // 1. Env var override
+  // 1. Explicit per-process override — strictly authoritative: if set, it is
+  //    used or we fail loudly. Silently falling back to another database here
+  //    would let a typo'd override point production (or the hermetic test
+  //    runner) at the wrong file.
+  if (process.env.DATABASE_PATH) {
+    const explicit = path.resolve(process.cwd(), process.env.DATABASE_PATH);
+    if (!fs.existsSync(explicit) || fs.statSync(explicit).size === 0) {
+      throw new Error(
+        `DATABASE_PATH is set but its target is missing or empty: ${explicit} — ` +
+        `refusing to silently fall back to a different database.`
+      );
+    }
+    dbPath = explicit;
+    return explicit;
+  }
+
+  // 2. Canonical shared URL (also honored by the Python side + supervisor.js)
   if (process.env.COFFEE_DATABASE_URL) {
     const rawUrl = process.env.COFFEE_DATABASE_URL;
     if (rawUrl.startsWith("sqlite:///")) {
@@ -31,11 +52,7 @@ export function getDbPath(): string {
     }
   }
 
-  if (process.env.DATABASE_PATH) {
-    candidates.push(process.env.DATABASE_PATH);
-  }
-
-  // 2-4. Default locations
+  // 3-6. Default locations
   candidates.push(
     path.resolve(process.cwd(), "..", "coffee_export", "data", "coffee_export.db"),
     path.resolve(process.cwd(), "coffee_export", "data", "coffee_export.db"),
