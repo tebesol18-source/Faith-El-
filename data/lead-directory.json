@@ -1,0 +1,550 @@
+{
+  "version": 1,
+  "compiled": "2026-09-26",
+  "compiled_by": "GLM (AI assistant) from public knowledge — NOT from a live crawl of the web",
+  "disclaimer": "This starter directory contains REAL, publicly documented companies in the green-coffee trade, compiled for research convenience. Details (cities, URLs, segment labels) may be incomplete, outdated, or wrong. By design: (1) NO contact persons or emails are included — discover and verify real contacts yourself with evidence; (2) every entry imports as UNVERIFIED with its source URL attached; (3) a human must verify each company and at least one contact before any outreach can start. The outreach gate enforces this.",
+  "how_to_extend": "Add entries with the same shape. Every entry MUST cite at least one source URL you actually checked, and set the entry's date context via this file's 'compiled' field when you re-verify. Never add companies or contacts you cannot point to a public source for.",
+  "segments": ["Specialty Importer", "Commercial Importer", "Roaster", "Distributor"],
+  "entries": [
+    {
+      "key": "nkg-hamburg",
+      "company": "Neumann Kaffee Gruppe",
+      "country": "Germany",
+      "city": "Hamburg",
+      "segment": "Commercial Importer",
+      "website": "https://www.neumann-kaffee-gruppe.com",
+      "product_interest": "One of the world's largest green coffee traders — commercial and specialty programs across all origins, with own warehouses and subsidiaries worldwide.",
+      "sources": [
+        { "type": "website", "url": "https://www.neumann-kaffee-gruppe.com", "name": "Official Neumann Kaffee Gruppe website" }
+      ]
+    },
+    {
+      "key": "volcafe-switzerland",
+      "company": "Volcafe",
+      "country": "Switzerland",
+      "city": "Volketswil",
+      "segment": "Commercial Importer",
+      "website": "https://www.volcafe.com",
+      "product_interest": "Global green coffee merchant (ED&F Man group) — full origin coverage, from mainstream commercial to certified and specialty lots.",
+      "sources": [
+        { "type": "website", "url": "https://www.volcafe.com", "name": "Official Volcafe website" }
+      ]
+    },
+    {
+      "key": "sucafina-geneva",
+      "company": "Sucafina",
+      "country": "Switzerland",
+      "city": "Geneva",
+      "segment": "Commercial Importer",
+      "website": "https://sucafina.com",
+      "product_interest": "Global green coffee trader (Sucafina 'Coffee Family' group) with strong sustainability and traceability programs; interests range from commercial to microlot specialty.",
+      "sources": [
+        { "type": "website", "url": "https://sucafina.com", "name": "Official Sucafina website" }
+      ]
+    },
+    {
+      "key": "ecom-coffee",
+      "company": "ECOM Coffee",
+      "country": "Switzerland",
+      "city": "Pully",
+      "segment": "Commercial Importer",
+      "website": "https://www.ecomtrading.com",
+      "product_interest": "Major global merchant in coffee, cocoa and cotton — green coffee sourcing across origins including certified and specialty programs.",
+      "sources": [
+        { "type": "website", "url": "https://www.ecomtrading.com", "name": "Official ECOM Agroindustrial website" }
+      ]
+    },
+    {
+      "key": "ldc-rotterdam",
+      "company": "Louis Dreyfus Company",
+      "country": "Netherlands",
+      "city": "Rotterdam",
+      "segment": "Commercial Importer",
+      "website": "https://www.louis-dreyfus.com",
+      "product_interest": "Global merchandiser and processor of agricultural goods including green coffee; buys across quality grades at origin.",
+      "sources": [
+        { "type": "website", "url": "https://www.louis-dreyfus.com", "name": "Official Louis Dreyfus Company website" }
+      ]
+    },
+    {
+      "key": "ofi-singapore",
+      "company": "ofi (Olam Food Ingredients)",
+      "country": "Singapore",
+      "city": "Singapore",
+      "segment": "Commercial Importer",
+      "website": "https://www.ofi.com",
+      "product_interest": "Global ingredient supplier (Olam Group) with large green coffee origination and sustainability programs (e.g. At Source).",
+      "sources": [
+        { "type": "website", "url": "https://www.ofi.com", "name": "Official ofi website" }
+      ]
+    },
+    {
+      "key": "finlays-uk",
+      "company": "Finlays",
+      "country": "United Kingdom",
+      "city": "London",
+      "segment": "Commercial Importer",
+      "website": "https://www.finlays.net",
+      "product_interest": "Long-established UK-based tea and coffee supplier to beverage brands — sourcing and supply of green coffee at scale.",
+      "sources": [
+        { "type": "website", "url": "https://www.finlays.net", "name": "Official Finlays website" }
+      ]
+    },
+    {
+      "key": "efico-antwerp",
+      "company": "EFICO",
+      "country": "Belgium",
+      "city": "Antwerp",
+      "segment": "Specialty Importer",
+      "website": "https://www.efico.com",
+      "product_interest": "Independent green coffee trader since 1926 — sustainability-led sourcing, specialty and commercial lots, with an Ethiopian-sourcing history.",
+      "sources": [
+        { "type": "website", "url": "https://www.efico.com", "name": "Official EFICO website" }
+      ]
+    },
+    {
+      "key": "atlantica-madrid",
+      "company": "Atlantica Coffee",
+      "country": "Spain",
+      "city": "Madrid",
+      "segment": "Commercial Importer",
+      "website": "https://www.atlanticacoffee.com",
+      "product_interest": "Green coffee trader serving Southern Europe — wide origin coverage including African washed arabicas.",
+      "sources": [
+        { "type": "website", "url": "https://www.atlanticacoffee.com", "name": "Official Atlantica Coffee website" }
+      ]
+    },
+    {
+      "key": "interamerican-hamburg",
+      "company": "InterAmerican Coffee",
+      "country": "Germany",
+      "city": "Hamburg",
+      "segment": "Commercial Importer",
+      "website": "https://www.interamericancoffee.com",
+      "product_interest": "Green coffee importer (NKG network) with offices in Hamburg and Houston — commercial and specialty grades from all producing regions.",
+      "sources": [
+        { "type": "website", "url": "https://www.interamericancoffee.com", "name": "Official InterAmerican Coffee website" }
+      ]
+    },
+    {
+      "key": "covoya-usa",
+      "company": "Covoya Coffee",
+      "country": "USA",
+      "city": "Irvine",
+      "segment": "Specialty Importer",
+      "website": "https://www.covoyacoffee.com",
+      "product_interest": "US green coffee importer combining specialty programs with commercial scale; interests in direct relationships with origin exporters.",
+      "sources": [
+        { "type": "website", "url": "https://www.covoyacoffee.com", "name": "Official Covoya Coffee website" }
+      ]
+    },
+    {
+      "key": "ucc-kobe",
+      "company": "UCC Ueshima Coffee",
+      "country": "Japan",
+      "city": "Kobe",
+      "segment": "Commercial Importer",
+      "website": "https://www.ucc.co.jp",
+      "product_interest": "Japan's largest coffee company — roaster, retailer and one of the biggest green coffee importers in Asia; buys across grades including specialty.",
+      "sources": [
+        { "type": "website", "url": "https://www.ucc.co.jp", "name": "Official UCC Ueshima Coffee website" }
+      ]
+    },
+    {
+      "key": "key-coffee-tokyo",
+      "company": "Key Coffee",
+      "country": "Japan",
+      "city": "Tokyo",
+      "segment": "Commercial Importer",
+      "website": "https://www.keycoffee.co.jp",
+      "product_interest": "Established Japanese roaster and green coffee importer with its own sourcing network, including African origins.",
+      "sources": [
+        { "type": "website", "url": "https://www.keycoffee.co.jp", "name": "Official Key Coffee website" }
+      ]
+    },
+    {
+      "key": "royal-coffee-usa",
+      "company": "Royal Coffee",
+      "country": "USA",
+      "city": "Oakland",
+      "segment": "Specialty Importer",
+      "website": "https://royalcoffee.com",
+      "product_interest": "Specialty green coffee importer since 1978 — extensive East African cupping and buying programs.",
+      "sources": [
+        { "type": "website", "url": "https://royalcoffee.com", "name": "Official Royal Coffee website" }
+      ]
+    },
+    {
+      "key": "falcon-uk",
+      "company": "Falcon Coffees",
+      "country": "United Kingdom",
+      "city": "Tonbridge",
+      "segment": "Specialty Importer",
+      "website": "https://www.falconcoffees.com",
+      "product_interest": "Specialty green coffee merchant focused on sustainable supply chains and long-term producer relationships; strong East African presence.",
+      "sources": [
+        { "type": "website", "url": "https://www.falconcoffees.com", "name": "Official Falcon Coffees website" }
+      ]
+    },
+    {
+      "key": "cafe-imports-usa",
+      "company": "Cafe Imports",
+      "country": "USA",
+      "city": "Minneapolis",
+      "segment": "Specialty Importer",
+      "website": "https://www.cafeimports.com",
+      "product_interest": "Specialty green coffee importer (part of the Sucafina family) — active Ethiopian sourcing and education programs for roasters.",
+      "sources": [
+        { "type": "website", "url": "https://www.cafeimports.com", "name": "Official Cafe Imports website" }
+      ]
+    },
+    {
+      "key": "belco-france",
+      "company": "Belco",
+      "country": "France",
+      "city": "Bordeaux",
+      "segment": "Specialty Importer",
+      "website": "https://www.belco.fr",
+      "product_interest": "French specialty green coffee importer with a dedicated African origins team and direct-relationship sourcing model.",
+      "sources": [
+        { "type": "website", "url": "https://www.belco.fr", "name": "Official Belco website" }
+      ]
+    },
+    {
+      "key": "illy-trieste",
+      "company": "illycaffè",
+      "country": "Italy",
+      "city": "Trieste",
+      "segment": "Roaster",
+      "website": "https://www.illy.com",
+      "product_interest": "Global premium roaster with a single-blend philosophy built on 100% arabica — long-term origin buying including a historic relationship with Ethiopian growers.",
+      "sources": [
+        { "type": "website", "url": "https://www.illy.com", "name": "Official illycaffè website" }
+      ]
+    },
+    {
+      "key": "lavazza-turin",
+      "company": "Lavazza",
+      "country": "Italy",
+      "city": "Turin",
+      "segment": "Roaster",
+      "website": "https://www.lavazza.com",
+      "product_interest": "Major Italian roaster group — large-scale green arabica and robusta purchasing with sustainability programs (Lavazza Foundation).",
+      "sources": [
+        { "type": "website", "url": "https://www.lavazza.com", "name": "Official Lavazza website" }
+      ]
+    },
+    {
+      "key": "julius-meinl-vienna",
+      "company": "Julius Meinl",
+      "country": "Austria",
+      "city": "Vienna",
+      "segment": "Roaster",
+      "website": "https://www.juliusmeinl.com",
+      "product_interest": "Historic Viennese roaster and coffeehouse brand — green coffee purchasing for European retail and HORECA channels.",
+      "sources": [
+        { "type": "website", "url": "https://www.juliusmeinl.com", "name": "Official Julius Meinl website" }
+      ]
+    },
+    {
+      "key": "counter-culture-usa",
+      "company": "Counter Culture Coffee",
+      "country": "USA",
+      "city": "Durham",
+      "segment": "Roaster",
+      "website": "https://counterculturecoffee.com",
+      "product_interest": "Pioneering US specialty roaster — seasonal single origins and long-standing direct relationships with African washing stations.",
+      "sources": [
+        { "type": "website", "url": "https://counterculturecoffee.com", "name": "Official Counter Culture Coffee website" }
+      ]
+    },
+    {
+      "key": "intelligentsia-usa",
+      "company": "Intelligentsia Coffee",
+      "country": "USA",
+      "city": "Chicago",
+      "segment": "Roaster",
+      "website": "https://www.intelligentsia.com",
+      "product_interest": "Influential specialty roaster and retailer — direct-trade sourcing with published price premiums; active Ethiopian microlot buying.",
+      "sources": [
+        { "type": "website", "url": "https://www.intelligentsia.com", "name": "Official Intelligentsia Coffee website" }
+      ]
+    },
+    {
+      "key": "stumptown-usa",
+      "company": "Stumptown Coffee Roasters",
+      "country": "USA",
+      "city": "Portland",
+      "segment": "Roaster",
+      "website": "https://www.stumptowncoffee.com",
+      "product_interest": "Specialty roaster known for relationship coffees — long-running Ethiopian and East African single-origin program.",
+      "sources": [
+        { "type": "website", "url": "https://www.stumptowncoffee.com", "name": "Official Stumptown Coffee Roasters website" }
+      ]
+    },
+    {
+      "key": "blue-bottle-usa",
+      "company": "Blue Bottle Coffee",
+      "country": "USA",
+      "city": "Oakland",
+      "segment": "Roaster",
+      "website": "https://bluebottlecoffee.com",
+      "product_interest": "Premium US roaster and café group (Nestlé) — fresh-crop sourcing with a strong single-origin espresso program.",
+      "sources": [
+        { "type": "website", "url": "https://bluebottlecoffee.com", "name": "Official Blue Bottle Coffee website" }
+      ]
+    },
+    {
+      "key": "peets-usa",
+      "company": "Peet's Coffee",
+      "country": "USA",
+      "city": "Emeryville",
+      "segment": "Roaster",
+      "website": "https://www.peets.com",
+      "product_interest": "Established specialty roaster and retailer — significant green coffee buying program including Ethiopian lots for its single-origin range.",
+      "sources": [
+        { "type": "website", "url": "https://www.peets.com", "name": "Official Peet's Coffee website" }
+      ]
+    },
+    {
+      "key": "la-colombe-usa",
+      "company": "La Colombe Coffee Roasters",
+      "country": "USA",
+      "city": "Philadelphia",
+      "segment": "Roaster",
+      "website": "https://www.lacolombe.com",
+      "product_interest": "US roaster and draft-latte pioneer — bulk green coffee sourcing with specialty single-origin lines.",
+      "sources": [
+        { "type": "website", "url": "https://www.lacolombe.com", "name": "Official La Colombe website" }
+      ]
+    },
+    {
+      "key": "verve-usa",
+      "company": "Verve Coffee Roasters",
+      "country": "USA",
+      "city": "Santa Cruz",
+      "segment": "Roaster",
+      "website": "https://www.vervecoffee.com",
+      "product_interest": "Coastal California specialty roaster — seasonal Ethiopian and Kenyan microlots, transparency-driven sourcing.",
+      "sources": [
+        { "type": "website", "url": "https://www.vervecoffee.com", "name": "Official Verve Coffee Roasters website" }
+      ]
+    },
+    {
+      "key": "onyx-usa",
+      "company": "Onyx Coffee Lab",
+      "country": "USA",
+      "city": "Rogers",
+      "segment": "Roaster",
+      "website": "https://onyxcoffeelab.com",
+      "product_interest": "High-profile Arkansas roaster — competition-grade lots, published sourcing contracts, and Ethiopian washed/geisha programs.",
+      "sources": [
+        { "type": "website", "url": "https://onyxcoffeelab.com", "name": "Official Onyx Coffee Lab website" }
+      ]
+    },
+    {
+      "key": "tim-wendelboe-oslo",
+      "company": "Tim Wendelboe",
+      "country": "Norway",
+      "city": "Oslo",
+      "segment": "Roaster",
+      "website": "https://www.timwendelboe.no",
+      "product_interest": "Oslo roaster, café and green coffee importer — direct, long-term relationships with Ethiopian and Kenyan producers; transparency-first buying.",
+      "sources": [
+        { "type": "website", "url": "https://www.timwendelboe.no", "name": "Official Tim Wendelboe website" }
+      ]
+    },
+    {
+      "key": "coffee-collective-copenhagen",
+      "company": "Coffee Collective",
+      "country": "Denmark",
+      "city": "Copenhagen",
+      "segment": "Roaster",
+      "website": "https://coffeecollective.dk",
+      "product_interest": "Copenhagen specialty roaster and importer — direct-trade pioneer with deep East African relationships (incl. Ethiopia).",
+      "sources": [
+        { "type": "website", "url": "https://coffeecollective.dk", "name": "Official Coffee Collective website" }
+      ]
+    },
+    {
+      "key": "the-barn-berlin",
+      "company": "The Barn Coffee Roasters",
+      "country": "Germany",
+      "city": "Berlin",
+      "segment": "Roaster",
+      "website": "https://www.thebarn.de",
+      "product_interest": "Berlin specialty roaster — narrow, seasonal Ethiopian and Kenyan single-origin list with long-term producer commitments.",
+      "sources": [
+        { "type": "website", "url": "https://www.thebarn.de", "name": "Official The Barn Coffee Roasters website" }
+      ]
+    },
+    {
+      "key": "square-mile-uk",
+      "company": "Square Mile Coffee Roasters",
+      "country": "United Kingdom",
+      "city": "London",
+      "segment": "Roaster",
+      "website": "https://squaremilecoffee.com",
+      "product_interest": "London wholesale-focused specialty roaster — annual Ethiopian buying trips and strong filter/espresso programs.",
+      "sources": [
+        { "type": "website", "url": "https://squaremilecoffee.com", "name": "Official Square Mile Coffee Roasters website" }
+      ]
+    },
+    {
+      "key": "union-uk",
+      "company": "Union Hand-Roasted Coffee",
+      "country": "United Kingdom",
+      "city": "London",
+      "segment": "Roaster",
+      "website": "https://www.unionroasted.com",
+      "product_interest": "UK roaster with a documented 'sourced with purpose' approach — long-standing Ethiopian cooperative relationships.",
+      "sources": [
+        { "type": "website", "url": "https://www.unionroasted.com", "name": "Official Union Hand-Roasted Coffee website" }
+      ]
+    },
+    {
+      "key": "drop-stockholm",
+      "company": "Drop Coffee",
+      "country": "Sweden",
+      "city": "Stockholm",
+      "segment": "Roaster",
+      "website": "https://www.dropcoffee.com",
+      "product_interest": "Stockholm roaster with multiple Swedish roasting championship titles — relationship buying of Ethiopian washed lots.",
+      "sources": [
+        { "type": "website", "url": "https://www.dropcoffee.com", "name": "Official Drop Coffee website" }
+      ]
+    },
+    {
+      "key": "gardelli-italy",
+      "company": "Gardelli Specialty Coffees",
+      "country": "Italy",
+      "city": "Forlì",
+      "segment": "Roaster",
+      "website": "https://www.gardellicoffee.com",
+      "product_interest": "Italian roaster founded by Rubens Gardelli (multiple-time World Roasting champion) — competition-grade Ethiopian microlot sourcing.",
+      "sources": [
+        { "type": "website", "url": "https://www.gardellicoffee.com", "name": "Official Gardelli Specialty Coffees website" }
+      ]
+    },
+    {
+      "key": "manhattan-rotterdam",
+      "company": "Manhattan Coffee Roasters",
+      "country": "Netherlands",
+      "city": "Rotterdam",
+      "segment": "Roaster",
+      "website": "https://www.manhattancoffeeroasters.com",
+      "product_interest": "Dutch specialty roaster (WBC champion co-founder) — high-end Ethiopian and pan-African microlot program.",
+      "sources": [
+        { "type": "website", "url": "https://www.manhattancoffeeroasters.com", "name": "Official Manhattan Coffee Roasters website" }
+      ]
+    },
+    {
+      "key": "raw-coffee-dubai",
+      "company": "Raw Coffee Company",
+      "country": "United Arab Emirates",
+      "city": "Dubai",
+      "segment": "Roaster",
+      "website": "https://rawcoffeecompany.com",
+      "product_interest": "UAE specialty roaster (among the first in the Gulf) — growing regional demand for traceable Ethiopian lots.",
+      "sources": [
+        { "type": "website", "url": "https://rawcoffeecompany.com", "name": "Official Raw Coffee Company website" }
+      ]
+    },
+    {
+      "key": "fritz-seoul",
+      "company": "Fritz Coffee Company",
+      "country": "South Korea",
+      "city": "Seoul",
+      "segment": "Roaster",
+      "website": "https://fritzcoffeeco.com",
+      "product_interest": "Seoul roaster led by champion baristas — strong washed-Ethiopia program for café and wholesale channels.",
+      "sources": [
+        { "type": "website", "url": "https://fritzcoffeeco.com", "name": "Official Fritz Coffee Company website" }
+      ]
+    },
+    {
+      "key": "coffee-libre-seoul",
+      "company": "Coffee Libre",
+      "country": "South Korea",
+      "city": "Seoul",
+      "segment": "Roaster",
+      "website": "https://coffeelibre.com",
+      "product_interest": "Korean roasting pioneer — direct-origin trips including Ethiopia; supplies many of Seoul's specialty cafés.",
+      "sources": [
+        { "type": "website", "url": "https://coffeelibre.com", "name": "Official Coffee Libre website" }
+      ]
+    },
+    {
+      "key": "glitch-tokyo",
+      "company": "Glitch Coffee & Roasters",
+      "country": "Japan",
+      "city": "Tokyo",
+      "segment": "Roaster",
+      "website": "https://glitchcoffee.com",
+      "product_interest": "Tokyo roaster focused on light-roast, single-origin coffees — heavy Ethiopian focus on the bar and retail shelves.",
+      "sources": [
+        { "type": "website", "url": "https://glitchcoffee.com", "name": "Official Glitch Coffee & Roasters website" }
+      ]
+    },
+    {
+      "key": "onibus-tokyo",
+      "company": "Onibus Coffee",
+      "country": "Japan",
+      "city": "Tokyo",
+      "segment": "Roaster",
+      "website": "https://onibuscoffee.com",
+      "product_interest": "Tokyo nano-roastery and café group — seasonal Ethiopian washed lots for filter programs.",
+      "sources": [
+        { "type": "website", "url": "https://onibuscoffee.com", "name": "Official Onibus Coffee website" }
+      ]
+    },
+    {
+      "key": "market-lane-melbourne",
+      "company": "Market Lane Coffee",
+      "country": "Australia",
+      "city": "Melbourne",
+      "segment": "Roaster",
+      "website": "https://www.marketlane.com.au",
+      "product_interest": "Melbourne specialty roaster and retailer — seasonal Ethiopian single origins with direct washing-station lots.",
+      "sources": [
+        { "type": "website", "url": "https://www.marketlane.com.au", "name": "Official Market Lane Coffee website" }
+      ]
+    },
+    {
+      "key": "seven-seeds-melbourne",
+      "company": "Seven Seeds",
+      "country": "Australia",
+      "city": "Melbourne",
+      "segment": "Roaster",
+      "website": "https://www.sevenseeds.com.au",
+      "product_interest": "Melbourne roaster and importer — annual origin trips and long Ethiopian sourcing history for wholesale and cafés.",
+      "sources": [
+        { "type": "website", "url": "https://www.sevenseeds.com.au", "name": "Official Seven Seeds website" }
+      ]
+    },
+    {
+      "key": "campos-sydney",
+      "company": "Campos Coffee",
+      "country": "Australia",
+      "city": "Sydney",
+      "segment": "Roaster",
+      "website": "https://camposcoffee.com",
+      "product_interest": "Major Australian roaster and wholesaler — broad green coffee program spanning commercial espresso to specialty single origins.",
+      "sources": [
+        { "type": "website", "url": "https://camposcoffee.com", "name": "Official Campos Coffee website" }
+      ]
+    },
+    {
+      "key": "49th-parallel-vancouver",
+      "company": "49th Parallel Coffee Roasters",
+      "country": "Canada",
+      "city": "Vancouver",
+      "segment": "Roaster",
+      "website": "https://49thparallelroasters.com",
+      "product_interest": "Vancouver specialty roaster and café group — seasonal Ethiopian and pan-African lots for wholesale and retail.",
+      "sources": [
+        { "type": "website", "url": "https://49thparallelroasters.com", "name": "Official 49th Parallel Coffee Roasters website" }
+      ]
+    }
+  ]
+}

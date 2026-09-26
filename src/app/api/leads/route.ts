@@ -52,6 +52,13 @@ type FrontendLead = {
     email: string | null;
     phone: string | null;
   } | null;
+  // Phase 1: verification & evidence
+  verificationStatus?: string;          // 'unverified' | 'verified' | 'rejected'
+  verifiedBy?: string | null;
+  verifiedTs?: string | null;
+  evidenceCount?: number;               // lead_sources rows (company/both)
+  verifiedContactCount?: number;        // verified contacts with valid, non-fictional email
+  contactCount?: number;
 };
 
 /**
@@ -202,6 +209,12 @@ export async function GET(request: NextRequest) {
           lc.title AS contact_title,
           lc.email AS contact_email,
           lc.phone AS contact_phone,
+          l.verification_status,
+          l.verified_by,
+          l.verified_ts,
+          (SELECT COUNT(*) FROM lead_sources ls WHERE ls.lead_id = l.lead_id AND ls.organization_id = l.organization_id AND ls.deleted_ts IS NULL AND ls.evidence_for IN ('company','both')) AS evidence_count,
+          (SELECT COUNT(*) FROM lead_contacts vc WHERE vc.lead_id = l.lead_id AND vc.organization_id = l.organization_id AND vc.deleted_ts IS NULL) AS contact_count,
+          (SELECT COUNT(*) FROM lead_contacts vc2 WHERE vc2.lead_id = l.lead_id AND vc2.organization_id = l.organization_id AND vc2.deleted_ts IS NULL AND vc2.verification_status = 'verified' AND vc2.email IS NOT NULL AND vc2.email NOT LIKE '%@example.com' AND vc2.email NOT LIKE '%@test%' AND vc2.email NOT LIKE '%@invalid%' AND vc2.email NOT LIKE '%@faithelexport.com') AS verified_contact_count,
           (SELECT GROUP_CONCAT(tag, ', ') FROM lead_tags WHERE lead_id = l.lead_id AND organization_id = l.organization_id) AS tags_csv
         FROM leads l
         LEFT JOIN lead_contacts lc ON l.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL AND lc.organization_id = l.organization_id
@@ -267,6 +280,12 @@ export async function GET(request: NextRequest) {
           nextActionDueTs: row.next_action_due_ts || null,
           nextActionAgent: row.next_action_agent || null,
           createdAt: row.created_ts,
+          verificationStatus: row.verification_status || "unverified",
+          verifiedBy: row.verified_by || null,
+          verifiedTs: row.verified_ts || null,
+          evidenceCount: row.evidence_count || 0,
+          contactCount: row.contact_count || 0,
+          verifiedContactCount: row.verified_contact_count || 0,
           primaryContact: row.contact_name
             ? {
                 name: row.contact_name,

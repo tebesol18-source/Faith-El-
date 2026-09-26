@@ -10,8 +10,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getWritableDb, getReadonlyDb } from "@/lib/db";
+import { getWritableDb } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
+import { checkOutreachGate } from "@/lib/leads-evidence";
 
 const STATE_TRANSITIONS: Record<string, string> = {
   NEW: "ENRICHED",
@@ -24,6 +25,9 @@ const STATE_TRANSITIONS: Record<string, string> = {
   DECIDED_NEEDS_ANOTHER: "SAMPLE_DISPATCHED",
   GHOSTED: "IN_SEQUENCE", // re-engage
 };
+
+/** Transitions that start outreach — gated on verified company + verified contact. */
+const OUTREACH_START_TRANSITIONS = new Set(["IN_SEQUENCE"]);
 
 export async function POST(
   request: NextRequest,
@@ -51,6 +55,20 @@ export async function POST(
       const nextState = STATE_TRANSITIONS[lead.current_state];
       if (!nextState) {
         return NextResponse.json({ ok: false, error: `Cannot advance from state: ${lead.current_state}` }, { status: 400 });
+      }
+
+      // ── Phase 1 outreach gate ────────────────────────────────────
+      // Entering an outreach sequence requires a VERIFIED company and at
+      // least one VERIFIED, non-fictional contact email. Fictional buyers
+      // must never receive polished outreach emails.
+      if (OUTREACH_START_TRANSITIONS.has(nextState)) {
+        const gate = checkOutreachGate(db, leadId, orgId);
+        if (!gate.ok) {
+          return NextResponse.json(
+            { ok: false, error: gate.error, gate: "outreach-verification" },
+            { status: gate.code }
+          );
+        }
       }
 
       // Update lead state
