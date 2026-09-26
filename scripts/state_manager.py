@@ -170,7 +170,11 @@ CREATE TABLE IF NOT EXISTS leads (
     ghosted_count          INTEGER DEFAULT 0,
     created_ts             TEXT NOT NULL,
     updated_ts             TEXT NOT NULL,
-    UNIQUE(company_name, headquarters_country)
+    organization_id        TEXT NOT NULL DEFAULT 'org-system',
+    verification_status    TEXT NOT NULL DEFAULT 'unverified',
+    verified_by            TEXT,
+    verified_ts            TEXT,
+    UNIQUE(company_name, headquarters_country, organization_id)
 );
 
 -- ============================================================

@@ -61,6 +61,13 @@ class Lead(Base):
     updated_ts: Mapped[str] = mapped_column(Text, nullable=False)
     deleted_ts: Mapped[str | None] = mapped_column(Text)
 
+    # Phase 1 real-lead intake: verification (evidence lives in lead_sources)
+    verification_status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="unverified"
+    )
+    verified_by: Mapped[str | None] = mapped_column(Text)
+    verified_ts: Mapped[str | None] = mapped_column(Text)
+
     # Relationships
     contacts: Mapped[list[LeadContact]] = relationship(
         back_populates="lead", cascade="all, delete-orphan"
@@ -93,7 +100,10 @@ class Lead(Base):
             "outreach_language IN ('EN', 'DE', 'FR', 'IT', 'JA', 'KO', 'ZH', 'AR', 'TR', 'RU')",
             name="ck_leads_outreach_language",
         ),
-        UniqueConstraint("company_name", "headquarters_country", name="uq_leads_company_country"),
+        UniqueConstraint(
+            "company_name", "headquarters_country", "organization_id",
+            name="uq_leads_company_country",
+        ),
         Index("ix_leads_current_state", "current_state"),
         Index("ix_leads_current_agent", "current_agent"),
         Index("ix_leads_priority_tier", "priority_tier"),
@@ -125,6 +135,13 @@ class LeadContact(Base):
     created_ts: Mapped[str] = mapped_column(Text, nullable=False)
     updated_ts: Mapped[str] = mapped_column(Text, nullable=False)
     deleted_ts: Mapped[str | None] = mapped_column(Text)
+
+    # Phase 1 real-lead intake: contact-level verification
+    verification_status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="unverified"
+    )
+    verified_by: Mapped[str | None] = mapped_column(Text)
+    verified_ts: Mapped[str | None] = mapped_column(Text)
 
     lead: Mapped[Lead] = relationship(back_populates="contacts")
 
@@ -183,3 +200,98 @@ class LeadStateHistory(Base):
 
     def __repr__(self) -> str:
         return f"<LeadStateHistory {self.lead_id}: {self.from_state}→{self.to_state}>"
+
+
+class LeadSource(Base):
+    """Phase 1 real-lead intake — one row per piece of EVIDENCE.
+
+    Stores where a company or contact was found (source URL), what it
+    documents, the product interest, the date checked, and the result of
+    the latest automated reachability check. A lead without evidence
+    cannot be verified, and an unverified lead cannot enter outreach.
+    """
+
+    __tablename__ = "lead_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lead_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("leads.lead_id", ondelete="CASCADE"), nullable=False
+    )
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_for: Mapped[str] = mapped_column(
+        Text, nullable=False, default="company"
+    )
+    contact_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("lead_contacts.id", ondelete="CASCADE")
+    )
+    source_type: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    source_name: Mapped[str | None] = mapped_column(Text)
+    company_as_listed: Mapped[str | None] = mapped_column(Text)
+    country: Mapped[str | None] = mapped_column(Text)
+    product_interest: Mapped[str | None] = mapped_column(Text)
+    checked_ts: Mapped[str | None] = mapped_column(Text)
+    checked_by: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    last_check_status: Mapped[str | None] = mapped_column(Text)
+    last_check_detail: Mapped[str | None] = mapped_column(Text)
+    last_check_ts: Mapped[str | None] = mapped_column(Text)
+
+    created_ts: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_ts: Mapped[str] = mapped_column(Text, nullable=False)
+    deleted_ts: Mapped[str | None] = mapped_column(Text)
+
+    lead: Mapped[Lead] = relationship()
+    contact: Mapped[LeadContact] = relationship()
+
+    __table_args__ = (
+        CheckConstraint(
+            "evidence_for IN ('company', 'contact', 'both')",
+            name="ck_lead_sources_evidence_for",
+        ),
+        CheckConstraint(
+            "source_type IN ('directory', 'website', 'registry', 'marketplace', "
+            "'event', 'publication', 'manual', 'other')",
+            name="ck_lead_sources_source_type",
+        ),
+        Index("ix_lead_sources_lead", "lead_id"),
+        Index("ix_lead_sources_org", "organization_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<LeadSource {self.id}: {self.source_type} for {self.lead_id}>"
+
+
+class LeadVerificationLog(Base):
+    """Append-only audit trail of every verification action (check /
+    confirm / reject / reset) at both company and contact level, with the
+    actor. Never updated or deleted."""
+
+    __tablename__ = "lead_verification_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lead_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("leads.lead_id", ondelete="CASCADE"), nullable=False
+    )
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False)
+    level: Mapped[str] = mapped_column(Text, nullable=False)
+    contact_id: Mapped[int | None] = mapped_column(Integer)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    result: Mapped[str | None] = mapped_column(Text)
+    detail: Mapped[str | None] = mapped_column(Text)
+    actor: Mapped[str] = mapped_column(Text, nullable=False)
+    created_ts: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "level IN ('company', 'contact')", name="ck_lead_verification_log_level"
+        ),
+        CheckConstraint(
+            "action IN ('check', 'confirm', 'reject', 'reset')",
+            name="ck_lead_verification_log_action",
+        ),
+        Index("ix_lead_verification_log_lead", "lead_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<LeadVerificationLog {self.id}: {self.lead_id} {self.action} {self.level}>"
