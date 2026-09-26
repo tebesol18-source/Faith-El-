@@ -413,3 +413,18 @@ Stage Summary:
 - 4 new commits: 651b3e3 (FK+cascade) · 2608c79 (hermetic tests+tooling) · 31fc363 (DB purge+repair) · 0a434ac (env hygiene). Local main is 9 ahead of origin/main.
 - The committed dev DB is now clean, integrity-verified ok, and structurally protected: FK enforcement + cascade deletes + hermetic tests mean neither app deletes nor test runs can create orphans or leak test data into it again.
 - PUSH STILL BLOCKED on credentials, not on work.
+
+---
+Task ID: push-complete
+Agent: main (super-z)
+Task: Push all audit+fix commits to origin (user provided a valid PAT)
+
+Work Log:
+- First PAT (prior message) was dead — HTTP 401 from api.github.com; reported, not hammered.
+- Second PAT validated: HTTP 200 as tebesol18-source, repo permissions push:true.
+- Pushed: 74d55f6..7a17970 main -> main (10 commits: P0 build fixes, P1 tenant scoping/authz, P2 fake-data removal, test infra, hygiene, P3 FK/cascade fix, hermetic test runner, DB purge+index repair, env hygiene, worklogs).
+- Verified via git fetch (main == origin/main, 0 ahead) and the GitHub commits API (remote HEAD 7a17970).
+
+Stage Summary:
+- ALL audit work is now on GitHub. Local and remote in sync.
+- Remaining owner decisions (flagged, not blocking): tracked zip artifacts + zero-byte '0' file (repo bloat); two-way masked email still BLOCKED pending real relay credentials.
