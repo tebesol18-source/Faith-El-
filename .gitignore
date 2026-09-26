@@ -61,3 +61,7 @@ tool-results/
 *.jpeg
 tool-results/
 coffee_export/data/backups/
+
+# SQLite transient files — must never be committed (stale WAL replays over the DB on clone)
+*.db-shm
+*.db-wal

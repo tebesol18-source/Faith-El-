@@ -364,3 +364,26 @@ Stage Summary:
 - HTTPS is automatic via Caddy + Let's Encrypt
 - Daily backups via cron (documented)
 - Total cost: $0/month (Oracle Always Free) + ~$10/year for domain
+
+---
+Task ID: audit-74d55f6
+Agent: main (super-z)
+Task: Full-chain audit of commit 74d55f6 + prioritized fixes (P0 build breakers → P1 tenant/security → P2 honesty) with regression + runtime verification
+
+Work Log:
+- Baseline at 74d55f6: tsc RED (7 errors), production build impossible. Identified: inbox route missing getWritableDb import (POST would 500), InboxPage missing apiFetch import (3 call sites — UI crashes), FrontendConversation type missing threadId, examples/ referencing uninstalled socket.io.
+- P0 fixes: inbox route — imported getWritableDb + added threadId/maskedFrom to the conversation payload; InboxPage — imported apiFetch from @/lib/auth-client; tsconfig — excluded examples/ (not app code).
+- P1 fixes: leads/import — lead_contacts INSERT now sets organization_id from the session (was silently defaulting ALL imported contacts to 'org-system' regardless of importing org — tenant misattribution in the pinned HEAD commit); /api/leads — lead_contacts JOIN + lead_tags subquery now org-filtered (defense in depth); /api/supervisor — events + pending_agent_actions + event stats now scoped by organization_id (was leaking every org's queue depth to all users; orgId was fetched but never used); agents pause/resume — requireAdmin (was requireAuth: ANY seller of ANY org could pause platform-wide agents) + real actor email in paused_by/supervisor_log (was hardcoded 'admin').
+- P2 honesty fixes: removed fake "Llama 3.3 70B" model strings (supervisor + admin routes + AIAgent type — nothing rendered it); removed fake static nav badges (Inbox 8 / Compliance 3); Sidebar now shows the logged-in user's real name + initials (was hardcoded "Abi Solomon"/"AS" for everyone); InboxPage send box shows the thread's real masked sender (was hardcoded marcus.bell@faithelexport.com); decorative buttons (Attach/AI Draft/Improve/Translate) now honestly disabled with "coming soon" titles.
+- Test infrastructure: integration helpers now send the client IP on every request + unique-per-login IPs (pid+counter+random) — previously ALL client.fetch traffic shared one "anonymous" rate-limit bucket, so the suite 429'd itself once past 120 req/min (order-dependent flakiness; 4-6 tests failed per run). Login rate limit aligned to the documented 10/min contract (was 30 — the rate-limit test only ever passed via accidental bucket exhaustion). 222/222 tests now pass deterministically.
+- Regression gates: tsc --noEmit 0 errors; vitest 222/222 (15 files); next build succeeds.
+- Runtime verification (13/13 checks, script preserved at /home/z/my-project/scripts/verify-runtime.mjs): supervisor event counts tenant-scoped (org-system=17 vs fresh org=0); seller + non-admin operator get 403 on agent pause (was 200); admin pause/resume works with real attribution in supervisor_log; leads/import as fresh-org user attributes lead_contacts to the importing org (verified in DB); imported lead invisible to other org; fresh org inbox empty; cross-org inbox thread POST returns 404.
+- Hygiene: untracked state/coffee_export.db-shm + -wal from git (committed WAL files replay stale state over the DB on fresh clones — genuine corruption hazard) + .gitignore entries. Restored the committed .db to its original 74d55f6 bytes after verification (all run mutations were test noise).
+- FINDING (not fixed, owner decision): 8 test operators leaked in the committed DB by earlier sessions (exporter-003..010 "Phase 2 Test" @test.com in org-system, exporter-011 "Test Exporter"). Deletable via Admin UI. DB freelist has 2 "never used" pages (cosmetic, pre-existing).
+- FINDING (not fixed): scripts/cleanup.ts crashes under bun 1.3.14 (NAPI fatal, better-sqlite3 incompat) — needs node runtime or a bun-compatible rewrite.
+- Withdrawn during audit: initial "helpers.ts corruption committed at HEAD" suspicion was a display artifact in tool output rendering — disproven via hex dump; file is clean at HEAD and at all commits.
+
+Stage Summary:
+- 16 files changed (13 src/config + 1 test helper + .gitignore + worklog). Regression: tsc 0 errors, 222/222 tests, build green.
+- Tenant isolation now enforced on supervisor metrics + agent controls; IDOR + org attribution verified at runtime with DB-level evidence.
+- Zero fake data added; multiple fake-data leftovers removed. Every fix verified through the full UI→API→auth→DB chain.
