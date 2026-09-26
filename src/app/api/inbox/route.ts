@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getReadonlyDb } from "@/lib/db";
+import { getReadonlyDb, getWritableDb } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 
 /** ISO timestamp → "2h ago" / "5d ago" / "Never" */
@@ -66,6 +66,8 @@ function threadPriority(status: string | null): "high" | "medium" | "low" {
 // Frontend-expected shapes
 type FrontendConversation = {
   id: number;
+  threadId: string;      // backend thread id — used to fetch a specific thread's messages
+  maskedFrom: string | null; // the exporter's masked inbox address for this thread
   buyer: string;        // masked buyer email (without domain — frontend appends "faithelexport.com")
   subject: string;
   preview: string;
@@ -215,7 +217,8 @@ export async function GET(request: NextRequest) {
 
         conversations.push({
           id: i + 1, // 1-based ID for frontend compatibility
-          threadId: t.thread_id, // ADD THIS for frontend to fetch specific thread
+          threadId: t.thread_id, // backend thread id — frontend uses this to fetch a specific thread
+          maskedFrom: t.exporter_masked_email || null, // real masked sender identity
           buyer: buyerPart,
           subject: t.subject || "(no subject)",
           preview,

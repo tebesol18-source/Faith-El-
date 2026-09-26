@@ -6,6 +6,7 @@ import {
   Paperclip, Search, Send, Sparkles, Truck, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/auth-client";
 import type { Contract, Priority, Quote, Shipment } from "@/lib/types";
 
 const mockConversations = [];
@@ -329,13 +330,15 @@ export function InboxPage() {
                 />
                 <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100">
                   <div className="flex items-center gap-2">
-                    <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"><Paperclip className="h-3.5 w-3.5" /> Attach</button>
-                    <button className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700"><Sparkles className="h-3.5 w-3.5" /> AI Draft</button>
-                    <button className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700"><Sparkles className="h-3.5 w-3.5" /> Improve</button>
-                    <button className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700"><Sparkles className="h-3.5 w-3.5" /> Translate</button>
+                    <button disabled title="Coming soon — attachments are not wired yet" className="flex items-center gap-1 text-xs text-gray-300 cursor-not-allowed"><Paperclip className="h-3.5 w-3.5" /> Attach</button>
+                    <button disabled title="Coming soon — AI draft is not wired yet" className="flex items-center gap-1 text-xs text-gray-300 cursor-not-allowed"><Sparkles className="h-3.5 w-3.5" /> AI Draft</button>
+                    <button disabled title="Coming soon — improve is not wired yet" className="flex items-center gap-1 text-xs text-gray-300 cursor-not-allowed"><Sparkles className="h-3.5 w-3.5" /> Improve</button>
+                    <button disabled title="Coming soon — translate is not wired yet" className="flex items-center gap-1 text-xs text-gray-300 cursor-not-allowed"><Sparkles className="h-3.5 w-3.5" /> Translate</button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400">Reply from: marcus.bell@faithelexport.com</span>
+                    <span className="text-xs text-gray-400" title="Your masked Faith-El inbox address — buyers never see your real email">
+                      Reply from: {conversations.find(c => c.id === selectedConv)?.maskedFrom || "your masked inbox"}
+                    </span>
                     <button
                       onClick={() => {
                         if (!replyText.trim() || !conversations) return;
