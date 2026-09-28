@@ -531,3 +531,17 @@ Work Log:
 Stage Summary:
 - All previously-dead UI buttons in Dashboard / Coach / Admin seller drawer are now wired to real behavior. The AI Coach chat is now a real LLM-backed assistant grounded in the operator's live data (leads/contracts/inventory/shipments counts), with proper loading/error UX and rate limiting. The AdminPage carries ~30 lines less dead code. Phase 3 ship criteria met: every clickable element either does something real or shows honest feedback.
 - Known follow-ups (not blockers): (1) the seller-drawer "Contact Seller Urgently" / "Schedule Review Call" actions are UX-level toasts today — they could later back a `/api/seller-actions` endpoint that drafts a real email or calendar invite. (2) The Coach chat system prompt currently surfaces only aggregate counts; per-lead/per-contract detail fetches could be added if operators ask for them. (3) Rate-limit bucket for coach chat is per-user-email — a shared demo account can exhaust it; this is acceptable for production but worth noting for the demo environment.
+
+---
+Task ID: push-phases-1-3
+Agent: main (super-z)
+Task: Push Phase 1 + 2 + 3 commits to origin (github.com/tebesol18-source/Faith-El-) after expired device-code re-auth.
+
+Work Log:
+- First device code (D012-943B) expired unused — the nohup'd `gh auth login` poller was killed by session teardown before the user authorized (recurring environment behavior; same thing happened earlier to `next dev`).
+- Switched to the raw OAuth device-flow API (no background process): POST /login/device/code with the gh CLI public client_id → user code 5926-60D4 → user authorized at github.com/login/device → POST /login/oauth/access_token returned a bearer token (scopes: repo, read:org, workflow) → piped to `gh auth login --with-token` without echoing.
+- Pre-push DB hygiene: purged 24 leaked test sessions, then discovered 6 leaked test orgs + 2 account_requests + 17 admin_audit_log rows from integration runs against the dev server — restored state/coffee_export.db wholesale from HEAD (none were intentional changes).
+- Committed Phase 3 wrap-up as 59d936b (5 files, +518/-32) and pushed 911f08b..59d936b to origin/main.
+
+Stage Summary:
+- origin/main now carries: 90cd85f (phase1 verify), 035e3ce (phase2 email), 59d936b (phase3 ui). Working tree clean. Push verified via gh repo view (pushedAt 2026-09-28T07:31:32Z).
