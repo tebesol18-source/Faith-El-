@@ -12,10 +12,10 @@
       "country": "Germany",
       "city": "Hamburg",
       "segment": "Commercial Importer",
-      "website": "https://www.neumann-kaffee-gruppe.com",
+      "website": "https://www.nkg.net",
       "product_interest": "One of the world's largest green coffee traders — commercial and specialty programs across all origins, with own warehouses and subsidiaries worldwide.",
       "sources": [
-        { "type": "website", "url": "https://www.neumann-kaffee-gruppe.com", "name": "Official Neumann Kaffee Gruppe website" }
+        { "type": "website", "url": "https://www.nkg.net", "name": "Official Neumann Kaffee Gruppe (NKG) website" }
       ]
     },
     {
@@ -60,10 +60,10 @@
       "country": "Netherlands",
       "city": "Rotterdam",
       "segment": "Commercial Importer",
-      "website": "https://www.louis-dreyfus.com",
+      "website": "https://www.louisdreyfus.com",
       "product_interest": "Global merchandiser and processor of agricultural goods including green coffee; buys across quality grades at origin.",
       "sources": [
-        { "type": "website", "url": "https://www.louis-dreyfus.com", "name": "Official Louis Dreyfus Company website" }
+        { "type": "website", "url": "https://www.louisdreyfus.com", "name": "Official Louis Dreyfus Company website" }
       ]
     },
     {
@@ -456,10 +456,10 @@
       "country": "South Korea",
       "city": "Seoul",
       "segment": "Roaster",
-      "website": "https://fritzcoffeeco.com",
+      "website": "https://en.fritz.co.kr",
       "product_interest": "Seoul roaster led by champion baristas — strong washed-Ethiopia program for café and wholesale channels.",
       "sources": [
-        { "type": "website", "url": "https://fritzcoffeeco.com", "name": "Official Fritz Coffee Company website" }
+        { "type": "website", "url": "https://en.fritz.co.kr", "name": "Official Fritz Coffee Company website" }
       ]
     },
     {

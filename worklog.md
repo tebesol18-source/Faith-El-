@@ -469,3 +469,23 @@ Stage Summary:
 - The pass condition is met with evidence: a user can research (browse the real-company directory without writes), import real companies (evidence attached, unverified, org-attributed), inspect evidence for each one (sources + advisory reachability checks + audit trail), and select actual prospects for outreach (gate blocks unverified companies / unverified contacts / rejected leads / fictional data).
 - Fictional records are out of production by construction, not by convention: the generator is deleted, all intake paths enforce evidence + fiction guards, and the pre-existing fictional demo chain is purged with backup.
 - Outreach sending itself still awaits Phase 2 (real email relay credentials).
+
+---
+Task ID: phase1-verify-directory
+Agent: main (super-z)
+Task: Owner-directed verification — is the 45-company Lead Directory a fixed seed or growable? CSV limits? A working way to discover real buyers beyond the initial 45? Prove the search returns real, sourced companies; fix what is stale; push.
+
+Work Log:
+- Recovered the repository from origin (github.com/tebesol18-source/Faith-El-) at 911f08b; identity verified (remote/branch/HEAD/clean), no code edited until reported.
+- Live verification /home/z/my-project/scripts/verify-lead-directory.mjs — 25/25 PASS on an isolated server (:3120) + throwaway DB copy: GET directory returns exactly 45 entries, every entry carries >=1 valid http(s) source URL, zero fictional name patterns, q/country filters work, browse writes nothing; directory import creates unverified leads with evidence, duplicate re-import skipped; CSV fiction guard rejects reserved email domains / generated names / placeholder words / evidence-less rows while a properly-sourced row imports; outreach gate refuses unverified company and verified-company-without-verified-contact; org-B cannot see org-A's leads (list + IDOR 404) and CAN track the same real company in its own org.
+- Live-web spot check of ALL 45 companies' cited source URLs (scripts/spotcheck-directory-web.mjs outside the repo): 39 HTTP 200, 4 bot-blocked 403 (site exists: illy, Blue Bottle, Manhattan, Falcon — re-confirmed 200 on retry), 3 STALE: Neumann Kaffee Gruppe (dead domain), Louis Dreyfus (TLS cert mismatch), Fritz Coffee Seoul (NXDOMAIN).
+- FIXED the 3 stale entries in data/lead-directory.json with live-verified replacements (surgical 6-line diff): neumann-kaffee-gruppe.com -> nkg.net; louis-dreyfus.com -> louisdreyfus.com; fritzcoffeeco.com -> en.fritz.co.kr (found via web search, curl-verified 200). Post-fix: all 45 companies live-confirmed (44 in one pass + Lavazza 200 on re-check; transient timeouts re-verified).
+- Regression after fix: JS suite 266/266 hermetic (committed DB sha-identical), tsc --noEmit 0 errors, next build green.
+
+Answers recorded for the owner (exact code paths, limits, tests):
+- Directory = growable SEED FILE (45 real companies, v1, compiled 2026-09-26, loader caches 30 s so edits appear without restart; no in-app directory editor — extend via JSON with cited sources per its how_to_extend contract). Lead POOL grows without total cap via (a) directory import: max 100 keys/request (or 20 by filter mode), rate limit 30 req/min/IP on /api/agents/research-leads; (b) CSV import /api/leads/import: max 500 rows/request, default API limit 120 req/min/IP, unlimited requests, every row needs source_url or note + passes the fiction guard.
+- NO in-app discovery of NEW real buyers exists beyond the 45 — by design (docs/lead-intake.md honest boundary). Discovery beyond the seed = human research outside the app, then evidence-required CSV import or a deliberate directory extension. The old fictional "research generator" is deleted.
+- Tests: tests/lib/leads-evidence.test.ts (25 unit) + tests/integration/leads-intake.test.ts (12 full-chain) + 25 live checks in verify-lead-directory.mjs.
+
+Stage Summary:
+- Search returns real, sourced companies — now proven against the live web, not just the JSON: 45/45 companies have a resolving official source after the 3 stale URLs were fixed. Committed and pushed (see git log).
