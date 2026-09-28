@@ -111,6 +111,22 @@ def create_inbound_app(
             _gateway = EmailGateway()
         return _gateway
 
+    def _rollback_gw(gw: EmailGateway) -> None:
+        """Roll back the gateway's shared SQLAlchemy session after an error.
+
+        The gateway is a process-wide singleton whose StateManager holds ONE
+        long-lived session. Without an explicit rollback, a single failed
+        request (e.g. a FOREIGN KEY violation) leaves the session in a
+        rolled-back-pending state and EVERY subsequent request fails with
+        "This Session's transaction has been rolled back due to a previous
+        exception during flush" until the process restarts. Always call this
+        in exception handlers that touch the gateway.
+        """
+        try:
+            gw.sm.session.rollback()
+        except Exception:  # noqa: BLE001 — best-effort cleanup
+            pass
+
     @app.get("/health")
     async def health() -> dict[str, Any]:
         return {"status": "ok", "service": "messaging-webhook"}
@@ -164,6 +180,7 @@ def create_inbound_app(
                 try:
                     gw.process_inbound(p)
                 except Exception as exc:  # noqa: BLE001
+                    _rollback_gw(gw)
                     log.exception(f"Async inbound processing failed: {exc}")
 
             bg = BackgroundTasks()
@@ -178,6 +195,7 @@ def create_inbound_app(
         try:
             result = gw.process_inbound(payload)
         except Exception as exc:  # noqa: BLE001
+            _rollback_gw(gw)
             log.exception(f"Inbound processing failed: {exc}")
             raise HTTPException(status_code=500, detail="processing failed") from exc
 
@@ -225,6 +243,7 @@ def create_inbound_app(
                 organization_id=req.organization_id or "org-system",
             )
         except Exception as exc:
+            _rollback_gw(gw)
             log.exception(f"Bridge send failed: {exc}")
             return JSONResponse(
                 status_code=500,
@@ -294,6 +313,7 @@ def create_inbound_app(
                 organization_id=req.organization_id,
             )
         except Exception as exc:
+            _rollback_gw(gw)
             log.exception(f"Bridge reply failed: {exc}")
             return JSONResponse(
                 status_code=500,

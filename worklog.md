@@ -545,3 +545,19 @@ Work Log:
 
 Stage Summary:
 - origin/main now carries: 90cd85f (phase1 verify), 035e3ce (phase2 email), 59d936b (phase3 ui). Working tree clean. Push verified via gh repo view (pushedAt 2026-09-28T07:31:32Z).
+
+---
+Task ID: phase3-buyer-journey
+Agent: main (super-z)
+Task: Phase 3 — test ONE genuine buyer journey: one real lot + one real verified prospect, approve outreach, send + record delivery or failure, process the buyer's actual reply, create quote/contract only if terms justify, track samples/shipment/payment only as they occur. No pretending a test transaction is a sale.
+
+Work Log:
+- INPUTS: real lot LOT-26-0001 (Idido/Yirgacheffe Union, washed, 88.5 cup, 100×60kg) + real prospect Falcon Coffees UK (directory falcon-uk) + real contact Matt Horsbrugh CTO with published group@falconspecialty.com — verified live against falconcoffees.com/our-people + /contact during this run.
+- JOURNEY (all via real APIs): directory import → L-2026-00001 unverified+evidence → reachability check (sandbox timeout, human verified live) → contact added with evidence → company VERIFIED + contact VERIFIED (audited) → NEW→ENRICHED → Agent 3 drafted outreach (real lot, verified address, 80% confidence) → owner approved via POST /api/approvals → supervisor executed the send through the live Python bridge.
+- DELIVERY RECORDED HONESTLY: bridge in DRY-RUN (no RESEND_API_KEY) — message stored with provider_message_id dry-run-bf96946587a2, masked from system.administrator@faithelexport.com, to group@falconspecialty.com. NOTHING was delivered. No buyer reply exists and none was fabricated (thread T-2026-00001 awaiting_buyer, 0 inbound). NO quote/contract/samples/shipment/payment records exist — nothing justified creating them (all tables verified 0 rows).
+- 8 REAL DEFECTS FOUND & FIXED en route: (1) Agent 3 event handler auto-advanced ENRICHED→IN_SEQUENCE with no draft/approval/send — removed, approved-send is the only path in; (2) draftOutreachEmail fabricated firstname.lastname@company.com buyer addresses — now verified-contact-email only, OUTREACH_BLOCKED logged otherwise; (3) duplicate-draft gap between approval and execution — duplicate-check now excludes pending+approved+executed; (4) buyer_memory missing UNIQUE(lead_id,memory_type,memory_key) → every tick crashed — index + Alembic migration c3d4e5f6a7b8; (5) bridge send //api/bridge/send double-slash 404 — fixed; (6) template-literal backslash bug corrupted the fix's regex (\/ dropped → //+$/) → child SyntaxError — escaped \\/; (7) bridge singleton SQLAlchemy session poisoning after one failed request — rollback added to all webhook exception handlers; (8) test-isolation leak (supervisor test tick sends through the live bridge → real DB) — artifact purged with audit entry, documented.
+- INFRA: scripts/start-bridge.sh launcher; untracked .env with generated bridge secret (RESEND_API_KEY intentionally absent).
+- REGRESSIONS: tsc 0 errors; npm test 278/278; run-python-tests.sh all pass; committed DB carries the journey evidence (lead, thread, dry-run message, audit trail).
+
+Stage Summary:
+- Full evidence record written to docs/phase3-buyer-journey.md. Pass condition PARTIALLY MET, honestly: every step intake→approval→send is real and traceable; the "real buyer conversation" leg is blocked on owner-provided Resend credentials (documented Phase 2 boundary). No fake reply, no fake sale, no fabricated downstream records. To close the pass condition: set RESEND_API_KEY/RESEND_WEBHOOK_SECRET/EMAIL_BRIDGE_SECRET/INBOUND_EMAIL_DOMAIN, expose bridge on public HTTPS, configure Resend webhook, re-run.

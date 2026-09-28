@@ -193,16 +193,20 @@ class Supervisor {
               }
               break;
             case "Agent 3":
-              if (payload.lead_id) {
-                const lead = this.db.prepare("SELECT current_state FROM leads WHERE lead_id = ?").get(payload.lead_id);
-                if (lead && lead.current_state === "ENRICHED") {
-                  this.db.prepare(`
-                    UPDATE leads SET current_state = 'IN_SEQUENCE', sequence_step = 1, updated_ts = ?
-                    WHERE lead_id = ?
-                  `).run(nowISO(), payload.lead_id);
-                }
-              }
-              break;
+            // Agent 3: NO auto-advance of pipeline states here (fixed 2026-09-28).
+            // Legacy behavior used to push ENRICHED leads straight to IN_SEQUENCE
+            // on ANY routed event (LEAD_ENRICHED, LEAD_STATE_CHANGED, …) —
+            // which marked outreach as "started" with NO email drafted, NO
+            // seller approval, and NOTHING sent. That is exactly the
+            // pretend-a-sale behavior this system must never do.
+            //
+            // The ONLY honest path into IN_SEQUENCE is now the approved-send
+            // execution in processPendingActions() (executeApprovedEmail →
+            // bridge → success → advance). Drafting happens in
+            // generatePendingActions() for ENRICHED leads, and a human must
+            // approve it first. Events are still consumed below so the queue
+            // drains normally.
+            break;
             case "Agent 4":
               if (payload.lead_id) {
                 this.db.prepare(`
@@ -770,7 +774,15 @@ Faith-El PLC
 Addis Ababa, Ethiopia
 abi@faithel.com`;
 
-    return { subject, body, to: `${contactName ? contactName.toLowerCase().replace(/[^a-z]/g, ".") : "info"}@${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`, from: "abi@faithel.com" };
+    // BUYER ADDRESS: the lead's VERIFIED contact email, passed in from
+    // generatePendingActions(). NEVER guess a pattern like
+    // firstname.lastname@company.com — a fabricated address can bounce, land
+    // in a stranger's mailbox, or burn the sender's reputation. If no
+    // verified email exists, the draft is refused (to: null) and
+    // executeApprovedEmail() will not send it.
+    const to = (lead.contact_email || "").trim() || null;
+
+    return { subject, body, to, from: "abi@faithel.com" };
   }
 
   /** Draft contract terms based on lead tier + available lots */
@@ -897,6 +909,13 @@ abi@faithel.com`;
     const childScript = `
       const http = require("http");
       const url = new URL(process.env.FE_BRIDGE_URL);
+      // url.pathname for "http://host:8000" is "/" — appending "/api/bridge/send"
+      // verbatim produced "//api/bridge/send" (404 on FastAPI). Strip the
+      // trailing slashes off the configured base path first.
+      // NOTE: \\/ below — the template literal drops a single backslash
+      // (unrecognized escape), which corrupted the regex into //+$/ and
+      // crashed the child with a SyntaxError.
+      const basePath = url.pathname.replace(/\\/+$/, "");
       const reqBody = JSON.stringify({
         operator_id: process.env.FE_OPERATOR_ID,
         operator_name: process.env.FE_OPERATOR_NAME,
@@ -911,7 +930,7 @@ abi@faithel.com`;
         {
           hostname: url.hostname,
           port: url.port || 80,
-          path: url.pathname + "/api/bridge/send",
+          path: basePath + "/api/bridge/send",
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -955,6 +974,13 @@ abi@faithel.com`;
       });
       result = JSON.parse(raw);
     } catch (err) {
+      // Full diagnostics — the child's stderr explains the real failure
+      // (execFileSync only surfaces "Command failed" in err.message).
+      const stderr = String(err.stderr || "").slice(0, 600);
+      const stdout = String(err.stdout || "").slice(0, 600);
+      log(`  [bridge-send diag] status=${err.status} code=${err.code}`);
+      if (stderr) log(`  [bridge-send diag] stderr: ${stderr}`);
+      if (stdout) log(`  [bridge-send diag] stdout: ${stdout}`);
       return {
         ok: false,
         error: `email bridge unreachable at ${BRIDGE_URL} — is the Python messaging webhook (uvicorn coffee_export.messaging.webhook:app) running? (${String(err.message).slice(0, 120)})`,
@@ -989,19 +1015,53 @@ abi@faithel.com`;
 
   generatePendingActions() {
     // Find leads in ENRICHED state that don't have a pending action yet
-    // Agent 3 wants to start outreach (send first email) — needs seller approval
+    // Agent 3 wants to start outreach (send first email) — needs seller approval.
+    // NOTE: the join now requires a VERIFIED contact email (the same evidence
+    // gate the /api/leads/[id]/advance outreach gate enforces). The buyer
+    // address in the draft MUST be the verified one — never a guessed pattern.
     const enrichedLeads = this.db.prepare(`
       SELECT l.lead_id, l.company_name, l.headquarters_country, l.priority_tier,
-             l.outreach_language, l.recommended_vp, lc.name AS contact_name
+             l.outreach_language, l.recommended_vp,
+             lc.name AS contact_name, lc.email AS contact_email
       FROM leads l
-      LEFT JOIN lead_contacts lc ON l.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL
+      INNER JOIN lead_contacts lc
+        ON l.lead_id = lc.lead_id
+       AND lc.deleted_ts IS NULL
+       AND lc.verification_status = 'verified'
+       AND lc.email IS NOT NULL AND lc.email != ''
+       AND lc.is_primary = 1
       WHERE l.current_state = 'ENRICHED' AND l.deleted_ts IS NULL
       AND NOT EXISTS (
         SELECT 1 FROM pending_agent_actions p
-        WHERE p.target_entity_id = l.lead_id AND p.status = 'pending'
+        WHERE p.target_entity_id = l.lead_id
+          AND p.status IN ('pending', 'approved', 'executed')
       )
       LIMIT 5
     `).all();
+
+    // Leads in ENRICHED WITHOUT a verified contact email: outreach cannot
+    // start honestly — record why (transparency) but draft nothing.
+    const unverifiedEnriched = this.db.prepare(`
+      SELECT l.lead_id, l.company_name FROM leads l
+      WHERE l.current_state = 'ENRICHED' AND l.deleted_ts IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM lead_contacts lc
+        WHERE lc.lead_id = l.lead_id AND lc.deleted_ts IS NULL
+          AND lc.verification_status = 'verified' AND lc.email IS NOT NULL AND lc.email != ''
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM pending_agent_actions p
+        WHERE p.target_entity_id = l.lead_id AND p.status IN ('pending', 'approved')
+      )
+      LIMIT 5
+    `).all();
+    for (const lead of unverifiedEnriched) {
+      this.logEvent("Agent 3", "OUTREACH_BLOCKED", "warning",
+        `No outreach drafted for ${lead.company_name} — no VERIFIED contact email on record`, 
+        "Outreach requires a verified contact email (same gate as the advance-to-IN_SEQUENCE check). Add + verify a contact first.",
+        JSON.stringify({ leadId: lead.lead_id })
+      );
+    }
 
     // Get available lots for email personalization
     const availableLots = this.db.prepare(`
@@ -1013,7 +1073,7 @@ abi@faithel.com`;
     for (const lead of enrichedLeads) {
       const riskLevel = lead.priority_tier === "S" ? "medium" : "low";
 
-      // Draft the actual email content
+      // Draft the actual email content (uses the lead's VERIFIED contact email)
       const emailDraft = this.draftOutreachEmail(lead, availableLots);
 
       // Read past feedback to learn from seller preferences
