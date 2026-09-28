@@ -84,6 +84,10 @@ type FrontendMessage = {
   subject: string;
   body: string;
   time: string;
+  /** DB id — used to reply with proper In-Reply-To threading. */
+  messageId?: number;
+  /** True when the provider was in dry-run (nothing was really delivered). */
+  dryRun?: boolean;
   ai?: {
     classification: string;
     summary: string;
@@ -177,6 +181,11 @@ export async function GET(request: NextRequest) {
             subject: m.subject || "",
             body: m.body_text || "",
             time: messageTime(m.sent_ts || m.received_ts || m.created_ts),
+            messageId: m.id,
+            dryRun:
+              m.direction === "outbound" &&
+              typeof m.provider_message_id === "string" &&
+              m.provider_message_id.startsWith("dry-run-"),
           };
 
           // Add AI triage if the message was processed
@@ -271,10 +280,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { threadId, bodyText, subject } = body || {};
-  if (!threadId || !bodyText) {
+  const { threadId, bodyText, subject, leadId, buyerEmail, messageId } = body || {};
+  const bridgeUrl = process.env.EMAIL_BRIDGE_URL || "http://localhost:8000";
+  const bridgeSecret = process.env.EMAIL_BRIDGE_SECRET || "";
+
+  if (!bodyText) {
     return NextResponse.json(
-      { ok: false, error: "threadId and bodyText required" },
+      { ok: false, error: "bodyText required" },
       { status: 400 }
     );
   }
@@ -282,6 +294,175 @@ export async function POST(request: NextRequest) {
   const db = getWritableDb();
 
   try {
+    // ── Mode A: REPLY to a specific inbound message (proper threading) ──
+    // Uses the bridge's /api/bridge/reply, which sets In-Reply-To/References
+    // headers and the "Re:" subject so the buyer's mail client threads it.
+    if (messageId) {
+      // IDOR protection: the inbound message must belong to this org.
+      const msg = db.prepare(`
+        SELECT m.id, m.thread_id, m.direction, m.organization_id
+        FROM inbox_messages m
+        WHERE m.id = ? AND m.organization_id = ?
+      `).get(Number(messageId), orgId) as any;
+
+      if (!msg) {
+        return NextResponse.json({ ok: false, error: "Message not found" }, { status: 404 });
+      }
+      if (msg.direction !== "inbound") {
+        return NextResponse.json(
+          { ok: false, error: "Can only reply to inbound messages" },
+          { status: 422 }
+        );
+      }
+
+      let bridgeResult: any;
+      let response: Response;
+      try {
+        response = await fetch(`${bridgeUrl}/api/bridge/reply`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(bridgeSecret ? { Authorization: `Bearer ${bridgeSecret}` } : {}),
+          },
+          body: JSON.stringify({
+            message_id: msg.id,
+            body_text: bodyText,
+            operator_id: auth.user.operatorId,
+            organization_id: orgId, // Python enforces this tenant-side too (fail closed)
+          }),
+        });
+        bridgeResult = await response.json();
+      } catch (error: any) {
+        console.error("[/api/inbox POST] Python email bridge unreachable:", error);
+        return NextResponse.json(
+          { ok: false, sent: false, error: "Email service unavailable. Message was not sent." },
+          { status: 503 }
+        );
+      }
+
+      if (!response.ok || !bridgeResult.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            sent: false,
+            error: bridgeResult?.error || "Email gateway failed to send reply",
+            action: bridgeResult?.action || "reply_failed",
+            dry_run: bridgeResult?.dry_run || false,
+          },
+          { status: response.status === 403 ? 403 : 502 }
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        sent: true,
+        action: "replied",
+        outbound_message_id: bridgeResult.outbound_message_id,
+        thread_id: bridgeResult.thread_id,
+        dry_run: bridgeResult.dry_run || false,
+      });
+    }
+
+    // ── Mode B: NEW conversation (first email to a lead's buyer) ──
+    // Required until now a fresh exporter could never start a conversation.
+    if (leadId && buyerEmail) {
+      // Tenant fail-closed: the lead must belong to this org.
+      const lead = db.prepare(`
+        SELECT lead_id, company_name FROM leads
+        WHERE lead_id = ? AND organization_id = ? AND deleted_ts IS NULL
+      `).get(leadId, orgId) as any;
+      if (!lead) {
+        return NextResponse.json({ ok: false, error: "Lead not found" }, { status: 404 });
+      }
+
+      // Fiction guard: refuse to send to reserved/test domains.
+      const { isFictionalEmail, isEmailFormatValid } = await import("@/lib/leads-evidence");
+      const email = String(buyerEmail).trim().toLowerCase();
+      if (!isEmailFormatValid(email)) {
+        return NextResponse.json({ ok: false, error: `"${email}" is not a valid email address` }, { status: 422 });
+      }
+      if (isFictionalEmail(email)) {
+        return NextResponse.json(
+          { ok: false, error: `"${email}" is on a reserved/test domain — real buyer contacts only` },
+          { status: 422 }
+        );
+      }
+
+      const finalSubject = (subject || `Introduction — ${lead.company_name}`).trim();
+
+      // Operator display name drives the masked address local part
+      // ("Marcus Bell" -> marcus.bell@<inbound domain>).
+      const operator = db.prepare(`
+        SELECT name FROM operators WHERE operator_id = ?
+      `).get(auth.user.operatorId) as any;
+      const operatorName: string | null = operator?.name || null;
+
+      let bridgeResult: any;
+      let response: Response;
+      try {
+        response = await fetch(`${bridgeUrl}/api/bridge/send`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(bridgeSecret ? { Authorization: `Bearer ${bridgeSecret}` } : {}),
+          },
+          body: JSON.stringify({
+            operator_id: auth.user.operatorId,
+            operator_name: operatorName,
+            display_name: operatorName || "Faith Export",
+            lead_id: leadId,
+            buyer_email: email,
+            subject: finalSubject,
+            body_text: bodyText,
+            organization_id: orgId, // Audit trail; Python re-verifies the lead's org
+          }),
+        });
+        bridgeResult = await response.json();
+      } catch (error: any) {
+        console.error("[/api/inbox POST] Python email bridge unreachable:", error);
+        return NextResponse.json(
+          { ok: false, sent: false, error: "Email service unavailable. Message was not sent." },
+          { status: 503 }
+        );
+      }
+
+      if (!response.ok || !bridgeResult.ok) {
+        return NextResponse.json(
+          {
+            ok: false,
+            sent: false,
+            error: bridgeResult?.error || "Email gateway failed to send message",
+            action: bridgeResult?.action || "send_failed",
+            dry_run: bridgeResult?.dry_run || false,
+          },
+          { status: response.status === 403 ? 403 : 502 }
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        sent: true,
+        action: bridgeResult.action,
+        message_id: bridgeResult.message_id,
+        thread_id: bridgeResult.thread_id,
+        provider_message_id: bridgeResult.provider_message_id,
+        dry_run: bridgeResult.dry_run || false,
+        masked_from: bridgeResult.masked_from,
+      });
+    }
+
+    // ── Mode C (legacy): send on an existing thread by threadId ──
+    if (!threadId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Provide messageId (reply to an inbound message), leadId + buyerEmail (new conversation), or threadId (existing thread)",
+        },
+        { status: 400 }
+      );
+    }
+
     // Strict IDOR protection:
     // The thread must belong to the authenticated user's organization.
     // The client is never allowed to supply or override organization_id.
@@ -305,8 +486,6 @@ export async function POST(request: NextRequest) {
     }
 
     const finalSubject = subject || thread.subject || "(no subject)";
-    const bridgeUrl = process.env.EMAIL_BRIDGE_URL || "http://localhost:8000";
-    const bridgeSecret = process.env.EMAIL_BRIDGE_SECRET || "";
     const operatorId = thread.inbox_operator_id || auth.user.operatorId;
 
     // Call Python EmailGateway bridge.
@@ -355,7 +534,7 @@ export async function POST(request: NextRequest) {
           action: bridgeResult?.action || "send_failed",
           dry_run: bridgeResult?.dry_run || false,
         },
-        { status: 502 }
+        { status: response.status === 403 ? 403 : 502 }
       );
     }
 

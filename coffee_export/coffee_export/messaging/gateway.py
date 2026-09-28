@@ -34,6 +34,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from sqlalchemy import select
+
 from coffee_export.events import (
     EventBus,
     MESSAGE_PROCESSED,
@@ -85,11 +87,14 @@ class EmailGateway:
         buyer_contact_id: int | None = None,
         in_reply_to_message_id: str | None = None,
         operator_name: str | None = None,
+        organization_id: str = "org-system",
     ) -> dict[str, Any]:
         """
         Send an outbound email from a masked exporter address to a buyer.
 
         Steps:
+          0. Verify the lead belongs to the caller's organization (fail
+             closed — a cross-tenant lead id must never be writable).
           1. Get-or-create the exporter's masked inbox (local part derived
              from operator_name -> e.g. "Marcus Bell" -> marcus.bell@faithelexport.com).
           2. Get-or-create the message thread for this (lead x inbox).
@@ -100,12 +105,26 @@ class EmailGateway:
         The buyer sees only the masked address. The exporter's real email
         is NEVER exposed.
         """
+        # 0. Tenant fail-closed: the lead must exist in the caller's org.
+        if not self._lead_in_org(lead_id, organization_id):
+            log.warning(
+                f"EmailGateway.send() REFUSED: lead {lead_id} not in org "
+                f"{organization_id} — cross-tenant write blocked"
+            )
+            return {
+                "action": "send_refused",
+                "lead_id": lead_id,
+                "thread_id": None,
+                "error": f"lead {lead_id} does not belong to organization {organization_id}",
+            }
+
         # 1. Inbox (uses operator_name to derive a professional-looking local part)
         inbox = self.sm.get_or_create_exporter_inbox(
             operator_id=operator_id,
             display_name=display_name,
             inbound_domain=self.inbound_domain,
             operator_name=operator_name,
+            organization_id=organization_id,
         )
         masked_from = inbox["masked_email"]
 
@@ -116,6 +135,7 @@ class EmailGateway:
             buyer_email=buyer_email,
             subject=subject,
             buyer_contact_id=buyer_contact_id,
+            organization_id=organization_id,
         )
         thread_id = thread["thread_id"]
         is_new_thread = thread["message_count"] == 0
@@ -156,6 +176,7 @@ class EmailGateway:
             provider=self.provider.name,
             provider_message_id=result.get("provider_message_id"),
             in_reply_to=in_reply_to_message_id,
+            organization_id=organization_id,
         )
 
         # 5. Events
@@ -238,6 +259,23 @@ class EmailGateway:
             log.warning(f"Inbound payload missing addresses: from={from_addr} to={to_addr}")
             return {"action": "rejected", "reason": "missing addresses"}
 
+        # 1b. Idempotency: Resend retries webhook deliveries on non-2xx and
+        # timeouts. If we already stored this provider message, return the
+        # existing row instead of double-storing (no duplicate side effects).
+        if provider_message_id:
+            existing = self.sm.find_inbound_by_provider_message_id(provider_message_id)
+            if existing:
+                log.info(
+                    f"Inbound webhook duplicate ignored: provider_message_id="
+                    f"{provider_message_id} already stored as msg {existing['id']}"
+                )
+                return {
+                    "action": "duplicate",
+                    "message_id": existing["id"],
+                    "thread_id": existing["thread_id"],
+                    "duplicate_of": existing["id"],
+                }
+
         # 2. Inbox lookup
         inbox = self.sm.get_inbox_by_masked_email(to_addr)
         if not inbox or not inbox["is_active"]:
@@ -247,12 +285,18 @@ class EmailGateway:
                 "reason": f"unknown inbox: {to_addr}",
             }
 
-        # 3. Find the lead for this buyer email
-        lead_id, buyer_contact_id = self._resolve_buyer(inbox["id"], from_addr)
+        # The tenant context of an inbound email is the INBOX's organization
+        # (the masked address belongs to exactly one exporter inbox).
+        inbox_org = inbox.get("organization_id") or "org-system"
+
+        # 3. Find the lead for this buyer email — SCOPED to the inbox's org
+        lead_id, buyer_contact_id = self._resolve_buyer(
+            inbox["id"], from_addr, inbox_org
+        )
         if not lead_id:
             log.warning(
                 f"Inbound email from unknown buyer: {from_addr} -> {to_addr}. "
-                f"No matching thread or lead_contact."
+                f"No matching thread or lead_contact in org {inbox_org}."
             )
             return {
                 "action": "rejected",
@@ -260,13 +304,14 @@ class EmailGateway:
                 "inbox_id": inbox["id"],
             }
 
-        # 4. Thread (reuse existing or open new)
+        # 4. Thread (reuse existing or open new) — org attributed from inbox
         thread = self.sm.get_or_create_thread(
             lead_id=lead_id,
             inbox_id=inbox["id"],
             buyer_email=from_addr,
             subject=subject,
             buyer_contact_id=buyer_contact_id,
+            organization_id=inbox_org,
         )
         thread_id = thread["thread_id"]
 
@@ -284,6 +329,7 @@ class EmailGateway:
             in_reply_to=in_reply_to,
             raw_payload=json.dumps(raw_payload)[:10000] if raw_payload else None,
             received_ts=received_ts,
+            organization_id=inbox_org,
         )
 
         # 6. GLM triage (classify + summarize + translate + structured extraction)
@@ -384,18 +430,39 @@ class EmailGateway:
         body_text: str,
         body_html: str | None = None,
         operator_id: str | None = None,
+        organization_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Exporter replies to an inbound message from the dashboard.
 
         The reply goes out from the same masked address, to the same buyer,
         on the same thread. The buyer never sees the exporter's real email.
+
+        When organization_id is given, the inbound message AND its thread
+        must belong to that org — otherwise the reply is refused (fail
+        closed on cross-tenant ids).
         """
         msg = self.sm.get_message(message_id)
         if not msg:
             return {"action": "skipped", "reason": "message not found"}
         if msg["direction"] != "inbound":
             return {"action": "skipped", "reason": "can only reply to inbound messages"}
+
+        # Tenant fail-closed: the message (and its thread) must be in the
+        # caller's org. msg.get("organization_id") covers rows written
+        # before org attribution existed (NULL / missing -> refuse when an
+        # org is enforced).
+        if organization_id is not None:
+            msg_org = msg.get("organization_id")
+            if msg_org != organization_id:
+                log.warning(
+                    f"EmailGateway.reply() REFUSED: message {message_id} belongs "
+                    f"to org {msg_org!r}, caller org {organization_id}"
+                )
+                return {
+                    "action": "reply_refused",
+                    "reason": "message does not belong to caller's organization",
+                }
 
         thread = self.sm.get_thread(msg["thread_id"])
         if not thread:
@@ -430,7 +497,13 @@ class EmailGateway:
                 "dry_run": result.get("dry_run", False),
             }
 
-        # Log outbound reply
+        # Log outbound reply — org attributed to the thread's tenant
+        reply_org = (
+            organization_id
+            or thread.get("organization_id")
+            or inbox.get("organization_id")
+            or "org-system"
+        )
         outbound_id = self.sm.log_outbound_message(
             thread_id=thread["thread_id"],
             from_addr=inbox["masked_email"],
@@ -442,6 +515,7 @@ class EmailGateway:
             provider=self.provider.name,
             provider_message_id=result.get("provider_message_id"),
             in_reply_to=msg.get("provider_message_id"),
+            organization_id=reply_org,
         )
 
         # Mark the inbound as "replied"
@@ -479,15 +553,29 @@ class EmailGateway:
     # INTERNAL HELPERS
     # =============================================================
 
+    def _lead_in_org(self, lead_id: str, organization_id: str) -> bool:
+        """Fail-closed tenant check: does this lead exist in this org?"""
+        from coffee_export.database.models import Lead
+
+        row = self.sm.session.execute(
+            select(Lead.lead_id).where(
+                Lead.lead_id == lead_id,
+                Lead.organization_id == organization_id,
+            )
+        ).scalar_one_or_none()
+        return row is not None
+
     def _resolve_buyer(
-        self, inbox_id: int, buyer_email: str
+        self, inbox_id: int, buyer_email: str, organization_id: str | None = None
     ) -> tuple[str | None, int | None]:
         """
         Find the (lead_id, buyer_contact_id) for a buyer email on this inbox.
 
         Tries in order:
           1. Existing open thread with this buyer_email on this inbox.
-          2. LeadContact with this email (any lead).
+          2. LeadContact with this email — scoped to organization_id when
+             given, so org-A's inbox can never resolve to org-B's lead even
+             when both orgs track the same real-world buyer.
         Returns (None, None) if not found.
         """
         # 1. Existing thread
@@ -496,17 +584,25 @@ class EmailGateway:
             if (t.get("buyer_email") or "").lower() == buyer_email.lower():
                 return t["lead_id"], t.get("buyer_contact_id")
 
-        # 2. LeadContact lookup
+        # 2. LeadContact lookup (tenant-scoped)
         from coffee_export.database.models import LeadContact
-        from sqlalchemy import select
 
+        stmt = select(LeadContact).where(LeadContact.email == buyer_email)
+        if organization_id is not None:
+            stmt = stmt.where(LeadContact.organization_id == organization_id)
         row = self.sm.session.execute(
-            select(LeadContact)
-            .where(LeadContact.email == buyer_email)
-            .order_by(LeadContact.id.desc())
-            .limit(1)
+            stmt.order_by(LeadContact.id.desc()).limit(1)
         ).scalar_one_or_none()
         if row:
+            # Defense in depth: the contact's lead must also be in the org.
+            if organization_id is not None and not self._lead_in_org(
+                row.lead_id, organization_id
+            ):
+                log.warning(
+                    f"_resolve_buyer: contact {row.id} points at lead "
+                    f"{row.lead_id} outside org {organization_id} — refusing"
+                )
+                return None, None
             return row.lead_id, row.id
 
         return None, None

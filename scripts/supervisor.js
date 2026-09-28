@@ -24,12 +24,43 @@ const Database = require("better-sqlite3");
 const path = require("path");
 const fs = require("fs");
 
+// ── .env loader (mirror of src/lib/db.ts contract; no dependency needed) ──
+// The supervisor is started outside `next dev`, so it must find the repo's
+// .env itself. Plain KEY=VALUE lines only; quotes stripped; no interpolation.
+(function loadEnv() {
+  for (const candidate of [".env", path.join(__dirname, "..", ".env")]) {
+    const p = path.resolve(process.cwd(), candidate);
+    if (!fs.existsSync(p)) continue;
+    try {
+      for (const line of fs.readFileSync(p, "utf-8").split(/\r?\n/)) {
+        const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+        if (!m || line.trim().startsWith("#")) continue;
+        const key = m[1];
+        let value = m[2].trim();
+        if (
+          (value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))
+        ) {
+          value = value.slice(1, -1);
+        }
+        if (!(key in process.env)) process.env[key] = value;
+      }
+      break;
+    } catch { /* unreadable .env — fall through to shell env */ }
+  }
+})();
+
 const DB_PATH = process.env.COFFEE_DATABASE_URL
   ? process.env.COFFEE_DATABASE_URL.replace("sqlite:///", "").replace("sqlite://", "")
   : (require("fs").existsSync("/home/z/my-project/coffee_export/data/coffee_export.db")
       ? "/home/z/my-project/coffee_export/data/coffee_export.db"
       : "/home/z/my-project/state/coffee_export.db");
 const PID_FILE = "/tmp/coffee-export-supervisor.pid";
+
+// ── Email bridge (Python EmailGateway) ──
+// Approved outreach emails are sent through the REAL bridge — never faked.
+const BRIDGE_URL = process.env.EMAIL_BRIDGE_URL || "http://localhost:8000";
+const BRIDGE_SECRET = process.env.EMAIL_BRIDGE_SECRET || "";
 
 // ─── Event → Agent routing ───
 // Which agent handles which event type
@@ -822,6 +853,140 @@ abi@faithel.com`;
   }
 
   /** Phase 4: Generate pending actions for risky operations */
+  /**
+   * Execute an approved outreach email through the REAL Python email bridge.
+   *
+   * Resolves the sending operator from the lead's organization (the first
+   * active operator of that org), then POSTs the approved draft to
+   * EMAIL_BRIDGE_URL/api/bridge/send with the EMAIL_BRIDGE_SECRET bearer
+   * token. The Python EmailGateway does the actual send (masked address,
+   * Resend or honest dry-run) and stores the thread + message.
+   *
+   * Returns { ok: true, delivery: {...} } on provider acceptance (dry-run
+   * counts as accepted-and-labeled), or { ok: false, error } — never a
+   * fabricated success.
+   */
+  executeApprovedEmail(payload) {
+    const leadId = payload.lead_id;
+    const buyerEmail = payload.email_to;
+    const subject = payload.email_subject;
+    const bodyText = payload.email_body;
+
+    if (!buyerEmail || !subject || !bodyText) {
+      return { ok: false, error: `approved draft is incomplete (to/subject/body) — refusing to send` };
+    }
+
+    // Resolve sender: first active operator of the lead's organization.
+    const leadRow = this.db
+      .prepare("SELECT organization_id, company_name FROM leads WHERE lead_id = ? AND deleted_ts IS NULL")
+      .get(leadId);
+    if (!leadRow) return { ok: false, error: `lead ${leadId} not found` };
+    const orgId = leadRow.organization_id || "org-system";
+
+    const operator = this.db
+      .prepare("SELECT operator_id, name FROM operators WHERE organization_id = ? AND status = 'active' ORDER BY operator_id LIMIT 1")
+      .get(orgId);
+    if (!operator) {
+      return { ok: false, error: `no active operator in org ${orgId} to send the masked email` };
+    }
+
+    // Send through the bridge via a child Node process (no shell quoting of
+    // secrets — the payload and token travel in environment variables, and
+    // the child uses fetch + a hard 30s timeout).
+    const { execFileSync } = require("child_process");
+    const childScript = `
+      const http = require("http");
+      const url = new URL(process.env.FE_BRIDGE_URL);
+      const reqBody = JSON.stringify({
+        operator_id: process.env.FE_OPERATOR_ID,
+        operator_name: process.env.FE_OPERATOR_NAME,
+        display_name: process.env.FE_OPERATOR_NAME || "Faith Export",
+        lead_id: process.env.FE_LEAD_ID,
+        buyer_email: process.env.FE_BUYER_EMAIL,
+        subject: process.env.FE_SUBJECT,
+        body_text: process.env.FE_BODY_TEXT,
+        organization_id: process.env.FE_ORG_ID,
+      });
+      const req = http.request(
+        {
+          hostname: url.hostname,
+          port: url.port || 80,
+          path: url.pathname + "/api/bridge/send",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(reqBody),
+            ...(process.env.FE_BRIDGE_SECRET ? { Authorization: "Bearer " + process.env.FE_BRIDGE_SECRET } : {}),
+          },
+          timeout: 30000,
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (c) => (data += c));
+          res.on("end", () => {
+            process.stdout.write(JSON.stringify({ status: res.statusCode, body: data }));
+          });
+        }
+      );
+      req.on("timeout", () => { req.destroy(new Error("bridge timeout after 30s")); });
+      req.on("error", (e) => {
+        process.stdout.write(JSON.stringify({ status: 0, body: "", error: String(e && e.message || e) }));
+      });
+      req.end(reqBody);
+    `;
+
+    let result;
+    try {
+      const raw = execFileSync(process.execPath, ["-e", childScript], {
+        encoding: "utf-8",
+        timeout: 40000,
+        env: {
+          ...process.env,
+          FE_BRIDGE_URL: BRIDGE_URL,
+          FE_BRIDGE_SECRET: BRIDGE_SECRET,
+          FE_OPERATOR_ID: operator.operator_id,
+          FE_OPERATOR_NAME: operator.name || "",
+          FE_LEAD_ID: leadId,
+          FE_BUYER_EMAIL: buyerEmail,
+          FE_SUBJECT: subject,
+          FE_BODY_TEXT: bodyText,
+          FE_ORG_ID: orgId,
+        },
+      });
+      result = JSON.parse(raw);
+    } catch (err) {
+      return {
+        ok: false,
+        error: `email bridge unreachable at ${BRIDGE_URL} — is the Python messaging webhook (uvicorn coffee_export.messaging.webhook:app) running? (${String(err.message).slice(0, 120)})`,
+      };
+    }
+
+    if (result.error) {
+      return { ok: false, error: `bridge transport error: ${result.error}` };
+    }
+
+    let body;
+    try {
+      body = JSON.parse(result.body);
+    } catch {
+      return { ok: false, error: `bridge returned non-JSON (HTTP ${result.status}): ${String(result.body).slice(0, 200)}` };
+    }
+
+    if (result.status === 200 && body.ok) {
+      return {
+        ok: true,
+        delivery: {
+          dry_run: !!body.dry_run,
+          masked_from: body.masked_from || null,
+          provider_message_id: body.provider_message_id || null,
+          thread_id: body.thread_id || null,
+          message_id: body.message_id || null,
+        },
+      };
+    }
+    return { ok: false, error: body.error || `bridge rejected the send (HTTP ${result.status}, ${body.action || "send_failed"})` };
+  }
+
   generatePendingActions() {
     // Find leads in ENRICHED state that don't have a pending action yet
     // Agent 3 wants to start outreach (send first email) — needs seller approval
@@ -1106,41 +1271,79 @@ abi@faithel.com`;
       const payload = JSON.parse(action.payload || "{}");
 
       if (action.action_type === "send_email" && payload.lead_id) {
-        // Execute: advance lead from ENRICHED to IN_SEQUENCE
-        this.db.prepare(`
-          UPDATE leads SET current_state = 'IN_SEQUENCE', sequence_step = 1, updated_ts = ?
-          WHERE lead_id = ? AND current_state = 'ENRICHED'
-        `).run(nowISO(), payload.lead_id);
+        // ── REAL send via the Python email bridge (masked address). ──
+        // The approved draft is emailed to the buyer through the same
+        // EmailGateway the exporter inbox uses. NO FAKE SUCCESS: if the
+        // bridge is unreachable or the provider rejects the message, the
+        // action is marked execution_failed and the lead state is NOT
+        // advanced — the seller sees the failure and can retry.
+        const sendResult = this.executeApprovedEmail(payload);
 
-        // Publish MESSAGE_SENT event
-        this.publishEvent("MESSAGE_SENT", "inbox_message", payload.lead_id, payload, "Agent 3");
+        if (sendResult.ok) {
+          // Execute: advance lead from ENRICHED to IN_SEQUENCE
+          this.db.prepare(`
+            UPDATE leads SET current_state = 'IN_SEQUENCE', sequence_step = 1, updated_ts = ?
+            WHERE lead_id = ? AND current_state = 'ENRICHED'
+          `).run(nowISO(), payload.lead_id);
 
-        this.logEvent("Agent 3", "ACTION_EXECUTED", "info",
-          `Outreach email sent to ${payload.company || payload.lead_id} (approved by admin)`,
-          "Lead advanced to IN_SEQUENCE",
-          JSON.stringify({ leadId: payload.lead_id })
-        );
-        log(`  ✅ Agent 3: Executed approved action — outreach email to ${payload.company || payload.lead_id}`);
+          // Publish MESSAGE_SENT event (with honest delivery info)
+          this.publishEvent("MESSAGE_SENT", "inbox_message", payload.lead_id, {
+            ...payload,
+            delivery: sendResult.delivery,
+          }, "Agent 3");
+
+          this.logEvent("Agent 3", "ACTION_EXECUTED", "info",
+            `Outreach email ${sendResult.delivery.dry_run ? "stored in DRY-RUN (not delivered)" : "sent"} to ${payload.company || payload.lead_id} (approved by admin)`,
+            `Lead advanced to IN_SEQUENCE · masked_from=${sendResult.delivery.masked_from || "?"}${sendResult.delivery.provider_message_id ? ` · provider_id=${sendResult.delivery.provider_message_id}` : ""}`,
+            JSON.stringify({ leadId: payload.lead_id, dryRun: !!sendResult.delivery.dry_run, threadId: sendResult.delivery.thread_id })
+          );
+          log(`  ✅ Agent 3: Executed approved action — outreach email to ${payload.company || payload.lead_id}${sendResult.delivery.dry_run ? " [DRY-RUN]" : ""}`);
+        } else {
+          this.db.prepare("UPDATE pending_agent_actions SET status = 'execution_failed' WHERE id = ?").run(action.id);
+          this.logEvent("Agent 3", "ACTION_FAILED", "error",
+            `Outreach email to ${payload.company || payload.lead_id} FAILED — lead NOT advanced`,
+            sendResult.error,
+            JSON.stringify({ leadId: payload.lead_id, error: sendResult.error })
+          );
+          log(`  ❌ Agent 3: outreach email FAILED for ${payload.company || payload.lead_id}: ${sendResult.error} — lead NOT advanced, action marked execution_failed`);
+          continue; // do NOT mark executed
+        }
       }
 
       if (action.action_type === "create_contract" && payload.lead_id) {
-        // Execute: create a contract record
-        const contractId = `CT-2026-${String(Math.floor(Math.random() * 9000) + 1000)}`;
+        // ── Create the contract from the APPROVED, DRAFTED terms ──
+        // (payload carries the drafted incoterm/volume/value/destination —
+        // the previously hardcoded 100 bags/$500/FOB ignored what the seller
+        // actually approved, which was dishonest.)
+        const contractId = payload.contract_id || `CT-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+        const leadRow = this.db.prepare(`SELECT organization_id FROM leads WHERE lead_id = ?`).get(payload.lead_id);
+        const orgId = (leadRow && leadRow.organization_id) || "org-system";
         this.db.prepare(`
-          INSERT INTO contracts (
-            contract_id, lead_id, contract_number, contract_date,
-            contract_template, incoterm, currency, total_volume_bags,
-            total_value, status, signed_ts, is_repeat,
-            created_ts, updated_ts, deleted_ts
-          ) VALUES (?, ?, ?, ?, 'ICC_ECE_7_21', 'FOB', 'USD', 100, 500, 'draft', NULL, 0, ?, ?, NULL)
-        `).run(contractId, payload.lead_id, contractId, nowISO().substring(0, 10), nowISO(), nowISO());
+            INSERT INTO contracts (
+              contract_id, lead_id, contract_number, contract_date,
+              contract_template, incoterm, currency, total_volume_bags,
+              total_value, status, signed_ts, is_repeat,
+              created_ts, updated_ts, deleted_ts, organization_id
+            ) VALUES (?, ?, ?, ?, 'ICC_ECE_7_21', ?, 'USD', ?, ?, 'draft', NULL, 0, ?, ?, NULL, ?)
+        `).run(
+          contractId,
+          payload.lead_id,
+          contractId,
+          nowISO().substring(0, 10),
+          payload.incoterm || "FOB",
+          payload.total_volume_bags || 0,
+          payload.total_value || 0,
+          nowISO(),
+          nowISO(),
+          orgId
+        );
 
         this.logEvent("Agent 5", "ACTION_EXECUTED", "info",
-          `Contract ${contractId} created for ${payload.company || payload.lead_id} (approved by admin)`,
-          "Contract inserted in draft status",
-          JSON.stringify({ contractId, leadId: payload.lead_id })
+          `Contract ${contractId} created for ${payload.company || payload.lead_id} from approved terms (approved by admin)`,
+          `${payload.total_volume_bags || 0} bags · ${payload.incoterm || "FOB"} · $${(payload.total_value || 0).toLocaleString()}${payload.destination_port ? ` · ${payload.destination_port}` : ""}`,
+          JSON.stringify({ contractId, leadId: payload.lead_id, incoterm: payload.incoterm, totalVolumeBags: payload.total_volume_bags, totalValue: payload.total_value })
         );
-        log(`  ✅ Agent 5: Executed approved action — contract ${contractId} for ${payload.company || payload.lead_id}`);
+        log(`  ✅ Agent 5: Executed approved action — contract ${contractId} for ${payload.company || payload.lead_id} (${payload.total_volume_bags || 0} bags, $${payload.total_value || 0})`);
       }
 
       // Mark action as executed

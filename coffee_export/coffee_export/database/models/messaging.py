@@ -65,6 +65,12 @@ class ExporterInbox(Base):
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
     real_email: Mapped[str | None] = mapped_column(Text)  # fallback only, never buyer-facing
     is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Tenant attribution (column exists in the DB since the Node migration;
+    # mapped here so Python writes attribute the org instead of silently
+    # falling back to the column default 'org-system').
+    organization_id: Mapped[str] = mapped_column(
+        Text, nullable=False, default="org-system"
+    )
 
     created_ts: Mapped[str] = mapped_column(Text, nullable=False)
     updated_ts: Mapped[str] = mapped_column(Text, nullable=False)
@@ -76,6 +82,7 @@ class ExporterInbox(Base):
     __table_args__ = (
         Index("ix_exporter_inboxes_operator", "operator_id"),
         Index("ix_exporter_inboxes_masked_email", "masked_email"),
+        Index("ix_exporter_inboxes_org_id", "organization_id"),
     )
 
     def __repr__(self) -> str:
@@ -113,6 +120,10 @@ class MessageThread(Base):
     last_message_direction: Mapped[str | None] = mapped_column(Text)  # inbound | outbound
     message_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     unread_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Tenant attribution — thread inherits the lead's organization.
+    organization_id: Mapped[str] = mapped_column(
+        Text, nullable=False, default="org-system"
+    )
 
     created_ts: Mapped[str] = mapped_column(Text, nullable=False)
     updated_ts: Mapped[str] = mapped_column(Text, nullable=False)
@@ -136,6 +147,7 @@ class MessageThread(Base):
         Index("ix_message_threads_lead", "lead_id"),
         Index("ix_message_threads_inbox", "inbox_id"),
         Index("ix_message_threads_status", "status"),
+        Index("ix_message_threads_org_id", "organization_id"),
     )
 
     def __repr__(self) -> str:
@@ -227,6 +239,11 @@ class InboxMessage(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, default="new")
     # new | read | replied | archived | ignored
 
+    # Tenant attribution (matches the lead/thread this message belongs to).
+    organization_id: Mapped[str] = mapped_column(
+        Text, nullable=False, default="org-system"
+    )
+
     # Original webhook payload (audit / reprocessing)
     raw_payload: Mapped[str | None] = mapped_column(Text)  # JSON
 
@@ -269,6 +286,7 @@ class InboxMessage(Base):
         Index("ix_inbox_messages_status", "status"),
         Index("ix_inbox_messages_provider_msg_id", "provider_message_id"),
         Index("ix_inbox_messages_extracted_intent", "extracted_intent"),
+        Index("ix_inbox_messages_org_id", "organization_id"),
     )
 
     def __repr__(self) -> str:

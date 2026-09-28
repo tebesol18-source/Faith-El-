@@ -132,6 +132,13 @@ class LeadContact(Base):
     is_primary: Mapped[int] = mapped_column(Integer, default=0)
     is_buyer: Mapped[int] = mapped_column(Integer, default=0)
 
+    # Tenant attribution (column exists in the DB since the Node migration;
+    # mapped here so org-scoped lookups — e.g. the email gateway's buyer
+    # resolution — can filter on it instead of matching across ALL orgs).
+    organization_id: Mapped[str] = mapped_column(
+        Text, nullable=False, default="org-system"
+    )
+
     created_ts: Mapped[str] = mapped_column(Text, nullable=False)
     updated_ts: Mapped[str] = mapped_column(Text, nullable=False)
     deleted_ts: Mapped[str | None] = mapped_column(Text)

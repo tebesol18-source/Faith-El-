@@ -3,21 +3,31 @@
 import { useState, useEffect } from "react";
 import {
   Archive, Calendar, CheckCircle, FileText, Filter, MoreHorizontal, Package,
-  Paperclip, Search, Send, Sparkles, Truck, Zap,
+  Paperclip, Plus, Search, Send, Sparkles, Truck, X as XIcon, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/auth-client";
 import type { Contract, Priority, Quote, Shipment } from "@/lib/types";
 
-const mockConversations = [];
-
-const mockMessages = [];
-
 export function InboxPage() {
   const [selectedConv, setSelectedConv] = useState(1);
   const [replyText, setReplyText] = useState("");
   const [conversations, setConversations] = useState<any[] | null>(null);
-  const [messages, setMessages] = useState<any[] | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+
+  // ─── Send state (honest UI: sending / sent / failed, dry-run labeled) ───
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendNotice, setSendNotice] = useState<string | null>(null); // e.g. DRY-RUN notice
+
+  // ─── New-conversation compose modal ───
+  const [showCompose, setShowCompose] = useState(false);
+  const [composeLeads, setComposeLeads] = useState<any[] | null>(null);
+  const [composeLeadsError, setComposeLeadsError] = useState<string | null>(null);
+  const [compose, setCompose] = useState({ leadId: "", buyerEmail: "", subject: "", bodyText: "" });
+  const [composeBusy, setComposeBusy] = useState(false);
+  const [composeError, setComposeError] = useState<string | null>(null);
+  const [composeNotice, setComposeNotice] = useState<string | null>(null);
 
   // ─── Live data from backend ───
   useEffect(() => {
@@ -39,7 +49,7 @@ export function InboxPage() {
       })
       .catch((err) => {
         if (cancelled) return;
-        console.warn("[InboxPage] API fetch failed, using mock data:", err);
+        console.warn("[InboxPage] API fetch failed — showing empty inbox (no mock data):", err);
         setConversations([]);
         setMessages([]);
       });
@@ -62,7 +72,7 @@ export function InboxPage() {
   }, [selectedConv, conversations]);
 
   // Loading state
-  if (!conversations || !messages) {
+  if (!conversations) {
     return (
       <main className="flex h-[calc(100vh-4rem)]">
         <div className="w-[360px] border-r border-gray-200 bg-white flex flex-col">
@@ -81,6 +91,100 @@ export function InboxPage() {
   }
 
   const conv = conversations.find(c => c.id === selectedConv) || conversations[0] || null;
+
+  // ─── Compose: load leads with verified contacts when the modal opens ───
+  const openCompose = () => {
+    setShowCompose(true);
+    setComposeError(null);
+    setComposeNotice(null);
+    if (composeLeads === null && composeLeadsError === null) {
+      apiFetch("/api/leads")
+        .then((r) => r.json())
+        .then((data) => setComposeLeads(Array.isArray(data.leads) ? data.leads : []))
+        .catch(() => setComposeLeadsError("Could not load your leads — try again."));
+    }
+  };
+
+  const sendCompose = () => {
+    if (!compose.leadId || !compose.buyerEmail.trim() || !compose.bodyText.trim()) return;
+    setComposeBusy(true);
+    setComposeError(null);
+    setComposeNotice(null);
+    apiFetch("/api/inbox", {
+      method: "POST",
+      body: JSON.stringify({
+        leadId: compose.leadId,
+        buyerEmail: compose.buyerEmail.trim(),
+        subject: compose.subject.trim(),
+        bodyText: compose.bodyText.trim(),
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok) {
+          setComposeNotice(
+            data.dry_run
+              ? "Stored as DRY-RUN (no RESEND_API_KEY configured) — nothing was actually delivered to the buyer."
+              : `Sent from ${data.masked_from || "your masked inbox"} — the buyer never sees your real email.`
+          );
+          setCompose({ leadId: "", buyerEmail: "", subject: "", bodyText: "" });
+          // Refresh conversation list so the new thread appears
+          apiFetch("/api/inbox")
+            .then((r) => r.json())
+            .then((d) => {
+              if (d.ok && Array.isArray(d.conversations)) {
+                setConversations(d.conversations);
+                if (d.conversations.length > 0) setSelectedConv(d.conversations[0].id);
+              }
+            })
+            .catch(() => {});
+        } else {
+          setComposeError(data.error || "Send failed — the message was NOT sent.");
+        }
+      })
+      .catch((err) => setComposeError(`Send failed — the message was NOT sent. (${err.message})`))
+      .finally(() => setComposeBusy(false));
+  };
+
+  // ─── Reply: use the last inbound message's id for proper threading ───
+  const sendReply = () => {
+    if (!replyText.trim() || !conversations) return;
+    const c = conversations.find((x) => x.id === selectedConv);
+    if (!c || !c.threadId) return;
+
+    // Prefer replying to the most recent INBOUND message — the API then
+    // routes through the bridge's /api/bridge/reply which sets
+    // In-Reply-To/References so the buyer's mail client threads it.
+    const lastInbound = [...(messages || [])].reverse().find((m) => m.direction === "inbound");
+
+    setSending(true);
+    setSendError(null);
+    setSendNotice(null);
+    apiFetch("/api/inbox", {
+      method: "POST",
+      body: JSON.stringify(
+        lastInbound?.messageId
+          ? { messageId: lastInbound.messageId, bodyText: replyText.trim() }
+          : { threadId: c.threadId, bodyText: replyText.trim() }
+      ),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok) {
+          setReplyText("");
+          setSendNotice(
+            data.dry_run
+              ? "DRY-RUN — message stored but NOT actually delivered (no RESEND_API_KEY)."
+              : null
+          );
+          apiFetch(`/api/inbox?threadId=${c.threadId}`).then(r => r.json()).then(d => { if (d.ok) setMessages(d.messages); });
+        } else {
+          setSendError(data.error || "Send failed — the message was NOT sent.");
+        }
+      })
+      .catch((err) => setSendError(`Send failed — the message was NOT sent. (${err.message})`))
+      .finally(() => setSending(false));
+  };
 
   const handleCreateQuote = (message: any) => {
     const conv = conversations?.find(c => c.id === selectedConv);
@@ -158,7 +262,16 @@ export function InboxPage() {
       {/* Conversation List */}
       <div className="w-[360px] border-r border-gray-200 bg-white flex flex-col">
         <div className="p-4 border-b border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Inbox</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-gray-900">Inbox</h2>
+            <button
+              onClick={openCompose}
+              className="flex items-center gap-1.5 rounded-lg bg-[#4A3520] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#6B4E33] transition-colors"
+              title="Start a new conversation with a lead's verified buyer contact — sends from your masked address"
+            >
+              <Plus className="h-3.5 w-3.5" /> New Message
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" strokeWidth={1.5} />
@@ -236,6 +349,9 @@ export function InboxPage() {
                   )}>
                     <div className="flex items-center gap-2 mb-1.5">
                       <span className="text-xs font-medium opacity-70">{m.direction === "outbound" ? `You (${m.from}faithelexport.com)` : m.from + "faithelexport.com"}</span>
+                      {m.direction === "outbound" && m.dryRun && (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-amber-700" title="Stored only — provider was in dry-run mode, nothing was delivered">DRY-RUN</span>
+                      )}
                       <span className="text-xs opacity-50">·</span>
                       <span className="text-xs opacity-50">{m.time}</span>
                     </div>
@@ -320,6 +436,12 @@ export function InboxPage() {
             </div>
 
             <div className="border-t border-gray-200 bg-white p-4">
+              {sendError && (
+                <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{sendError}</div>
+              )}
+              {sendNotice && (
+                <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{sendNotice}</div>
+              )}
               <div className="rounded-xl border border-gray-200">
                 <textarea
                   value={replyText}
@@ -340,24 +462,11 @@ export function InboxPage() {
                       Reply from: {conversations.find(c => c.id === selectedConv)?.maskedFrom || "your masked inbox"}
                     </span>
                     <button
-                      onClick={() => {
-                        if (!replyText.trim() || !conversations) return;
-                        const conv = conversations.find(c => c.id === selectedConv);
-                        if (!conv || !conv.threadId) return;
-
-                        apiFetch("/api/inbox", {
-                          method: "POST",
-                          body: JSON.stringify({ threadId: conv.threadId, bodyText: replyText.trim() }),
-                        }).then((r) => r.json()).then((data) => {
-                          if (data.ok) {
-                            setReplyText("");
-                            apiFetch(`/api/inbox?threadId=${conv.threadId}`).then(r => r.json()).then(d => { if (d.ok) setMessages(d.messages); });
-                          }
-                        });
-                      }}
-                      className="rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors flex items-center gap-1.5"
+                      onClick={sendReply}
+                      disabled={sending || !replyText.trim()}
+                      className="rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors flex items-center gap-1.5 disabled:opacity-50"
                     >
-                      <Send className="h-3.5 w-3.5" /> Send
+                      <Send className="h-3.5 w-3.5" /> {sending ? "Sending…" : "Send"}
                     </button>
                   </div>
                 </div>
@@ -365,11 +474,119 @@ export function InboxPage() {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-400">
+          <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-3">
             <p className="text-sm">No conversations yet</p>
+            <button
+              onClick={openCompose}
+              className="rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors"
+            >
+              Start the first conversation
+            </button>
           </div>
         )}
       </div>
+
+      {/* ─── New-conversation compose modal ─── */}
+      {showCompose && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4" onClick={() => !composeBusy && setShowCompose(false)}>
+          <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">New conversation</h3>
+                <p className="text-xs text-gray-500">Sent from your masked address — the buyer never sees your real email.</p>
+              </div>
+              {!composeBusy && (
+                <button onClick={() => setShowCompose(false)} className="p-1.5 rounded-lg hover:bg-gray-100">
+                  <XIcon className="h-4 w-4 text-gray-400" strokeWidth={1.5} />
+                </button>
+              )}
+            </div>
+
+            <div className="px-6 py-4 space-y-3">
+              {composeError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{composeError}</div>}
+              {composeNotice && <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">{composeNotice}</div>}
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Lead (your organization's)</label>
+                <select
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:bg-white focus:border-gray-300 focus:outline-none"
+                  value={compose.leadId}
+                  onChange={(e) => {
+                    const lead = (composeLeads || []).find((l) => l.id === e.target.value);
+                    const contactEmail = lead?.primaryContact?.email || "";
+                    setCompose((c) => ({ ...c, leadId: e.target.value, buyerEmail: contactEmail || c.buyerEmail }));
+                  }}
+                  disabled={composeBusy}
+                >
+                  <option value="">Select a lead…</option>
+                  {(composeLeads || []).map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.company}{l.country ? ` (${l.country})` : ""}
+                    </option>
+                  ))}
+                </select>
+                {composeLeadsError && <p className="mt-1 text-xs text-red-600">{composeLeadsError}</p>}
+                {composeLeads && composeLeads.length === 0 && (
+                  <p className="mt-1 text-xs text-gray-500">No leads yet — import real companies from the Leads page first.</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Buyer email (real contact — reserved/test domains are rejected)</label>
+                <input
+                  type="email"
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:bg-white focus:border-gray-300 focus:outline-none"
+                  placeholder="buyer@company.com"
+                  value={compose.buyerEmail}
+                  onChange={(e) => setCompose((c) => ({ ...c, buyerEmail: e.target.value }))}
+                  disabled={composeBusy}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Subject</label>
+                <input
+                  type="text"
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:bg-white focus:border-gray-300 focus:outline-none"
+                  placeholder="Introduction — Ethiopian 25/26 crop"
+                  value={compose.subject}
+                  onChange={(e) => setCompose((c) => ({ ...c, subject: e.target.value }))}
+                  disabled={composeBusy}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Message</label>
+                <textarea
+                  className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:bg-white focus:border-gray-300 focus:outline-none"
+                  rows={6}
+                  placeholder="Write your outreach email…"
+                  value={compose.bodyText}
+                  onChange={(e) => setCompose((c) => ({ ...c, bodyText: e.target.value }))}
+                  disabled={composeBusy}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
+              <button
+                onClick={() => setShowCompose(false)}
+                disabled={composeBusy}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Close
+              </button>
+              <button
+                onClick={sendCompose}
+                disabled={composeBusy || !compose.leadId || !compose.buyerEmail.trim() || !compose.bodyText.trim()}
+                className="rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Send className="h-3.5 w-3.5" /> {composeBusy ? "Sending…" : "Send from masked address"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

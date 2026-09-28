@@ -3651,6 +3651,7 @@ class StateManager:
         inbound_domain: str,
         real_email: str | None = None,
         operator_name: str | None = None,
+        organization_id: str = "org-system",
     ) -> dict[str, Any]:
         """
         Get the masked mailbox for an operator, creating it if missing.
@@ -3664,6 +3665,10 @@ class StateManager:
 
         The buyer sees only this address - it looks like a real sales rep
         at the export company.
+
+        organization_id attributes the inbox to the caller's tenant so the
+        Next.js inbox view (which filters message_threads.organization_id)
+        can see threads created by the bridge for this operator.
         """
         import re as _re
 
@@ -3680,6 +3685,7 @@ class StateManager:
                 "display_name": existing.display_name,
                 "real_email": existing.real_email,
                 "is_active": bool(existing.is_active),
+                "organization_id": existing.organization_id,
             }
 
         # Derive local part from operator_name (preferred) or display_name
@@ -3721,6 +3727,7 @@ class StateManager:
             display_name=display_name,
             real_email=real_email,
             is_active=1,
+            organization_id=organization_id,
             created_ts=now,
             updated_ts=now,
         )
@@ -3749,6 +3756,7 @@ class StateManager:
             "display_name": inbox.display_name,
             "real_email": inbox.real_email,
             "is_active": bool(inbox.is_active),
+            "organization_id": inbox.organization_id,
         }
 
     def get_inbox_by_masked_email(self, masked_email: str) -> dict[str, Any] | None:
@@ -3766,6 +3774,7 @@ class StateManager:
             "display_name": row.display_name,
             "real_email": row.real_email,
             "is_active": bool(row.is_active),
+            "organization_id": row.organization_id,
         }
 
     def get_inbox_by_operator(self, operator_id: str) -> dict[str, Any] | None:
@@ -3792,6 +3801,7 @@ class StateManager:
         buyer_email: str,
         subject: str,
         buyer_contact_id: int | None = None,
+        organization_id: str = "org-system",
     ) -> dict[str, Any]:
         from coffee_export.database.models.messaging import MessageThread
 
@@ -3812,6 +3822,7 @@ class StateManager:
                 "status": existing.status,
                 "message_count": existing.message_count,
                 "unread_count": existing.unread_count,
+                "organization_id": existing.organization_id,
             }
 
         year = now_addis().year
@@ -3841,6 +3852,7 @@ class StateManager:
             last_message_direction=None,
             message_count=0,
             unread_count=0,
+            organization_id=organization_id,
             created_ts=now,
             updated_ts=now,
             closed_ts=None,
@@ -3850,7 +3862,8 @@ class StateManager:
         self._commit()
 
         log.info(
-            f"Created message thread {thread_id} for lead {lead_id}, inbox {inbox_id}"
+            f"Created message thread {thread_id} for lead {lead_id}, inbox {inbox_id}, "
+            f"org {organization_id}"
         )
 
         return {
@@ -3862,6 +3875,7 @@ class StateManager:
             "status": "active",
             "message_count": 0,
             "unread_count": 0,
+            "organization_id": organization_id,
         }
 
     def log_outbound_message(
@@ -3876,6 +3890,7 @@ class StateManager:
         provider: str = "resend",
         provider_message_id: str | None = None,
         in_reply_to: str | None = None,
+        organization_id: str = "org-system",
     ) -> int:
         from coffee_export.database.models.messaging import InboxMessage, MessageThread
 
@@ -3895,6 +3910,7 @@ class StateManager:
             ai_processed=0,
             is_read=1,
             status="read",
+            organization_id=organization_id,
             sent_ts=now,
             created_ts=now,
             updated_ts=now,
@@ -3916,6 +3932,34 @@ class StateManager:
         )
         return msg.id
 
+    def find_inbound_by_provider_message_id(
+        self, provider_message_id: str, organization_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Idempotency lookup: find an already-stored inbound message by the
+        provider's message id. Resend retries webhook deliveries on non-2xx
+        and timeouts — without this check a retry would double-store the
+        message and double-count thread unread stats.
+
+        Scopes to organization_id when given (cross-tenant ids must never
+        match)."""
+        from coffee_export.database.models.messaging import InboxMessage
+
+        stmt = select(InboxMessage).where(
+            InboxMessage.direction == "inbound",
+            InboxMessage.provider_message_id == provider_message_id,
+        )
+        if organization_id is not None:
+            stmt = stmt.where(InboxMessage.organization_id == organization_id)
+        row = self.session.execute(stmt.limit(1)).scalar_one_or_none()
+        if not row:
+            return None
+        return {
+            "id": row.id,
+            "thread_id": row.thread_id,
+            "provider_message_id": row.provider_message_id,
+            "organization_id": row.organization_id,
+        }
+
     def log_inbound_message(
         self,
         thread_id: str,
@@ -3930,6 +3974,7 @@ class StateManager:
         in_reply_to: str | None = None,
         raw_payload: str | None = None,
         received_ts: str | None = None,
+        organization_id: str = "org-system",
     ) -> int:
         from coffee_export.database.models.messaging import InboxMessage, MessageThread
 
@@ -3950,6 +3995,7 @@ class StateManager:
             is_read=0,
             status="new",
             raw_payload=raw_payload,
+            organization_id=organization_id,
             received_ts=now,
             created_ts=now,
             updated_ts=now,
@@ -4194,6 +4240,7 @@ class StateManager:
             "provider": r.provider,
             "provider_message_id": r.provider_message_id,
             "in_reply_to": r.in_reply_to,
+            "organization_id": r.organization_id,
             "ai_processed": bool(r.ai_processed),
             "glm_summary": r.glm_summary,
             "glm_classification": r.glm_classification,

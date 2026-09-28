@@ -69,6 +69,7 @@ def test_bridge_send_calls_email_gateway_with_masked_flow():
             body_text="Body",
             body_html=None,
             operator_name="Marcus Bell",
+            organization_id="org-1",
         )
 
 

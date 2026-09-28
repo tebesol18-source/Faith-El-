@@ -26,10 +26,13 @@ without a real Resend account.
 
 from __future__ import annotations
 
+import base64
+import contextlib
 import hashlib
 import hmac
 import json
 import os
+import time
 import uuid
 from typing import Any
 
@@ -41,6 +44,11 @@ log = get_logger(__name__)
 
 
 RESEND_API_URL = "https://api.resend.com/emails"
+
+# How old a signed webhook timestamp may be before we treat it as a replay
+# (Svix scheme carries t=<unix seconds>). Resend retries within minutes, so
+# 5 minutes is generous; anything older is rejected.
+WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 5 * 60
 
 
 class ResendEmailProvider:
@@ -179,37 +187,123 @@ class ResendEmailProvider:
     # INBOUND - webhook signature verification
     # ──────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _parse_svix_signature_header(header: str) -> tuple[int | None, list[str]]:
+        """
+        Parse Resend's Svix signature header.
+
+        Real format (https://resend.com/docs/dashboard/webhooks/verify):
+            svix-signature: t=1700000000,v1=<base64sig>,v1=<base64sig2>
+
+        Returns (timestamp, [signatures]). Legacy format
+        ("v1,<hex>" space-separated, used by dev/test fixtures) yields
+        (None, []).
+        """
+        timestamp: int | None = None
+        signatures: list[str] = []
+        for part in header.split(","):
+            part = part.strip()
+            if part.startswith("t="):
+                with contextlib.suppress(ValueError):
+                    timestamp = int(part[2:])
+            elif part.startswith("v1="):
+                signatures.append(part[3:])
+        return timestamp, signatures
+
     def verify_webhook_signature(
-        self, raw_body: bytes | str, signature_header: str
+        self,
+        raw_body: bytes | str,
+        signature_header: str,
+        svix_id: str | None = None,
+        svix_timestamp: str | None = None,
+        enforce_timestamp: bool = True,
     ) -> bool:
         """
-        Verify the Resend webhook signature.
+        Verify the Resend webhook signature — the provider's REAL scheme.
 
-        Resend sends header `svix-signature` (or sometimes `resend-signature`)
-        containing one or more space-separated `v1,xxxx` tokens. Each token is
-        `v1,{hmac_sha256_hex}` computed over the raw request body using
-        RESEND_WEBHOOK_SECRET as the key.
+        Resend signs with Svix: the signed content is
+            "{svix-id}.{svix-timestamp}.{raw_body}"
+        HMAC-SHA256 with the webhook signing secret ("whsec_..."; the key is
+        base64-decoded after stripping the prefix), base64-encoded output,
+        sent as `svix-signature: t=<ts>,v1=<sig>`.
 
-        Returns True if any token matches.
+        Also accepted (dev/test fixtures only): the legacy scheme this code
+        used before Phase 2 — plain hex HMAC over the raw body with the raw
+        secret, header "v1,<hex>" — so existing local tests keep passing.
+
+        Replay protection: when the Svix timestamp is present and older than
+        WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS, the request is rejected.
+
+        Returns True if any v1 signature matches. When RESEND_WEBHOOK_SECRET
+        is not set, requests are REJECTED unless the explicit dev override
+        EMAIL_ALLOW_UNSIGNED_WEBHOOKS=1 is set (fail closed in production).
         """
         if not self.webhook_secret:
-            log.warning(
-                "RESEND_WEBHOOK_SECRET not set - webhook signature verification "
-                "is DISABLED. This is insecure for production."
+            if os.environ.get("EMAIL_ALLOW_UNSIGNED_WEBHOOKS", "").strip() == "1":
+                log.warning(
+                    "RESEND_WEBHOOK_SECRET not set and EMAIL_ALLOW_UNSIGNED_WEBHOOKS=1 "
+                    "— accepting UNSIGNED webhook (development override, never "
+                    "use in production)."
+                )
+                return True
+            log.error(
+                "RESEND_WEBHOOK_SECRET not set — rejecting webhook (fail closed). "
+                "Set RESEND_WEBHOOK_SECRET (Resend dashboard → Webhooks) or, for "
+                "local development only, EMAIL_ALLOW_UNSIGNED_WEBHOOKS=1."
             )
-            return True  # Permissive in dev. Fail loud in prod by setting the secret.
+            return False
 
         if isinstance(raw_body, str):
             raw_body_bytes = raw_body.encode("utf-8")
         else:
             raw_body_bytes = raw_body
 
-        # Parse the signature header. Format: "v1,abc123 v1,def456"
+        if not signature_header:
+            return False
+
+        # ── Scheme 1: real Resend/Svix (t=...,v1=...) ──
+        ts_from_header, svix_sigs = self._parse_svix_signature_header(signature_header)
+        if svix_sigs:
+            # Timestamp: explicit param wins, then the header's t= value
+            ts_value = svix_timestamp or (str(ts_from_header) if ts_from_header else "")
+            msg_id = svix_id or ""
+
+            # Key: strip whsec_ prefix, base64-decode. If decoding fails
+            # (secret configured as raw string), fall back to raw bytes.
+            secret = self.webhook_secret
+            if secret.startswith("whsec_"):
+                secret = secret[len("whsec_"):]
+            try:
+                key = base64.b64decode(secret)
+            except Exception:  # noqa: BLE001 - not base64; use raw bytes
+                key = secret.encode("utf-8")
+
+            signed_content = f"{msg_id}.{ts_value}.".encode("utf-8") + raw_body_bytes
+            expected = base64.b64encode(
+                hmac.new(key=key, msg=signed_content, digestmod=hashlib.sha256).digest()
+            ).decode("ascii")
+
+            for sig in svix_sigs:
+                if hmac.compare_digest(sig, expected):
+                    # Signature valid — now enforce the replay window.
+                    ts = svix_timestamp or ts_from_header
+                    if enforce_timestamp and ts is not None:
+                        age = abs(int(time.time()) - int(ts))
+                        if age > WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS:
+                            log.warning(
+                                f"Webhook timestamp outside tolerance ({age}s old) "
+                                "— possible replay, rejected."
+                            )
+                            return False
+                    return True
+            return False
+
+        # ── Scheme 2: legacy dev/test scheme ("v1,<hex>" over raw body) ──
         tokens = [t.strip() for t in signature_header.split() if t.strip()]
         if not tokens:
             return False
 
-        expected = hmac.new(
+        expected_hex = hmac.new(
             key=self.webhook_secret.encode("utf-8"),
             msg=raw_body_bytes,
             digestmod=hashlib.sha256,
@@ -222,7 +316,7 @@ class ResendEmailProvider:
             version, signature = parts[0], parts[1]
             if version != "v1":
                 continue
-            if hmac.compare_digest(signature, expected):
+            if hmac.compare_digest(signature, expected_hex):
                 return True
 
         return False
@@ -235,16 +329,34 @@ class ResendEmailProvider:
         """
         Normalize a Resend inbound webhook payload into our standard shape.
 
+        Handles BOTH payload shapes:
+          - Real Resend `email.inbound` event:
+              {"type": "email.inbound", "data": {"email": {"from": ..., "to": [...],
+                "subject": ..., "text": ..., "html": ..., "message_id": ...}}}
+            where `from` may be an object {"email": ..., "name": ...} and `to`
+            may be a list of such objects.
+          - Legacy/dev shape: {"data": {"from": "...", "to": ["..."], ...}}
+
         Returns a dict with stable keys regardless of provider quirks:
             from_addr, to_addr, subject, body_text, body_html,
             reply_to, provider_message_id, in_reply_to, received_ts
         """
         data = payload.get("data", payload) if isinstance(payload, dict) else {}
+        # Real Resend inbound nests the email under data.email
+        email_obj = data.get("email") if isinstance(data, dict) else None
+        if isinstance(email_obj, dict):
+            data = email_obj
 
-        from_addr = data.get("from") or data.get("sender") or ""
-        to_addr = data.get("to") or ""
-        if isinstance(to_addr, list):
-            to_addr = to_addr[0] if to_addr else ""
+        def _addr(value: Any) -> str:
+            """'x@y.com' | {'email': 'x@y.com', ...} | ['x@y.com'] | [{'email': ...}] -> 'x@y.com'"""
+            if isinstance(value, list):
+                value = value[0] if value else ""
+            if isinstance(value, dict):
+                value = value.get("email") or value.get("address") or ""
+            return str(value or "")
+
+        from_addr = _addr(data.get("from") or data.get("sender") or "")
+        to_addr = _addr(data.get("to") or "")
         # Strip display name: "John <john@x.com>" -> "john@x.com"
         if "<" in from_addr and ">" in from_addr:
             from_addr = from_addr.split("<", 1)[1].split(">", 1)[0].strip()
@@ -254,7 +366,7 @@ class ResendEmailProvider:
         subject = data.get("subject") or "(no subject)"
         body_text = data.get("text") or data.get("body_plain") or ""
         body_html = data.get("html") or data.get("body_html") or ""
-        reply_to = data.get("reply_to") or None
+        reply_to = _addr(data.get("reply_to")) or None
         provider_message_id = (
             data.get("message_id") or data.get("id") or data.get("email_id") or ""
         )

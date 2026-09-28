@@ -37,11 +37,28 @@ from coffee_export.utils.logging import get_logger, setup_logging
 
 log = get_logger(__name__)
 def _verify_bridge_token(authorization: str | None) -> bool:
-    """Verify Bearer token for Next.js → Python bridge endpoints."""
+    """Verify Bearer token for Next.js → Python bridge endpoints.
+
+    Fail-closed policy: when EMAIL_BRIDGE_SECRET is not set the bridge
+    REJECTS requests unless EMAIL_ALLOW_UNSIGNED_WEBHOOKS=1 is explicitly
+    set for local development. A production bridge must never run
+    unauthenticated — the endpoints write to the database and send email.
+    """
     bridge_secret = os.environ.get("EMAIL_BRIDGE_SECRET", "")
     if not bridge_secret:
-        log.warning("EMAIL_BRIDGE_SECRET not set - bridge authentication DISABLED.")
-        return True
+        if os.environ.get("EMAIL_ALLOW_UNSIGNED_WEBHOOKS", "").strip() == "1":
+            log.warning(
+                "EMAIL_BRIDGE_SECRET not set and EMAIL_ALLOW_UNSIGNED_WEBHOOKS=1 "
+                "— bridge authentication DISABLED (development override, never "
+                "use in production)."
+            )
+            return True
+        log.error(
+            "EMAIL_BRIDGE_SECRET not set — bridge request REJECTED (fail closed). "
+            "Set EMAIL_BRIDGE_SECRET to the same value configured on the Next.js "
+            "side, or EMAIL_ALLOW_UNSIGNED_WEBHOOKS=1 for local development only."
+        )
+        return False
 
     if not authorization or not authorization.startswith("Bearer "):
         return False
@@ -104,6 +121,8 @@ def create_inbound_app(
         svix_signature: str | None = Header(None, alias="svix-signature"),
         resend_signature: str | None = Header(None, alias="resend-signature"),
         x_resend_signature: str | None = Header(None, alias="x-resend-signature"),
+        svix_id: str | None = Header(None, alias="svix-id"),
+        svix_timestamp: str | None = Header(None, alias="svix-timestamp"),
     ) -> JSONResponse:
         raw_body = await request.body()
         signature = (
@@ -115,8 +134,15 @@ def create_inbound_app(
 
         gw = _get_gateway()
 
-        # 1. Verify signature
-        if not gw.provider.verify_webhook_signature(raw_body, signature):
+        # 1. Verify signature (real Resend/Svix scheme, with legacy dev
+        #    fallback inside the provider). svix-id + svix-timestamp are part
+        #    of the signed content — pass them through.
+        if not gw.provider.verify_webhook_signature(
+            raw_body,
+            signature,
+            svix_id=svix_id,
+            svix_timestamp=svix_timestamp,
+        ):
             log.warning(
                 f"Inbound webhook signature verification FAILED "
                 f"(ip={request.client.host if request.client else '?'})"
@@ -155,8 +181,14 @@ def create_inbound_app(
             log.exception(f"Inbound processing failed: {exc}")
             raise HTTPException(status_code=500, detail="processing failed") from exc
 
-        status_code = 200 if result.get("action") == "received" else 202
-        return JSONResponse(status_code=status_code, content=result)
+        # "received" = stored and processed.
+        # "duplicate" = retry of an already-stored provider message — return
+        #   200 so Resend stops retrying (idempotent success).
+        # anything else (unknown inbox / unknown buyer) = 202: acknowledged,
+        #   not retryable (retrying will not make an unknown buyer known).
+        if result.get("action") in ("received", "duplicate"):
+            return JSONResponse(status_code=200, content=result)
+        return JSONResponse(status_code=202, content=result)
 
 
     @app.post("/api/bridge/send")
@@ -190,6 +222,7 @@ def create_inbound_app(
                 body_text=req.body_text,
                 body_html=req.body_html,
                 operator_name=req.operator_name,
+                organization_id=req.organization_id or "org-system",
             )
         except Exception as exc:
             log.exception(f"Bridge send failed: {exc}")
@@ -213,6 +246,18 @@ def create_inbound_app(
                     "masked_from": result.get("masked_from"),
                     "provider_message_id": result.get("provider_message_id"),
                     "dry_run": result.get("dry_run", False),
+                },
+            )
+
+        # send_refused (cross-tenant lead) is a client error, not a gateway
+        # failure — 403, never retried blindly.
+        if result.get("action") == "send_refused":
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "ok": False,
+                    "action": "send_refused",
+                    "error": result.get("error", "lead does not belong to caller's organization"),
                 },
             )
 
@@ -246,6 +291,7 @@ def create_inbound_app(
                 body_text=req.body_text,
                 body_html=req.body_html,
                 operator_id=req.operator_id,
+                organization_id=req.organization_id,
             )
         except Exception as exc:
             log.exception(f"Bridge reply failed: {exc}")
@@ -271,6 +317,30 @@ def create_inbound_app(
                 },
             )
 
+        # Cross-tenant reply attempt — fail closed with 403.
+        if result.get("action") == "reply_refused":
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "ok": False,
+                    "action": "reply_refused",
+                    "error": result.get("reason", "message does not belong to caller's organization"),
+                },
+            )
+
+        # Not-found / wrong-direction replies are 404/422 client errors.
+        if result.get("action") == "skipped":
+            reason = result.get("reason", "")
+            code = 404 if "not found" in reason else 422
+            return JSONResponse(
+                status_code=code,
+                content={
+                    "ok": False,
+                    "action": "skipped",
+                    "error": reason or "cannot reply to this message",
+                },
+            )
+
         return JSONResponse(
             status_code=502,
             content={
@@ -289,7 +359,9 @@ def create_inbound_app(
             "inbound_domain": gw.inbound_domain,
             "dry_run": gw.provider.dry_run,
             "webhook_secret_configured": bool(os.environ.get("RESEND_WEBHOOK_SECRET")),
-            "bridge_secret_configured": bool(os.environ.get("EMAIL_BRIDGE_SECRET")),        }
+            "bridge_secret_configured": bool(os.environ.get("EMAIL_BRIDGE_SECRET")),
+            "unsigned_overrides_enabled": os.environ.get("EMAIL_ALLOW_UNSIGNED_WEBHOOKS", "").strip() == "1",
+        }
 
     return app
 
