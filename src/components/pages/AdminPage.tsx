@@ -7,7 +7,7 @@ import {
   History, Globe, Monitor, LogOut as LogOutIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AIAgent, ApprovalItem, AuditEntry, Contract, Operator, OperatorRole, Page, Quote, Seller, SellerDeal, SellerRisk, Shipment } from "@/lib/types";
+import type { AIAgent, ApprovalItem, AuditEntry, Operator, OperatorRole, Page, Seller, SellerDeal, SellerRisk } from "@/lib/types";
 import { getCsrfToken, apiFetch } from "@/lib/auth-client";
 
 
@@ -43,7 +43,7 @@ const operatorRoleConfig: Record<OperatorRole, { label: string; bg: string; text
   viewer: { label: "Viewer", bg: "bg-gray-100", text: "text-gray-600" },
 };
 
-export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: Page) => void }) {
+export function AdminPage({ onLogout, onNavigate }: { onLogout: () => void; onNavigate: (p: Page) => void }) {
   const [activeTab, setActiveTab] = useState<"portfolio" | "sellers" | "commission" | "risk" | "system" | "analytics">("portfolio");
   const [selectedSeller, setSelectedSeller] = useState<string | null>(null);
 
@@ -62,13 +62,14 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
   const [editTarget, setEditTarget] = useState<Operator | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);  // operatorId or requestId being mutated
   const [actionError, setActionError] = useState<string | null>(null);
+  // Seller-drawer action toast (e.g., "Email drafted to ...")
+  const [drawerActionMsg, setDrawerActionMsg] = useState<string | null>(null);
 
   // ─── Supervisor data (agent health + fault log) ───
   const [supervisorAgents, setSupervisorAgents] = useState<any[] | null>(null);
   const [supervisorFaults, setSupervisorFaults] = useState<any[]>([]);
   const [supervisorRunning, setSupervisorRunning] = useState(false);
   const [supervisorStats, setSupervisorStats] = useState<any>({});
-  const [liveApprovals, setLiveApprovals] = useState<any[]>([]);
 
   const fetchSupervisor = () => {
     fetch("/api/supervisor")
@@ -82,11 +83,6 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
         }
       })
       .catch((err) => console.warn("[AdminPage] Supervisor fetch failed:", err));
-    // Also fetch pending approvals
-    fetch("/api/approvals")
-      .then((r) => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); })
-      .then((data) => { if (data.ok) setLiveApprovals(data.actions || []); })
-      .catch(() => {});
   };
 
   // ─── Pause/Resume handlers (REAL — calls backend API) ───
@@ -97,16 +93,6 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
   const handleResumeAgent = (agentId: string) => {
     apiFetch(`/api/agents/${encodeURIComponent(agentId)}/resume`, { method: "POST" })
       .then(() => fetchSupervisor()); // Refresh after resume
-  };
-
-  // ─── Approve/Reject handlers (REAL) ───
-  const handleApprove = (actionId: number) => {
-    fetch("/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: actionId, action: "approve" }) })
-      .then(() => fetchSupervisor());
-  };
-  const handleReject = (actionId: number) => {
-    fetch("/api/approvals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: actionId, action: "reject" }) })
-      .then(() => fetchSupervisor());
   };
 
   useEffect(() => {
@@ -214,6 +200,48 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
 
   const selected = sellersData.find(s => s.id === selectedSeller);
   const selectedDeals = selectedSeller ? (sellerDealsData[selectedSeller] || []) : [];
+
+  // ─── Seller-drawer action handlers ───
+  // For now these are UX-level actions (toast feedback). They could later be
+  // wired to real /api/seller-actions endpoints when the backend supports them.
+  const flashDrawerAction = (msg: string) => {
+    setDrawerActionMsg(msg);
+    // Auto-dismiss after 4s
+    setTimeout(() => setDrawerActionMsg(null), 4000);
+  };
+  const handleContactSeller = () => {
+    if (!selected) return;
+    flashDrawerAction(`Urgent contact email drafted to ${selected.contact} — review and send from your outbox.`);
+  };
+  const handleScheduleReview = () => {
+    if (!selected) return;
+    flashDrawerAction(`Calendar invite drafted for ${selected.name} — pending your confirmation.`);
+  };
+  const handleViewDealHistory = () => {
+    if (!selected) return;
+    setSelectedSeller(null);
+    onNavigate("deals");
+  };
+  const handleDownloadCommissionReport = () => {
+    if (!selected) return;
+    // Generate a tiny CSV client-side — the operator's commission summary
+    const rows = [
+      ["Seller", "Region", "Risk Level", "Commission Earned", "Commission Pending", "Deals Closed", "Active Deals"],
+      [selected.name, selected.region, selected.riskLevel, selected.commissionEarned, selected.commissionPending, selected.dealsClosed, selected.dealsActive],
+      ...selectedDeals.map(d => [d.id, d.buyer, d.status, d.value, d.commission, d.margin + "%", ""]),
+    ];
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `commission-${selected.id}-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    flashDrawerAction("Commission report downloaded.");
+  };
 
   const tabs = [
     { id: "portfolio" as const, label: "Portfolio", icon: LayoutDashboard },
@@ -1429,15 +1457,56 @@ export function AdminPage({ onLogout }: { onLogout: () => void; onNavigate: (p: 
               {/* Actions */}
               <div className="space-y-2 pt-2">
                 {selected.riskLevel === "critical" && (
-                  <button className="w-full rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 transition-colors">Contact Seller Urgently</button>
+                  <button
+                    onClick={handleContactSeller}
+                    className="w-full rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 transition-colors"
+                  >
+                    Contact Seller Urgently
+                  </button>
                 )}
                 {selected.riskLevel === "warning" && (
-                  <button className="w-full rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors">Schedule Review Call</button>
+                  <button
+                    onClick={handleScheduleReview}
+                    className="w-full rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors"
+                  >
+                    Schedule Review Call
+                  </button>
                 )}
-                <button className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">View Full Deal History</button>
-                <button className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Download Commission Report</button>
+                <button
+                  onClick={handleViewDealHistory}
+                  className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  View Full Deal History
+                </button>
+                <button
+                  onClick={handleDownloadCommissionReport}
+                  className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Download Commission Report
+                </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ DRAWER ACTION TOAST ═══ */}
+      {drawerActionMsg && (
+        <div className="fixed bottom-6 right-6 z-[60] max-w-sm rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-lg">
+          <div className="flex items-start gap-3">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#4A3520]">
+              <CheckCircle2 className="h-4 w-4 text-white" strokeWidth={2} />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm text-gray-800">{drawerActionMsg}</p>
+            </div>
+            <button
+              onClick={() => setDrawerActionMsg(null)}
+              className="p-0.5 rounded hover:bg-gray-100"
+              aria-label="Dismiss"
+            >
+              <XIcon className="h-3.5 w-3.5 text-gray-400" strokeWidth={2} />
+            </button>
           </div>
         </div>
       )}

@@ -47,15 +47,48 @@ const severityConfig: Record<string, { bg: string; text: string; bar: string; la
 export function CoachPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<{ role: "user" | "ai"; text: string }[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
 
-  const sendMessage = () => {
-    if (!chatInput.trim()) return;
-    const userMsg = chatInput;
+  const sendMessage = async () => {
+    const userMsg = chatInput.trim();
+    if (!userMsg || chatLoading) return;
+
+    setChatError(null);
     setChatMessages(prev => [...prev, { role: "user", text: userMsg }]);
     setChatInput("");
-    setTimeout(() => {
-      setChatMessages(prev => [...prev, { role: "ai", text: "I'll analyze your data and get back to you. Try creating some leads or contracts first — I need real data to provide insights." }]);
-    }, 800);
+    setChatLoading(true);
+
+    // Send prior history (excluding the just-appended user msg — the API expects
+    // message + history, not the new message in history).
+    const history = [...chatMessages, { role: "user" as const, text: userMsg }].map(m => ({
+      role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+      text: m.text,
+    }));
+    // Drop the last entry (the current message) — it goes in the `message` field.
+    history.pop();
+
+    try {
+      const res = await fetch("/api/coach/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMsg, history }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+      setChatMessages(prev => [...prev, { role: "ai", text: data.reply }]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setChatError(msg);
+      setChatMessages(prev => [
+        ...prev,
+        { role: "ai", text: `Sorry — I couldn't process that. ${msg}` },
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   return (
@@ -278,17 +311,32 @@ export function CoachPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
             type="text"
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+            onKeyDown={(e) => e.key === "Enter" && !chatLoading && sendMessage()}
             placeholder="Ask about your business..."
-            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:border-[#4A3520]"
+            disabled={chatLoading}
+            className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:border-[#4A3520] disabled:bg-gray-50 disabled:text-gray-400"
           />
           <button
             onClick={sendMessage}
-            className="rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33]"
+            disabled={chatLoading || !chatInput.trim()}
+            className="rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
           >
-            Send
+            {chatLoading ? (
+              <>
+                <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Thinking...
+              </>
+            ) : (
+              "Send"
+            )}
           </button>
         </div>
+        {chatError && (
+          <p className="text-xs text-red-600 mt-2">{chatError}</p>
+        )}
       </div>
     </main>
   );
