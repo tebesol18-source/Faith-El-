@@ -11,7 +11,7 @@
  * fails. This prevents audit failures from breaking the actual mutation.
  */
 
-import { getWritableDb } from "@/lib/db";
+import { getReadonlyDb, getWritableDb } from "@/lib/db";
 
 export type AuditAction =
   | "operator.create"
@@ -91,7 +91,6 @@ export function readAuditLog(limit: number = 100): any[] {
   const safeLimit = Math.min(Math.max(limit, 1), 500);
   try {
     // Use a readonly connection — this is a read operation
-    const { getReadonlyDb } = require("@/lib/db");
     const db = getReadonlyDb();
     try {
       return db.prepare(`

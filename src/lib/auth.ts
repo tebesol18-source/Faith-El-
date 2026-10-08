@@ -126,7 +126,7 @@ export function requireAdmin(request: NextRequest):
 export function checkTenantOwnership(
   userOrgId: string,
   targetResourceOrgId: string | null | undefined
-): { error: NextResponse } | {} {
+): { error: NextResponse } | Record<string, never> {
   const resourceOrg = targetResourceOrgId || "org-system";
   if (userOrgId !== resourceOrg) {
     return {

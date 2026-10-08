@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   Archive, Calendar, CheckCircle, FileText, Filter, MoreHorizontal, Package,
   Paperclip, Plus, Search, Send, Sparkles, Truck, X as XIcon, Zap,
@@ -10,6 +11,7 @@ import { apiFetch } from "@/lib/auth-client";
 import type { Contract, Priority, Quote, Shipment } from "@/lib/types";
 
 export function InboxPage() {
+  const router = useRouter();
   const [selectedConv, setSelectedConv] = useState(1);
   const [replyText, setReplyText] = useState("");
   const [conversations, setConversations] = useState<any[] | null>(null);
@@ -201,7 +203,7 @@ export function InboxPage() {
       incoterm: message.ai?.incoterm || "",
     });
 
-    window.location.href = `/quotes/new?${params.toString()}`;
+    router.push(`/quotes/new?${params.toString()}`);
   };
 
   const handleCreateSample = (message: any) => {
@@ -216,7 +218,7 @@ export function InboxPage() {
       grade: message.ai?.grade || "",
     });
 
-    window.location.href = `/samples/new?${params.toString()}`;
+    router.push(`/samples/new?${params.toString()}`);
   };
 
   const handleScheduleCall = (message: any) => {
@@ -236,7 +238,7 @@ export function InboxPage() {
       volume: message.ai?.volume?.toString() || "",
     });
 
-    window.location.href = `/shipments/new?${params.toString()}`;
+    router.push(`/shipments/new?${params.toString()}`);
   };
 
   const handleCreateContract = (message: any) => {
@@ -254,7 +256,7 @@ export function InboxPage() {
       incoterm: message.ai?.incoterm || "",
     });
 
-    window.location.href = `/contracts/new?${params.toString()}`;
+    router.push(`/contracts/new?${params.toString()}`);
   };
 
   return (

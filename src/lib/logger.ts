@@ -100,6 +100,7 @@ function getAsyncStorage(): any {
   try {
     // In Edge runtime, require() throws. In Node, it works.
     // We catch the error and return false for Edge.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic on purpose: a static import of async_hooks would crash the Edge middleware
     const { AsyncLocalStorage } = require("async_hooks");
     _asyncStorage = new AsyncLocalStorage();
   } catch {

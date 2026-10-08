@@ -46,6 +46,7 @@ async function main() {
     process.exit(1);
   }
   const lead = impD.leads?.[0];
+  let leadId: string;
   if (!lead) {
     // Maybe already imported (duplicate skip) — find it
     const list = await admin.fetch("/api/leads?limit=200").then((r) => r.json());
@@ -57,9 +58,9 @@ async function main() {
       process.exit(1);
     }
     log("1/6", `Falcon Coffees already imported as ${existing.id} — continuing with it.`);
-    var leadId = existing.id;
+    leadId = existing.id;
   } else {
-    var leadId = lead.id || lead.leadId || lead.lead_id;
+    leadId = lead.id || lead.leadId || lead.lead_id;
   }
   log("1/6", `Lead created: ${leadId} (unverified, evidence attached)`);
 

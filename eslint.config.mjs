@@ -44,7 +44,14 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills"]
+  // Node CJS utility scripts legitimately use require() — only .js/.cjs under
+  // scripts/; ESM files (.mjs/.mts) and app source keep the rule enforced.
+  files: ["scripts/**/*.{js,cjs}"],
+  rules: {
+    "@typescript-eslint/no-require-imports": "off",
+  },
+}, {
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "download/**"]
 }];
 
 export default eslintConfig;

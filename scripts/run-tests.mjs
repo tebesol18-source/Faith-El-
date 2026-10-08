@@ -104,7 +104,7 @@ async function shutdown(code) {
   killServer();
   await new Promise((r) => {
     const t = setTimeout(() => {
-      try { process.platform === "win32" ? undefined : process.kill(-server.pid, "SIGKILL"); } catch { /* gone */ }
+      try { if (process.platform !== "win32") process.kill(-server.pid, "SIGKILL"); } catch { /* gone */ }
       r();
     }, 5000);
     server.on("exit", () => { clearTimeout(t); r(); });

@@ -44,10 +44,12 @@ function NegotiationSimulator({ quote }: { quote: Quote }) {
   // Initial slider state = current quote prices
   const [prices, setPrices] = useState<number[]>(quote.lines.map(l => l.pricePerKg));
 
-  // Reset when quote changes
-  useEffect(() => {
+  // Reset when quote changes — render-time adjustment (no effect, no cascade)
+  const [prevQuoteId, setPrevQuoteId] = useState(quote.id);
+  if (prevQuoteId !== quote.id) {
+    setPrevQuoteId(quote.id);
     setPrices(quote.lines.map(l => l.pricePerKg));
-  }, [quote.id]);
+  }
 
   // Compute simulated margin
   const linesSubtotal = quote.lines.reduce((s, l, i) => s + l.weightKg * prices[i], 0);

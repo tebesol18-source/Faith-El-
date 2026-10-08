@@ -167,7 +167,6 @@ export function AdminPage({ onLogout, onNavigate }: { onLogout: () => void; onNa
     const orig = refreshAdminData;
     refreshAdminData();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Portfolio totals
