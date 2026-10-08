@@ -34,6 +34,7 @@ from coffee_export.database.models.contract import (  # noqa: F401
 from coffee_export.database.models.events import Event  # noqa: F401
 from coffee_export.database.models.memory import ConversationMemory  # noqa: F401
 from coffee_export.database.models.messaging import (  # noqa: F401
+    BuyerMask,
     ExporterInbox,
     InboxMessage,
     MessageThread,
@@ -135,4 +136,5 @@ __all__ = [
     "ExporterInbox",
     "MessageThread",
     "InboxMessage",
+    "BuyerMask",
 ]

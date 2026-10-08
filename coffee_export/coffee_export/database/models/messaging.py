@@ -89,6 +89,86 @@ class ExporterInbox(Base):
         return f"<ExporterInbox {self.masked_email} ({self.display_name})>"
 
 
+class BuyerMask(Base):
+    """Buyer identity mask — the registry that protects real buyer addresses.
+
+    Phase 4: a buyer's real email is NEVER stored in plaintext on any
+    messaging surface (threads, messages, events, audit rows, API payloads).
+    Instead, each (organization, real address) pair gets:
+
+        alias_address      public platform alias, e.g.
+                           buyer.3f9a2b7c1d4e@faithelexport.com — this is
+                           what every exporter-facing surface shows and what
+                           the buyer's replies are routed by.
+        lookup_key         HMAC-SHA256(derived key, "{org}:{email}") — the
+                           deterministic index that resolves a real address
+                           (e.g. an inbound From:) to its registry row
+                           WITHOUT storing the address in the index.
+        real_email_encrypted
+                           AES-256-GCM ciphertext of the real address,
+                           AAD-bound to the organization. Decrypted only
+                           transiently at the provider boundary (SMTP To:).
+
+    Lifecycle: active -> revoked (terminal). A revoked mask blocks BOTH
+    directions: inbound from that address is rejected, outbound resolution
+    refuses. Re-enabling a buyer is a deliberate admin action (un-revoke or
+    new contact), not an automatic one.
+
+    Tenant isolation: (organization_id, lookup_key) is UNIQUE — the same
+    real-world buyer tracked by two orgs gets two independent masks with
+    different aliases. alias_address is globally unique (it is a routable
+    mailbox on the platform domain).
+    """
+
+    __tablename__ = "buyer_masks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
+    alias_address: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    lookup_key: Mapped[str] = mapped_column(Text, nullable=False)
+    real_email_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Optional provenance links (used by the Next.js side to show the alias
+    # next to a lead's contact WITHOUT needing the masking secret — the
+    # registry row itself carries the reference).
+    lead_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("leads.lead_id", ondelete="SET NULL")
+    )
+    buyer_contact_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("lead_contacts.id", ondelete="SET NULL")
+    )
+
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="active")
+    # active | revoked
+
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_ts: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_ts: Mapped[str] = mapped_column(Text, nullable=False)
+    revoked_ts: Mapped[str | None] = mapped_column(Text)
+    revoke_reason: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'revoked')", name="ck_buyer_masks_status"
+        ),
+        # One registry row per (tenant, real address) — deterministic.
+        Index(
+            "uq_buyer_masks_org_lookup",
+            "organization_id",
+            "lookup_key",
+            unique=True,
+        ),
+        Index("ix_buyer_masks_alias", "alias_address"),
+        Index("ix_buyer_masks_lookup_key", "lookup_key"),
+        Index("ix_buyer_masks_org_id", "organization_id"),
+        Index("ix_buyer_masks_lead", "lead_id"),
+        Index("ix_buyer_masks_buyer_contact", "buyer_contact_id"),
+    )
+
+    def __repr__(self) -> str:  # never includes the real address
+        return f"<BuyerMask {self.alias_address} ({self.status})>"
+
+
 class MessageThread(Base):
     """One conversation thread per (lead x exporter).
 
@@ -110,6 +190,13 @@ class MessageThread(Base):
     )
     buyer_contact_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("lead_contacts.id", ondelete="SET NULL")
+    )
+    # Buyer identity mask (Phase 4). When set, buyer_email holds the
+    # platform ALIAS (buyer.<hex>@<domain>) and the real address lives only
+    # in the encrypted buyer_masks registry. NULL on legacy rows until the
+    # gateway's audited self-heal links them.
+    buyer_mask_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("buyer_masks.id", ondelete="SET NULL")
     )
     buyer_email: Mapped[str] = mapped_column(Text, nullable=False)
     subject: Mapped[str] = mapped_column(Text, nullable=False)

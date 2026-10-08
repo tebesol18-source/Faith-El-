@@ -473,13 +473,15 @@ def test_cross_tenant_buyer_resolution_blocked():
             operator_id=op_a, display_name="Xena One", inbound_domain="faithelexport.com",
             operator_name="Xena One", organization_id="org-x-a",
         )
-        # _resolve_buyer scoped to org-x-a must find lead_a (org-A's own contact),
-        # never lead_b (org-B's), despite the identical email.
-        resolved_lead, _ = gw._resolve_buyer(inbox["id"], buyer_email_a, "org-x-a")
+        # _resolve_buyer_contact scoped to org-x-a must find lead_a (org-A's own
+        # contact), never lead_b (org-B's), despite the identical email.
+        # (Phase 4: renamed/reshaped from _resolve_buyer — same tenant-scoped
+        # contract, now part of the mask-registry resolution chain.)
+        resolved_lead, _ = gw._resolve_buyer_contact(buyer_email_a, "org-x-a")
         assert resolved_lead == lead_a
 
         # And with no matching contact in the org at all -> (None, None)
-        resolved_none, _ = gw._resolve_buyer(inbox["id"], "nobody@nowhere.example", "org-x-a")
+        resolved_none, _ = gw._resolve_buyer_contact("nobody@nowhere.example", "org-x-a")
         assert resolved_none is None
     finally:
         session.close()

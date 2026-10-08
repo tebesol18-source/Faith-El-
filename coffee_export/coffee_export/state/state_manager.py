@@ -3802,8 +3802,17 @@ class StateManager:
         subject: str,
         buyer_contact_id: int | None = None,
         organization_id: str = "org-system",
+        buyer_mask_id: int | None = None,
     ) -> dict[str, Any]:
-        from coffee_export.database.models.messaging import MessageThread
+        """Get-or-create the open thread for (lead, inbox).
+
+        Phase 4 masking: callers pass the platform ALIAS as buyer_email and
+        the registry row id as buyer_mask_id. When an existing legacy thread
+        (created before masking) is found and a mask is supplied, the thread
+        is linked to the mask and its plaintext rows are rewritten by the
+        audited self-heal (never silently — see _apply_thread_mask).
+        """
+        from coffee_export.database.models.messaging import BuyerMask, MessageThread
 
         existing = self.session.execute(
             select(MessageThread).where(
@@ -3813,11 +3822,18 @@ class StateManager:
             )
         ).scalar_one_or_none()
         if existing:
+            # Legacy self-heal link: thread predates masking, a mask is now
+            # known — link + rewrite (audited, idempotent).
+            if buyer_mask_id is not None and not existing.buyer_mask_id:
+                mask_row = self.session.get(BuyerMask, buyer_mask_id)
+                if mask_row is not None:
+                    self._apply_thread_mask(existing, mask_row)
             return {
                 "thread_id": existing.thread_id,
                 "lead_id": existing.lead_id,
                 "inbox_id": existing.inbox_id,
                 "buyer_email": existing.buyer_email,
+                "buyer_mask_id": existing.buyer_mask_id,
                 "subject": existing.subject,
                 "status": existing.status,
                 "message_count": existing.message_count,
@@ -3845,6 +3861,7 @@ class StateManager:
             lead_id=lead_id,
             inbox_id=inbox_id,
             buyer_contact_id=buyer_contact_id,
+            buyer_mask_id=buyer_mask_id,
             buyer_email=buyer_email,
             subject=subject,
             status="active",
@@ -3871,6 +3888,7 @@ class StateManager:
             "lead_id": lead_id,
             "inbox_id": inbox_id,
             "buyer_email": buyer_email,
+            "buyer_mask_id": buyer_mask_id,
             "subject": subject,
             "status": "active",
             "message_count": 0,
@@ -4120,6 +4138,7 @@ class StateManager:
             "lead_id": row.lead_id,
             "inbox_id": row.inbox_id,
             "buyer_contact_id": row.buyer_contact_id,
+            "buyer_mask_id": row.buyer_mask_id,
             "buyer_email": row.buyer_email,
             "subject": row.subject,
             "status": row.status,
@@ -4127,6 +4146,7 @@ class StateManager:
             "last_message_direction": row.last_message_direction,
             "message_count": row.message_count,
             "unread_count": row.unread_count,
+            "organization_id": row.organization_id,
             "created_ts": row.created_ts,
             "closed_ts": row.closed_ts,
         }
@@ -4162,6 +4182,7 @@ class StateManager:
                 "lead_id": r.lead_id,
                 "inbox_id": r.inbox_id,
                 "buyer_email": r.buyer_email,
+                "buyer_mask_id": r.buyer_mask_id,
                 "subject": r.subject,
                 "status": r.status,
                 "last_message_ts": r.last_message_ts,
@@ -4305,3 +4326,332 @@ class StateManager:
             "awaiting_exporter": awaiting_exporter,
             "awaiting_buyer": awaiting_buyer,
         }
+
+    # =============================================================
+    # BUYER MASK REGISTRY (Phase 4 — buyer identity masking)
+    #
+    # Real buyer addresses live ONLY here, AES-256-GCM encrypted, resolved
+    # by a deterministic secret-keyed HMAC lookup. Every other messaging
+    # surface (threads, messages, events, logs) carries the platform alias.
+    # See docs/buyer-masking.md and messaging/masking.py.
+    # =============================================================
+
+    @staticmethod
+    def _mask_row_to_dict(row: Any) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "organization_id": row.organization_id,
+            "alias_address": row.alias_address,
+            "lookup_key": row.lookup_key,
+            "real_email_encrypted": row.real_email_encrypted,
+            "lead_id": row.lead_id,
+            "buyer_contact_id": row.buyer_contact_id,
+            "status": row.status,
+            "created_by": row.created_by,
+            "created_ts": row.created_ts,
+            "revoked_ts": row.revoked_ts,
+            "revoke_reason": row.revoke_reason,
+        }
+
+    def get_or_create_buyer_mask(
+        self,
+        organization_id: str,
+        real_email: str,
+        inbound_domain: str,
+        lead_id: str | None = None,
+        buyer_contact_id: int | None = None,
+        created_by: str | None = None,
+    ) -> dict[str, Any]:
+        """Get the mask for (org, real address), creating it if missing.
+
+        Deterministic: the lookup key is HMAC(secret, org:email), so the
+        same buyer resolves to the same registry row every time — no
+        plaintext email is ever stored in an index. The alias is derived
+        deterministically too (buyer.<12hex>@<domain>), with a short random
+        suffix retry on the astronomically unlikely collision.
+
+        Raises MaskingUnavailableError when BUYER_MASK_SECRET is unset
+        (fail closed — no silent plaintext fallback).
+
+        The returned dict NEVER contains the real address; decrypt via
+        decrypt_buyer_email() at the provider boundary only.
+        """
+        from coffee_export.database.models.messaging import BuyerMask
+        from coffee_export.messaging import masking
+
+        email_norm = masking.normalize_email(real_email)
+        if not email_norm or "@" not in email_norm:
+            raise ValueError("invalid buyer email for masking")
+
+        key = masking.lookup_key(organization_id, email_norm)
+
+        existing = self.session.execute(
+            select(BuyerMask).where(
+                BuyerMask.organization_id == organization_id,
+                BuyerMask.lookup_key == key,
+            )
+        ).scalar_one_or_none()
+        if existing:
+            # Enrich provenance if the caller knows more than the row does.
+            dirty = False
+            if buyer_contact_id and not existing.buyer_contact_id:
+                existing.buyer_contact_id = buyer_contact_id
+                dirty = True
+            if lead_id and not existing.lead_id:
+                existing.lead_id = lead_id
+                dirty = True
+            if dirty:
+                existing.updated_ts = now_addis_iso_str()
+                self._commit()
+            out = self._mask_row_to_dict(existing)
+            out["created"] = False
+            return out
+
+        alias = masking.alias_address(organization_id, email_norm, inbound_domain)
+        for _ in range(5):
+            clash = self.session.execute(
+                select(BuyerMask).where(BuyerMask.alias_address == alias)
+            ).scalar_one_or_none()
+            if not clash:
+                break
+            alias = masking.alias_address(
+                organization_id, email_norm, inbound_domain,
+                suffix=masking.random_alias_suffix(),
+            )
+        else:  # noqa: B012 — 5 collisions in a row should be impossible
+            raise RuntimeError(
+                "could not allocate a unique buyer alias after 5 attempts"
+            )
+
+        now = now_addis_iso_str()
+        row = BuyerMask(
+            organization_id=organization_id,
+            alias_address=alias,
+            lookup_key=key,
+            real_email_encrypted=masking.encrypt_email(organization_id, email_norm),
+            lead_id=lead_id,
+            buyer_contact_id=buyer_contact_id,
+            status="active",
+            created_by=created_by,
+            created_ts=now,
+            updated_ts=now,
+        )
+        self.session.add(row)
+        self.session.flush()
+        self._commit()
+        log.info(
+            f"Created buyer mask: org={organization_id} alias={alias} "
+            f"(real address encrypted at rest; never logged)"
+        )
+        out = self._mask_row_to_dict(row)
+        out["created"] = True
+        return out
+
+    def find_buyer_mask_by_alias(self, alias_address: str) -> dict[str, Any] | None:
+        """Global alias lookup (alias addresses are unique platform-wide)."""
+        from coffee_export.database.models.messaging import BuyerMask
+
+        row = self.session.execute(
+            select(BuyerMask).where(BuyerMask.alias_address == (alias_address or "").strip().lower())
+        ).scalar_one_or_none()
+        return self._mask_row_to_dict(row) if row else None
+
+    def find_buyer_mask_by_real_email(
+        self, organization_id: str, real_email: str
+    ) -> dict[str, Any] | None:
+        """Deterministic (org, address) resolution via the secret-keyed HMAC."""
+        from coffee_export.database.models.messaging import BuyerMask
+        from coffee_export.messaging import masking
+
+        if not masking.masking_enabled():
+            return None
+        key = masking.lookup_key(organization_id, masking.normalize_email(real_email))
+        row = self.session.execute(
+            select(BuyerMask).where(
+                BuyerMask.organization_id == organization_id,
+                BuyerMask.lookup_key == key,
+            )
+        ).scalar_one_or_none()
+        return self._mask_row_to_dict(row) if row else None
+
+    def find_buyer_mask_for_contact(self, buyer_contact_id: int) -> dict[str, Any] | None:
+        """Mask linked to a specific lead contact (used by legacy heal + UI joins)."""
+        from coffee_export.database.models.messaging import BuyerMask
+
+        row = self.session.execute(
+            select(BuyerMask)
+            .where(BuyerMask.buyer_contact_id == buyer_contact_id)
+            .order_by(BuyerMask.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        return self._mask_row_to_dict(row) if row else None
+
+    def decrypt_buyer_email(self, mask: dict[str, Any]) -> str:
+        """Decrypt a mask's real address (provider boundary ONLY)."""
+        from coffee_export.messaging import masking
+
+        return masking.decrypt_email(
+            mask["organization_id"], mask["real_email_encrypted"]
+        )
+
+    def revoke_buyer_mask(
+        self,
+        mask_id: int | None = None,
+        alias_address: str | None = None,
+        reason: str = "",
+    ) -> bool:
+        """Revoke a mask — blocks BOTH directions (inbound + outbound)."""
+        from coffee_export.database.models.messaging import BuyerMask
+
+        stmt = select(BuyerMask)
+        if mask_id is not None:
+            stmt = stmt.where(BuyerMask.id == int(mask_id))
+        elif alias_address:
+            stmt = stmt.where(BuyerMask.alias_address == alias_address.strip().lower())
+        else:
+            raise ValueError("mask_id or alias_address required")
+        row = self.session.execute(stmt.limit(1)).scalar_one_or_none()
+        if not row or row.status == "revoked":
+            return bool(row)
+        row.status = "revoked"
+        row.revoked_ts = now_addis_iso_str()
+        row.revoke_reason = reason or "revoked by operator"
+        row.updated_ts = now_addis_iso_str()
+        self._commit()
+        log.info(
+            f"Revoked buyer mask: alias={row.alias_address} "
+            f"reason={row.revoke_reason!r} (real address not logged)"
+        )
+        return True
+
+    def _mask_resolver(self, organization_id: str) -> Any:
+        """Resolver(email) -> alias | None, scoped to one org (redaction)."""
+        cache: dict[str, str | None] = {}
+
+        def resolver(email: str) -> str | None:
+            from coffee_export.messaging import masking
+
+            token = masking.normalize_email(email)
+            if token in cache:
+                return cache[token]
+            mask = self.find_buyer_mask_by_real_email(organization_id, token)
+            alias = mask["alias_address"] if mask and mask["status"] == "active" else None
+            cache[token] = alias
+            return alias
+
+        return resolver
+
+    def _apply_thread_mask(self, thread: Any, mask: Any) -> int:
+        """Link a thread to its mask + rewrite legacy plaintext rows (audited).
+
+        NOT a silent rewrite: this runs only from the gateway's self-heal
+        paths, logs exactly what changed (by alias, never by real address),
+        and MOVES the real address into the encrypted registry rather than
+        deleting anything. Returns the number of message rows rewritten.
+        """
+        from coffee_export.database.models.messaging import InboxMessage
+        from coffee_export.messaging import masking
+
+        old_buyer_email = (thread.buyer_email or "").strip().lower()
+        alias = mask.alias_address
+        thread.buyer_mask_id = mask.id
+        thread.buyer_email = alias
+        thread.updated_ts = now_addis_iso_str()
+
+        resolver = self._mask_resolver(thread.organization_id)
+        msgs = (
+            self.session.execute(
+                select(InboxMessage).where(InboxMessage.thread_id == thread.thread_id)
+            )
+            .scalars()
+            .all()
+        )
+        rewritten = 0
+        for m in msgs:
+            changed = False
+            if old_buyer_email and m.from_addr and m.from_addr.strip().lower() == old_buyer_email:
+                m.from_addr = alias
+                changed = True
+            if old_buyer_email and m.to_addr and m.to_addr.strip().lower() == old_buyer_email:
+                m.to_addr = alias
+                changed = True
+            if old_buyer_email and m.reply_to and m.reply_to.strip().lower() == old_buyer_email:
+                m.reply_to = alias
+                changed = True
+            # Redact registered real addresses from stored content (quoted /
+            # forwarded / signature text) — org-scoped resolver.
+            for field in ("subject", "body_text", "body_html", "raw_payload"):
+                val = getattr(m, field, None)
+                if val:
+                    red = masking.redact_text(val, resolver)
+                    if red != val:
+                        setattr(m, field, red)
+                        changed = True
+            if changed:
+                m.updated_ts = now_addis_iso_str()
+                rewritten += 1
+        self._commit()
+        log.info(
+            f"Thread {thread.thread_id} linked to buyer mask {alias} "
+            f"(legacy self-heal: {rewritten} message row(s) rewritten, "
+            f"real address preserved only in the encrypted registry)"
+        )
+        return rewritten
+
+    def heal_thread_buyer_mask(
+        self,
+        thread_id: str,
+        inbound_domain: str,
+        created_by: str = "gateway:selfheal",
+    ) -> dict[str, Any] | None:
+        """Legacy self-heal: mask an old plaintext thread on first touch.
+
+        Idempotent. If the thread already has a mask, return it. Otherwise:
+        the thread's plaintext buyer_email IS the real address — register it
+        (encrypted), link the thread, rewrite its legacy message rows, and
+        redact stored content. The plaintext value is replaced by the alias
+        everywhere, and the real address survives only inside the encrypted
+        registry. Returns the mask dict or None when healing is impossible
+        (thread missing / buyer_email already an unknown alias).
+        """
+        from coffee_export.database.models.messaging import BuyerMask, MessageThread
+        from coffee_export.messaging import masking
+
+        thread = self.session.get(MessageThread, thread_id)
+        if not thread:
+            return None
+
+        if thread.buyer_mask_id:
+            row = self.session.get(BuyerMask, thread.buyer_mask_id)
+            return self._mask_row_to_dict(row) if row else None
+
+        buyer_email = (thread.buyer_email or "").strip().lower()
+        if not buyer_email:
+            return None
+
+        if masking.is_platform_alias(buyer_email, inbound_domain):
+            # Thread already carries an alias but no link — adopt the mask
+            # the alias points at, if any. Without one we cannot know the
+            # real address (it was never registered) — honest None.
+            mask = self.find_buyer_mask_by_alias(buyer_email)
+            if mask:
+                row = self.session.get(BuyerMask, mask["id"])
+                self._apply_thread_mask(thread, row)
+                return mask
+            log.warning(
+                f"heal_thread_buyer_mask: thread {thread_id} has alias "
+                f"{buyer_email} with no registry row — leaving unlinked"
+            )
+            return None
+
+        mask = self.get_or_create_buyer_mask(
+            organization_id=thread.organization_id,
+            real_email=buyer_email,
+            inbound_domain=inbound_domain,
+            lead_id=thread.lead_id,
+            buyer_contact_id=thread.buyer_contact_id,
+            created_by=created_by,
+        )
+        row = self.session.get(BuyerMask, mask["id"])
+        self._apply_thread_mask(thread, row)
+        return mask

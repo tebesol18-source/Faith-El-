@@ -103,9 +103,11 @@ class ResendEmailProvider:
         """
         if self.dry_run:
             dry_id = f"dry-run-{uuid.uuid4().hex[:12]}"
+            # Phase 4: the recipient (a real buyer address) is NEVER logged —
+            # not even in dry-run. Identify sends by thread/alias upstream.
             log.info(
-                f"[DRY-RUN] email not sent: from={from_addr} to={to_addr} "
-                f"subject={subject!r} -> fake id={dry_id}"
+                f"[DRY-RUN] email not sent: from={from_addr} "
+                f"subject={subject!r} -> fake id={dry_id} (recipient withheld)"
             )
             return {
                 "success": True,
@@ -172,8 +174,8 @@ class ResendEmailProvider:
         msg_id = data.get("id") or data.get("data", {}).get("id") or ""
 
         log.info(
-            f"Resend accepted email: id={msg_id} from={from_addr} -> {to_addr} "
-            f"subject={subject!r}"
+            f"Resend accepted email: id={msg_id} from={from_addr} "
+            f"subject={subject!r} (recipient withheld)"
         )
 
         return {

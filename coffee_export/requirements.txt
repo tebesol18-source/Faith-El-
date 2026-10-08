@@ -43,6 +43,11 @@ httpx>=0.27                   # HTTP client used by FastAPI's TestClient in test
 fastapi>=0.111                # Bridge HTTP API (masked send + inbound webhook)
 uvicorn>=0.30                 # ASGI server to run the bridge
 
+# ── Buyer Identity Masking (Phase 4, coffee_export/messaging/masking.py) ──
+# AES-256-GCM encryption of real buyer addresses in the buyer_masks registry
+# (HKDF-derived subkeys from BUYER_MASK_SECRET; HMAC lookup keys).
+cryptography>=42.0
+
 # ── Database Migrations ──
 alembic>=1.13                 # Schema migrations (versioned, reversible)
 

@@ -63,12 +63,31 @@ function threadPriority(status: string | null): "high" | "medium" | "low" {
   return "low";
 }
 
+// ── Phase 4: buyer identity masking (docs/buyer-masking.md) ───────────
+// Exporter-facing payloads may ONLY carry buyer addresses that are platform
+// aliases on the inbound domain. A stored buyer address on any other domain
+// is a legacy unhealed row — it must NEVER be emitted (redact to a
+// placeholder instead). Exporter masked inboxes are also on this domain.
+const INBOUND_DOMAIN = (process.env.INBOUND_EMAIL_DOMAIN || "faithelexport.com").toLowerCase();
+
+function isPlatformAddress(addr: string | null | undefined): boolean {
+  return !!addr && addr.toLowerCase().endsWith("@" + INBOUND_DOMAIN);
+}
+
+/** Buyer display value: the alias local part + "@" (frontend appends the domain). */
+function buyerDisplay(addr: string | null | undefined): string {
+  if (addr && isPlatformAddress(addr)) return addr.split("@")[0] + "@";
+  return "buyer@"; // legacy/unhealed — real address withheld
+}
+
 // Frontend-expected shapes
 type FrontendConversation = {
   id: number;
   threadId: string;      // backend thread id — used to fetch a specific thread's messages
   maskedFrom: string | null; // the exporter's masked inbox address for this thread
-  buyer: string;        // masked buyer email (without domain — frontend appends "faithelexport.com")
+  buyer: string;        // buyer display — alias local part + "@" (frontend appends the domain)
+  buyerAlias: string | null; // FULL platform alias (buyer.<hex>@<inbound domain>) — null on legacy rows
+  buyerCompany: string | null; // lead company name (display context)
   subject: string;
   preview: string;
   time: string;
@@ -164,7 +183,13 @@ export async function GET(request: NextRequest) {
         const t = threads[i];
         const threadMessages = (msgStmt.all(orgId, t.thread_id) as any[]) || [];
         const msgs: FrontendMessage[] = threadMessages.map((m) => {
-          const fromAddr = m.from_addr || "";
+          // Phase 4: inbound senders are buyer aliases (platform domain).
+          // Any non-platform inbound address is a legacy unhealed row — the
+          // real address is NEVER emitted to the client.
+          let fromAddr = m.from_addr || "";
+          if (m.direction === "inbound" && !isPlatformAddress(fromAddr)) {
+            fromAddr = "buyer@" + INBOUND_DOMAIN; // redacted placeholder
+          }
           // The frontend appends "faithelexport.com" to the from field,
           // so we strip that domain if present, and strip the @ too (frontend adds it back).
           // Actually looking at the frontend more carefully:
@@ -219,16 +244,18 @@ export async function GET(request: NextRequest) {
           ? lastMsg.body_text.substring(0, 100).replace(/\n/g, " ")
           : "";
 
-        // Buyer email prefix (without domain — frontend appends "faithelexport.com")
-        const buyerPart = t.buyer_email?.includes("@")
-          ? t.buyer_email.split("@")[0] + "@"
-          : t.buyer_email || "buyer@";
+        // Phase 4: buyer identity is the platform alias — never a real
+        // address. Legacy unhealed rows are redacted to a placeholder.
+        const buyerPart = buyerDisplay(t.buyer_email);
+        const buyerAlias = isPlatformAddress(t.buyer_email) ? t.buyer_email : null;
 
         conversations.push({
           id: i + 1, // 1-based ID for frontend compatibility
           threadId: t.thread_id, // backend thread id — frontend uses this to fetch a specific thread
           maskedFrom: t.exporter_masked_email || null, // real masked sender identity
           buyer: buyerPart,
+          buyerAlias,
+          buyerCompany: t.lead_company || null,
           subject: t.subject || "(no subject)",
           preview,
           time: relativeTime(t.last_message_ts),
@@ -365,7 +392,10 @@ export async function POST(request: NextRequest) {
 
     // ── Mode B: NEW conversation (first email to a lead's buyer) ──
     // Required until now a fresh exporter could never start a conversation.
-    if (leadId && buyerEmail) {
+    // Phase 4: buyerEmail is optional — alias or omitted (server resolves
+    // the lead's verified contact). Real addresses are still accepted for
+    // backward compatibility and re-verified gateway-side.
+    if (leadId) {
       // Tenant fail-closed: the lead must belong to this org.
       const lead = db.prepare(`
         SELECT lead_id, company_name FROM leads
@@ -375,17 +405,42 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: false, error: "Lead not found" }, { status: 404 });
       }
 
-      // Fiction guard: refuse to send to reserved/test domains.
+      // Phase 4: buyerEmail is OPTIONAL here. When the client omits it
+      // (the compose form no longer handles real addresses), the lead's
+      // best contact email is resolved server-side — preferring VERIFIED
+      // contacts (Phase 1 outreach gate). The client may also pass a
+      // platform ALIAS; the Python gateway's registry — never the client —
+      // decides who the mail actually goes to.
       const { isFictionalEmail, isEmailFormatValid } = await import("@/lib/leads-evidence");
-      const email = String(buyerEmail).trim().toLowerCase();
-      if (!isEmailFormatValid(email)) {
-        return NextResponse.json({ ok: false, error: `"${email}" is not a valid email address` }, { status: 422 });
+      let email = buyerEmail ? String(buyerEmail).trim().toLowerCase() : "";
+      if (!email) {
+        const contact = db.prepare(`
+          SELECT email FROM lead_contacts
+          WHERE lead_id = ? AND organization_id = ? AND deleted_ts IS NULL
+            AND email IS NOT NULL AND email != ''
+          ORDER BY (verification_status = 'verified') DESC, is_primary DESC, id ASC
+          LIMIT 1
+        `).get(leadId, orgId) as any;
+        if (!contact?.email) {
+          return NextResponse.json(
+            { ok: false, error: "This lead has no contact with an email address — add a verified contact on the Leads page first." },
+            { status: 422 }
+          );
+        }
+        email = String(contact.email).trim().toLowerCase();
       }
-      if (isFictionalEmail(email)) {
-        return NextResponse.json(
-          { ok: false, error: `"${email}" is on a reserved/test domain — real buyer contacts only` },
-          { status: 422 }
-        );
+      // Fiction guard: refuse to send to reserved/test domains (only for
+      // non-alias addresses — aliases are on our own platform domain).
+      if (!isPlatformAddress(email)) {
+        if (!isEmailFormatValid(email)) {
+          return NextResponse.json({ ok: false, error: `"${email}" is not a valid email address` }, { status: 422 });
+        }
+        if (isFictionalEmail(email)) {
+          return NextResponse.json(
+            { ok: false, error: `"${email}" is on a reserved/test domain — real buyer contacts only` },
+            { status: 422 }
+          );
+        }
       }
 
       const finalSubject = (subject || `Introduction — ${lead.company_name}`).trim();
@@ -448,6 +503,7 @@ export async function POST(request: NextRequest) {
         provider_message_id: bridgeResult.provider_message_id,
         dry_run: bridgeResult.dry_run || false,
         masked_from: bridgeResult.masked_from,
+        buyer_alias: bridgeResult.buyer_alias || null,
       });
     }
 

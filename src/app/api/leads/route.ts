@@ -52,6 +52,10 @@ type FrontendLead = {
     email: string | null;
     phone: string | null;
   } | null;
+  // Phase 4: the buyer's platform alias (buyer.<hex>@<inbound domain>) when
+  // a mask exists for this lead's primary contact — this is the ONLY buyer
+  // address the messaging UI uses. Null before first contact.
+  maskedBuyer?: string | null;
   // Phase 1: verification & evidence
   verificationStatus?: string;          // 'unverified' | 'verified' | 'rejected'
   verifiedBy?: string | null;
@@ -215,6 +219,7 @@ export async function GET(request: NextRequest) {
           (SELECT COUNT(*) FROM lead_sources ls WHERE ls.lead_id = l.lead_id AND ls.organization_id = l.organization_id AND ls.deleted_ts IS NULL AND ls.evidence_for IN ('company','both')) AS evidence_count,
           (SELECT COUNT(*) FROM lead_contacts vc WHERE vc.lead_id = l.lead_id AND vc.organization_id = l.organization_id AND vc.deleted_ts IS NULL) AS contact_count,
           (SELECT COUNT(*) FROM lead_contacts vc2 WHERE vc2.lead_id = l.lead_id AND vc2.organization_id = l.organization_id AND vc2.deleted_ts IS NULL AND vc2.verification_status = 'verified' AND vc2.email IS NOT NULL AND vc2.email NOT LIKE '%@example.com' AND vc2.email NOT LIKE '%@test%' AND vc2.email NOT LIKE '%@invalid%' AND vc2.email NOT LIKE '%@faithelexport.com') AS verified_contact_count,
+          (SELECT bm.alias_address FROM buyer_masks bm WHERE bm.buyer_contact_id = lc.id AND bm.status = 'active' ORDER BY bm.id DESC LIMIT 1) AS masked_buyer,
           (SELECT GROUP_CONCAT(tag, ', ') FROM lead_tags WHERE lead_id = l.lead_id AND organization_id = l.organization_id) AS tags_csv
         FROM leads l
         LEFT JOIN lead_contacts lc ON l.lead_id = lc.lead_id AND lc.is_primary = 1 AND lc.deleted_ts IS NULL AND lc.organization_id = l.organization_id
@@ -294,6 +299,7 @@ export async function GET(request: NextRequest) {
                 phone: row.contact_phone,
               }
             : null,
+          maskedBuyer: row.masked_buyer || null,
         };
       });
 

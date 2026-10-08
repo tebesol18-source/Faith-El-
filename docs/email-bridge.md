@@ -1,5 +1,14 @@
 # Email Bridge — Production Readiness & Verification (Phase 2)
 
+> **Phase 4 update — buyer identity masking is live.** Buyers now reply to
+> platform aliases (`buyer.<hex>@faithelexport.com`); real buyer addresses
+> live only in the encrypted `buyer_masks` registry and appear solely at the
+> SMTP transport boundary. The bridge additionally requires
+> `BUYER_MASK_SECRET` (fail closed without it) and rejects CC/BCC keys with
+> 422. Full policies + honest limitations: **docs/buyer-masking.md**. The
+> checklist below still applies; for step 6 also verify the stored thread
+> shows the buyer's ALIAS, never their real address.
+
 **Status:** implemented 2026-09-28 · architecture unchanged (Next.js → Python bridge → Resend), hardened for real delivery
 **Honest boundary:** nothing in this repo proves real external delivery. Tests below use mocked providers. Real send + real reply can only be verified with real credentials — see the checklist at the bottom, which only the owner can perform.
 

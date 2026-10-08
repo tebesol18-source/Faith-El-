@@ -17,10 +17,30 @@ EmailGateway - the orchestrator that ties everything together.
          |
     Exporter Dashboard inbox (chat bubble + AI banner + structured panel)
 
-Masked email pattern (professional, non-revealing):
+Masked email pattern — EXPORTER side (since Phase 2/3):
     "Marcus Bell" -> marcus.bell@faithelexport.com
-    The buyer sees only this address - looks like a real sales rep at
-    Faith Export. The exporter's real email is NEVER exposed.
+    The buyer sees only this address. The exporter's real email is NEVER
+    exposed.
+
+Masked email pattern — BUYER side (Phase 4):
+    Every buyer gets a platform alias: buyer.<12hex>@faithelexport.com,
+    held in the buyer_masks registry (real address AES-256-GCM encrypted,
+    deterministic HMAC lookup). The alias is the ONLY buyer identity that
+    appears on ANY exporter-facing surface: threads, messages, events,
+    logs, AI prompts, API payloads. The real address is decrypted
+    transiently at the provider boundary (SMTP To:) and nowhere else.
+
+    Outbound:  caller passes a verified lead contact address OR an alias ->
+               gateway resolves the mask -> provider gets the real address
+               -> everything stored/emitted carries the alias.
+    Inbound:   webhook From: (real) -> HMAC lookup -> alias ->
+               stored, redacted (quoted/signature content), AI-processed
+               and displayed under the alias only.
+
+    Fail-closed: without BUYER_MASK_SECRET the gateway refuses sends that
+    need masking and rejects inbound processing — it never degrades to
+    plaintext storage. See docs/buyer-masking.md for the honest limitations
+    (the SMTP transport layer necessarily sees real addresses).
 
 Architecture compliance:
     - Uses StateManager for ALL DB mutations.
@@ -44,6 +64,7 @@ from coffee_export.events import (
     MESSAGE_SENT,
     THREAD_OPENED,
 )
+from coffee_export.messaging import masking as buyer_masking
 from coffee_export.messaging.ai_processor import MessageAIProcessor
 from coffee_export.messaging.providers.resend import ResendEmailProvider
 from coffee_export.state import StateManager
@@ -95,15 +116,23 @@ class EmailGateway:
         Steps:
           0. Verify the lead belongs to the caller's organization (fail
              closed — a cross-tenant lead id must never be writable).
-          1. Get-or-create the exporter's masked inbox (local part derived
-             from operator_name -> e.g. "Marcus Bell" -> marcus.bell@faithelexport.com).
-          2. Get-or-create the message thread for this (lead x inbox).
-          3. Send via ResendEmailProvider (from = masked_email, reply_to = masked_email).
-          4. Log via StateManager.log_outbound_message().
-          5. Publish MESSAGE_SENT event.
+          1. Get-or-create the exporter's masked inbox.
+          2. Resolve the buyer mask (Phase 4):
+               - buyer_email may be a platform ALIAS (subsequent sends) or a
+                 real address that must be a registered contact of this lead
+                 in this org (first contact — the Phase 1 verified-contact
+                 outreach gate, now enforced gateway-side too).
+               - unknown / revoked / cross-tenant aliases are refused;
+                 BUYER_MASK_SECRET missing is a hard refusal (fail closed).
+          3. Get-or-create the message thread (stores the ALIAS + mask link).
+          4. Send via ResendEmailProvider — the ONLY place the real address
+             exists (from = masked_email, reply_to = masked_email).
+          5. Log via StateManager.log_outbound_message() with the ALIAS.
+          6. Publish MESSAGE_SENT event (alias only).
 
-        The buyer sees only the masked address. The exporter's real email
-        is NEVER exposed.
+        The buyer sees only the masked exporter address; the exporter sees
+        only the buyer's platform alias. Real buyer addresses never enter
+        threads, messages, events, or logs.
         """
         # 0. Tenant fail-closed: the lead must exist in the caller's org.
         if not self._lead_in_org(lead_id, organization_id):
@@ -128,22 +157,47 @@ class EmailGateway:
         )
         masked_from = inbox["masked_email"]
 
-        # 2. Thread
+        # 2. Resolve the buyer mask (alias <-> real address).
+        resolved = self._resolve_outbound_recipient(
+            lead_id=lead_id,
+            buyer_email=buyer_email,
+            organization_id=organization_id,
+            buyer_contact_id=buyer_contact_id,
+        )
+        if not resolved["ok"]:
+            log.warning(
+                f"EmailGateway.send() REFUSED: lead={lead_id} "
+                f"reason={resolved['error']} (buyer address withheld from log)"
+            )
+            return {
+                "action": "send_refused",
+                "lead_id": lead_id,
+                "thread_id": None,
+                "error": resolved["error"],
+            }
+
+        buyer_alias = resolved["alias"]
+        real_to = resolved["real_to"]  # exists ONLY until the provider call below
+        buyer_contact_id = resolved.get("buyer_contact_id") or buyer_contact_id
+
+        # 3. Thread (buyer_email = ALIAS; links the mask for inbound routing)
         thread = self.sm.get_or_create_thread(
             lead_id=lead_id,
             inbox_id=inbox["id"],
-            buyer_email=buyer_email,
+            buyer_email=buyer_alias,
             subject=subject,
             buyer_contact_id=buyer_contact_id,
             organization_id=organization_id,
+            buyer_mask_id=resolved["buyer_mask_id"],
         )
         thread_id = thread["thread_id"]
         is_new_thread = thread["message_count"] == 0
 
-        # 3. Send via provider
+        # 4. Send via provider — the single point where the real address
+        #    is used. The provider never logs the recipient (Phase 4).
         result = self.provider.send_email(
             from_addr=f"{display_name} <{masked_from}>",
-            to_addr=buyer_email,
+            to_addr=real_to,
             subject=subject,
             text_body=body_text,
             html_body=body_html,
@@ -153,7 +207,7 @@ class EmailGateway:
 
         if not result.get("success"):
             log.error(
-                f"EmailGateway.send() FAILED: lead={lead_id} buyer={buyer_email} "
+                f"EmailGateway.send() FAILED: lead={lead_id} buyer={buyer_alias} "
                 f"error={result.get('error')}"
             )
             return {
@@ -164,11 +218,11 @@ class EmailGateway:
                 "dry_run": result.get("dry_run", False),
             }
 
-        # 4. Log
+        # 5. Log — the stored to_addr is the ALIAS, never the real address.
         message_id = self.sm.log_outbound_message(
             thread_id=thread_id,
             from_addr=masked_from,
-            to_addr=buyer_email,
+            to_addr=buyer_alias,
             subject=subject,
             body_text=body_text,
             body_html=body_html,
@@ -179,7 +233,7 @@ class EmailGateway:
             organization_id=organization_id,
         )
 
-        # 5. Events
+        # 6. Events — payload carries the alias only.
         self.bus.publish(
             event_type=MESSAGE_SENT,
             entity_type="inbox_message",
@@ -189,7 +243,7 @@ class EmailGateway:
                 "thread_id": thread_id,
                 "lead_id": lead_id,
                 "masked_from": masked_from,
-                "buyer_email": buyer_email,
+                "buyer_alias": buyer_alias,
                 "subject": subject,
                 "provider_message_id": result.get("provider_message_id"),
                 "dry_run": result.get("dry_run", False),
@@ -212,7 +266,7 @@ class EmailGateway:
 
         log.info(
             f"EmailGateway sent: thread={thread_id} msg_id={message_id} "
-            f"from={masked_from} -> {buyer_email} subject={subject!r}"
+            f"from={masked_from} -> {buyer_alias} subject={subject!r}"
         )
 
         return {
@@ -220,6 +274,7 @@ class EmailGateway:
             "message_id": message_id,
             "thread_id": thread_id,
             "masked_from": masked_from,
+            "buyer_alias": buyer_alias,
             "provider_message_id": result.get("provider_message_id"),
             "dry_run": result.get("dry_run", False),
         }
@@ -234,20 +289,26 @@ class EmailGateway:
 
         Steps:
           1. Parse the provider payload (extract from/to/subject/body).
-          2. Look up the inbox by masked `to_addr`.
-          3. Find the lead for this buyer email:
-             - first, find a thread with this buyer_email on this inbox
-             - if none, find a lead_contact with this email
-             - if none, reject (unknown buyer)
-          4. Get-or-create thread.
-          5. Log inbound message (status='new', ai_processed=0).
-          6. Run GLM triage + structured extraction -> update_message_ai_fields.
-          7. Publish MESSAGE_RECEIVED + MESSAGE_PROCESSED.
+          2. Idempotency check on the provider message id (Resend retries).
+          3. Look up the inbox by masked `to_addr` (unchanged, Phase 2).
+          4. Resolve the buyer (Phase 4): the real From: address is resolved
+             through the deterministic HMAC lookup to its mask. Unknown
+             senders fall back to the org-scoped lead-contact lookup and are
+             registered on first contact. REVOKED masks are rejected.
+          5. Redact the content: registered real addresses inside the
+             subject / body / quoted text are replaced with their aliases;
+             CC/BCC keys are stripped from the stored raw payload.
+          6. Get-or-create thread (stores the alias + mask link; legacy
+             plaintext threads are self-healed, audited).
+          7. Log inbound message with from_addr = ALIAS.
+          8. GLM triage on the REDACTED body with the ALIAS as sender —
+             the real address never reaches the LLM prompt.
+          9. Publish MESSAGE_RECEIVED + MESSAGE_PROCESSED (alias only).
         """
         # 1. Parse
         parsed = self.provider.parse_inbound_payload(raw_payload)
-        from_addr = parsed["from_addr"]
-        to_addr = parsed["to_addr"]
+        from_addr = parsed["from_addr"]          # real buyer address (transient)
+        to_addr = parsed["to_addr"]              # exporter masked address
         subject = parsed["subject"]
         body_text = parsed["body_text"]
         body_html = parsed["body_html"]
@@ -256,7 +317,10 @@ class EmailGateway:
         received_ts = parsed["received_ts"]
 
         if not from_addr or not to_addr:
-            log.warning(f"Inbound payload missing addresses: from={from_addr} to={to_addr}")
+            log.warning(
+                f"Inbound payload missing addresses: from={'<missing>' if not from_addr else '<present>'} "
+                f"to={'<missing>' if not to_addr else '<present>'}"
+            )
             return {"action": "rejected", "reason": "missing addresses"}
 
         # 1b. Idempotency: Resend retries webhook deliveries on non-2xx and
@@ -289,51 +353,144 @@ class EmailGateway:
         # (the masked address belongs to exactly one exporter inbox).
         inbox_org = inbox.get("organization_id") or "org-system"
 
-        # 3. Find the lead for this buyer email — SCOPED to the inbox's org
-        lead_id, buyer_contact_id = self._resolve_buyer(
-            inbox["id"], from_addr, inbox_org
-        )
-        if not lead_id:
-            log.warning(
-                f"Inbound email from unknown buyer: {from_addr} -> {to_addr}. "
-                f"No matching thread or lead_contact in org {inbox_org}."
+        # 3. Resolve the buyer through the mask registry (Phase 4).
+        #    Fail closed when masking cannot operate.
+        if not buyer_masking.masking_enabled():
+            log.error(
+                "BUYER_MASK_SECRET not set — inbound email REJECTED (fail "
+                "closed: buyer addresses must never be stored in plaintext)."
             )
             return {
                 "action": "rejected",
-                "reason": f"unknown buyer: {from_addr}",
+                "reason": "buyer masking unavailable (BUYER_MASK_SECRET not set)",
                 "inbox_id": inbox["id"],
             }
 
-        # 4. Thread (reuse existing or open new) — org attributed from inbox
+        mask = self.sm.find_buyer_mask_by_real_email(inbox_org, from_addr)
+        if mask and mask["status"] != "active":
+            # Revoked buyer — reject BOTH directions. Log the ALIAS, never
+            # the real address.
+            log.warning(
+                f"Inbound email from REVOKED buyer mask {mask['alias_address']} "
+                f"-> {to_addr}: rejected (provider_message_id={provider_message_id})"
+            )
+            return {
+                "action": "rejected",
+                "reason": f"buyer address revoked: {mask['alias_address']}",
+                "inbox_id": inbox["id"],
+            }
+
+        lead_id: str | None = None
+        buyer_contact_id: int | None = None
+
+        if mask:
+            buyer_alias = mask["alias_address"]
+            lead_id, buyer_contact_id = self._resolve_lead_for_mask(
+                inbox["id"], mask, inbox_org
+            )
+            if not lead_id:
+                # Mask exists (e.g. created via another inbox in the same
+                # org) but no thread/provenance lead matched — fall back to
+                # the org-scoped contact lookup.
+                lead_id, buyer_contact_id = self._resolve_buyer_contact(
+                    from_addr, inbox_org
+                )
+            if not lead_id:
+                log.warning(
+                    f"Inbound email from masked buyer {buyer_alias} -> {to_addr}: "
+                    f"no lead resolves in org {inbox_org} "
+                    f"(provider_message_id={provider_message_id})"
+                )
+                return {
+                    "action": "rejected",
+                    "reason": "buyer not resolvable to a lead in this organization",
+                    "inbox_id": inbox["id"],
+                }
+        else:
+            # Unknown to the registry — fall back to the org-scoped contact
+            # lookup (a buyer replying from an address we never registered,
+            # e.g. a second mailbox at the same company).
+            lead_id, buyer_contact_id = self._resolve_buyer_contact(
+                from_addr, inbox_org
+            )
+            if not lead_id:
+                # Unknown buyer — reject WITHOUT echoing the real address
+                # into logs or the response (Phase 4: addresses are never
+                # logged; the provider message id identifies the webhook).
+                log.warning(
+                    f"Inbound email from unknown buyer -> {to_addr}: no matching "
+                    f"mask or lead_contact in org {inbox_org} "
+                    f"(provider_message_id={provider_message_id})"
+                )
+                return {
+                    "action": "rejected",
+                    "reason": "unknown buyer (address withheld — not registered to this organization)",
+                    "inbox_id": inbox["id"],
+                }
+            mask = self.sm.get_or_create_buyer_mask(
+                organization_id=inbox_org,
+                real_email=from_addr,
+                inbound_domain=self.inbound_domain,
+                lead_id=lead_id,
+                buyer_contact_id=buyer_contact_id,
+                created_by="inbound:contact-lookup",
+            )
+            buyer_alias = mask["alias_address"]
+
+        # 4. Redact content BEFORE storage (Phase 4): replace every
+        #    registered real address found in subject / bodies / raw payload
+        #    with its alias, and strip CC/BCC keys from the stored payload.
+        resolver = self.sm._mask_resolver(inbox_org)
+        subject_r = buyer_masking.redact_text(subject, resolver)
+        body_text_r = buyer_masking.redact_text(body_text, resolver)
+        body_html_r = (
+            buyer_masking.redact_text(body_html, resolver) if body_html else None
+        )
+        raw_stored = None
+        if raw_payload:
+            cleaned = buyer_masking.strip_cc_bcc(raw_payload)
+            raw_stored = buyer_masking.redact_text(
+                json.dumps(cleaned)[:10000], resolver
+            )
+
+        # 5. Thread (reuse existing or open new) — org attributed from inbox.
+        #    buyer_email = ALIAS; legacy plaintext threads self-heal here.
         thread = self.sm.get_or_create_thread(
             lead_id=lead_id,
             inbox_id=inbox["id"],
-            buyer_email=from_addr,
-            subject=subject,
+            buyer_email=buyer_alias,
+            subject=subject_r,
             buyer_contact_id=buyer_contact_id,
             organization_id=inbox_org,
+            buyer_mask_id=mask["id"],
         )
         thread_id = thread["thread_id"]
 
-        # 5. Log inbound message (raw_payload stored as JSON for audit)
+        # 6. Log inbound message — from_addr is the ALIAS; the redacted
+        #    raw payload keeps the audit trail without plaintext addresses.
         message_id = self.sm.log_inbound_message(
             thread_id=thread_id,
-            from_addr=from_addr,
+            from_addr=buyer_alias,
             to_addr=to_addr,
-            subject=subject,
-            body_text=body_text,
-            body_html=body_html,
-            reply_to=parsed["reply_to"],
+            subject=subject_r,
+            body_text=body_text_r,
+            body_html=body_html_r,
+            reply_to=buyer_masking.redact_text(parsed["reply_to"], resolver)
+            if parsed["reply_to"]
+            else None,
             provider=self.provider.name,
             provider_message_id=provider_message_id,
             in_reply_to=in_reply_to,
-            raw_payload=json.dumps(raw_payload)[:10000] if raw_payload else None,
+            raw_payload=raw_stored,
             received_ts=received_ts,
             organization_id=inbox_org,
         )
 
-        # 6. GLM triage (classify + summarize + translate + structured extraction)
-        ai_result = self.ai.process(subject=subject, from_addr=from_addr, body=body_text)
+        # 7. GLM triage — the LLM sees the ALIAS and the REDACTED body,
+        #    never the buyer's real address.
+        ai_result = self.ai.process(
+            subject=subject_r, from_addr=buyer_alias, body=body_text_r
+        )
         self.sm.update_message_ai_fields(
             message_id=message_id,
             summary=ai_result["summary"],
@@ -346,7 +503,7 @@ class EmailGateway:
             extracted_data=ai_result.get("extracted_data"),
         )
 
-        # 7. Events
+        # 8. Events — alias only.
         self.bus.publish(
             event_type=MESSAGE_RECEIVED,
             entity_type="inbox_message",
@@ -356,8 +513,8 @@ class EmailGateway:
                 "thread_id": thread_id,
                 "lead_id": lead_id,
                 "inbox_id": inbox["id"],
-                "from_addr": from_addr,
-                "subject": subject,
+                "from_alias": buyer_alias,
+                "subject": subject_r,
                 "provider_message_id": provider_message_id,
             },
             published_by="EmailGateway",
@@ -393,7 +550,7 @@ class EmailGateway:
             f"classification={ai_result['classification']} "
             f"intent={ai_result.get('intent')} "
             f"next_action={ai_result.get('next_action')} "
-            f"from={from_addr}"
+            f"from={buyer_alias}"
         )
 
         return {
@@ -402,6 +559,7 @@ class EmailGateway:
             "thread_id": thread_id,
             "lead_id": lead_id,
             "inbox_id": inbox["id"],
+            "buyer_alias": buyer_alias,
             "classification": ai_result["classification"],
             "summary": ai_result["summary"],
             "intent": ai_result["intent"],
@@ -435,8 +593,10 @@ class EmailGateway:
         """
         Exporter replies to an inbound message from the dashboard.
 
-        The reply goes out from the same masked address, to the same buyer,
-        on the same thread. The buyer never sees the exporter's real email.
+        The reply goes out from the same masked address, to the same buyer
+        (resolved through the buyer mask at the provider boundary only), on
+        the same thread. Stored rows carry the alias. Legacy plaintext
+        threads are self-healed (audited) on first touch.
 
         When organization_id is given, the inbound message AND its thread
         must belong to that org — otherwise the reply is refused (fail
@@ -475,6 +635,67 @@ class EmailGateway:
         if not inbox:
             return {"action": "skipped", "reason": "inbox lookup failed"}
 
+        # ── Phase 4: resolve the recipient through the mask registry ──
+        if not buyer_masking.masking_enabled():
+            log.error(
+                "BUYER_MASK_SECRET not set — reply REFUSED (fail closed: "
+                "buyer addresses must never be stored or sent unmasked)."
+            )
+            return {
+                "action": "reply_refused",
+                "reason": "buyer masking unavailable (BUYER_MASK_SECRET not set)",
+            }
+
+        thread_org = (
+            organization_id
+            or thread.get("organization_id")
+            or inbox.get("organization_id")
+            or "org-system"
+        )
+        thread_buyer = (thread.get("buyer_email") or "").strip().lower()
+
+        if buyer_masking.is_platform_alias(thread_buyer, self.inbound_domain):
+            mask = self.sm.find_buyer_mask_by_alias(thread_buyer)
+            if not mask:
+                return {"action": "skipped", "reason": "buyer mask lookup failed"}
+            if mask["organization_id"] != thread_org:
+                log.warning(
+                    f"EmailGateway.reply() REFUSED: mask {mask['alias_address']} "
+                    f"belongs to org {mask['organization_id']}, thread org {thread_org}"
+                )
+                return {
+                    "action": "reply_refused",
+                    "reason": "buyer alias does not belong to caller's organization",
+                }
+            if mask["status"] != "active":
+                return {
+                    "action": "reply_refused",
+                    "reason": f"buyer alias is {mask['status']} — sending blocked",
+                }
+        else:
+            # Legacy plaintext thread — audited self-heal, then resolve.
+            mask = self.sm.heal_thread_buyer_mask(
+                thread["thread_id"], self.inbound_domain, created_by="reply:selfheal"
+            )
+            if not mask:
+                return {
+                    "action": "skipped",
+                    "reason": "legacy thread could not be masked (unknown alias state)",
+                }
+            if mask["status"] != "active":
+                return {
+                    "action": "reply_refused",
+                    "reason": f"buyer alias is {mask['status']} — sending blocked",
+                }
+            if mask["organization_id"] != thread_org:
+                return {
+                    "action": "reply_refused",
+                    "reason": "buyer alias does not belong to caller's organization",
+                }
+
+        buyer_alias = mask["alias_address"]
+        real_to = self.sm.decrypt_buyer_email(mask)  # provider boundary only
+
         # Use the inbound message's subject with "Re:" prefix if not already
         subject = msg["subject"]
         if not subject.lower().startswith("re:"):
@@ -482,7 +703,7 @@ class EmailGateway:
 
         result = self.provider.send_email(
             from_addr=f"{inbox['display_name']} <{inbox['masked_email']}>",
-            to_addr=thread["buyer_email"],
+            to_addr=real_to,
             subject=subject,
             text_body=body_text,
             html_body=body_html,
@@ -497,7 +718,8 @@ class EmailGateway:
                 "dry_run": result.get("dry_run", False),
             }
 
-        # Log outbound reply — org attributed to the thread's tenant
+        # Log outbound reply — org attributed to the thread's tenant,
+        # stored to_addr = ALIAS.
         reply_org = (
             organization_id
             or thread.get("organization_id")
@@ -507,7 +729,7 @@ class EmailGateway:
         outbound_id = self.sm.log_outbound_message(
             thread_id=thread["thread_id"],
             from_addr=inbox["masked_email"],
-            to_addr=thread["buyer_email"],
+            to_addr=buyer_alias,
             subject=subject,
             body_text=body_text,
             body_html=body_html,
@@ -538,7 +760,7 @@ class EmailGateway:
 
         log.info(
             f"EmailGateway reply: outbound={outbound_id} in_reply_to={message_id} "
-            f"thread={thread['thread_id']}"
+            f"thread={thread['thread_id']} -> {buyer_alias}"
         )
 
         return {
@@ -546,6 +768,7 @@ class EmailGateway:
             "outbound_message_id": outbound_id,
             "in_reply_to_message_id": message_id,
             "thread_id": thread["thread_id"],
+            "buyer_alias": buyer_alias,
             "dry_run": result.get("dry_run", False),
         }
 
@@ -565,31 +788,137 @@ class EmailGateway:
         ).scalar_one_or_none()
         return row is not None
 
-    def _resolve_buyer(
-        self, inbox_id: int, buyer_email: str, organization_id: str | None = None
-    ) -> tuple[str | None, int | None]:
+    def _resolve_outbound_recipient(
+        self,
+        lead_id: str,
+        buyer_email: str,
+        organization_id: str,
+        buyer_contact_id: int | None = None,
+    ) -> dict[str, Any]:
         """
-        Find the (lead_id, buyer_contact_id) for a buyer email on this inbox.
+        Resolve who we are sending to, through the mask registry.
 
-        Tries in order:
-          1. Existing open thread with this buyer_email on this inbox.
-          2. LeadContact with this email — scoped to organization_id when
-             given, so org-A's inbox can never resolve to org-B's lead even
-             when both orgs track the same real-world buyer.
-        Returns (None, None) if not found.
+        Accepts EITHER:
+          - a platform alias (buyer.<hex>@<inbound domain>): must exist in
+            the registry, be ACTIVE, and belong to the caller's org. The
+            client is NEVER trusted to map an alias itself — the registry
+            decides.
+          - a real address: must be a registered contact of this lead in
+            this org (Phase 1 verified-contact outreach gate, enforced at
+            the gateway as defense in depth). A mask is created on first
+            contact.
+
+        Returns {ok: True, alias, real_to, buyer_mask_id, buyer_contact_id}
+        or {ok: False, error}. The real address never leaves this function
+        except as real_to for the provider call.
         """
-        # 1. Existing thread
-        threads = self.sm.list_threads_for_inbox(inbox_id, include_closed=False)
-        for t in threads:
-            if (t.get("buyer_email") or "").lower() == buyer_email.lower():
-                return t["lead_id"], t.get("buyer_contact_id")
+        email_norm = buyer_masking.normalize_email(buyer_email)
+        if not email_norm or "@" not in email_norm:
+            return {"ok": False, "error": "invalid buyer email"}
 
-        # 2. LeadContact lookup (tenant-scoped)
+        if not buyer_masking.masking_enabled():
+            return {
+                "ok": False,
+                "error": "BUYER_MASK_SECRET not set — buyer masking cannot "
+                "operate (fail closed)",
+            }
+
+        if buyer_masking.is_platform_alias(email_norm, self.inbound_domain):
+            mask = self.sm.find_buyer_mask_by_alias(email_norm)
+            if not mask:
+                return {"ok": False, "error": f"unknown buyer alias: {email_norm}"}
+            if mask["organization_id"] != organization_id:
+                # Cross-tenant alias use — refuse without confirming the
+                # alias exists elsewhere (no tenant- existence oracle).
+                log.warning(
+                    f"_resolve_outbound_recipient: alias {email_norm} not in "
+                    f"org {organization_id} — cross-tenant send blocked"
+                )
+                return {
+                    "ok": False,
+                    "error": "buyer alias does not belong to caller's organization",
+                }
+            if mask["status"] != "active":
+                return {
+                    "ok": False,
+                    "error": f"buyer alias is {mask['status']} — sending blocked",
+                }
+            return {
+                "ok": True,
+                "alias": mask["alias_address"],
+                "real_to": self.sm.decrypt_buyer_email(mask),
+                "buyer_mask_id": mask["id"],
+                "buyer_contact_id": mask.get("buyer_contact_id") or buyer_contact_id,
+            }
+
+        # Real address path — identity gate: the address must be a
+        # registered contact of THIS lead in THIS org. Arbitrary addresses
+        # (and other orgs' contacts) are refused.
+        contact = self._lead_contact_for_email(lead_id, email_norm, organization_id)
+        if not contact:
+            return {
+                "ok": False,
+                "error": "buyer email is not a registered contact of this lead "
+                "(outreach gate: verified lead contacts only)",
+            }
+
+        mask = self.sm.get_or_create_buyer_mask(
+            organization_id=organization_id,
+            real_email=email_norm,
+            inbound_domain=self.inbound_domain,
+            lead_id=lead_id,
+            buyer_contact_id=contact["id"],
+            created_by=f"first_contact:{lead_id}",
+        )
+        if mask["status"] != "active":
+            return {
+                "ok": False,
+                "error": f"buyer mask is {mask['status']} — sending blocked",
+            }
+        return {
+            "ok": True,
+            "alias": mask["alias_address"],
+            "real_to": self.sm.decrypt_buyer_email(mask),
+            "buyer_mask_id": mask["id"],
+            "buyer_contact_id": contact["id"],
+        }
+
+    def _lead_contact_for_email(
+        self, lead_id: str, email: str, organization_id: str
+    ) -> dict[str, Any] | None:
+        """The lead's own contact row for this address (org-scoped, not deleted)."""
         from coffee_export.database.models import LeadContact
 
-        stmt = select(LeadContact).where(LeadContact.email == buyer_email)
+        row = self.sm.session.execute(
+            select(LeadContact)
+            .where(
+                LeadContact.lead_id == lead_id,
+                LeadContact.email == email,
+                LeadContact.organization_id == organization_id,
+                LeadContact.deleted_ts.is_(None),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if not row:
+            return None
+        return {"id": row.id, "lead_id": row.lead_id, "email": row.email}
+
+    def _resolve_buyer_contact(
+        self, buyer_email: str, organization_id: str | None = None
+    ) -> tuple[str | None, int | None]:
+        """
+        Find (lead_id, contact_id) for a real buyer email, org-scoped.
+
+        Org-A's inbox can never resolve to org-B's lead even when both orgs
+        track the same real-world buyer. Returns (None, None) if not found.
+        """
+        from coffee_export.database.models import LeadContact
+
+        email_norm = buyer_masking.normalize_email(buyer_email)
+        stmt = select(LeadContact).where(LeadContact.email == email_norm)
         if organization_id is not None:
             stmt = stmt.where(LeadContact.organization_id == organization_id)
+        stmt = stmt.where(LeadContact.deleted_ts.is_(None))
         row = self.sm.session.execute(
             stmt.order_by(LeadContact.id.desc()).limit(1)
         ).scalar_one_or_none()
@@ -599,10 +928,34 @@ class EmailGateway:
                 row.lead_id, organization_id
             ):
                 log.warning(
-                    f"_resolve_buyer: contact {row.id} points at lead "
+                    f"_resolve_buyer_contact: contact {row.id} points at lead "
                     f"{row.lead_id} outside org {organization_id} — refusing"
                 )
                 return None, None
             return row.lead_id, row.id
+
+        return None, None
+
+    def _resolve_lead_for_mask(
+        self, inbox_id: int, mask: dict[str, Any], inbox_org: str
+    ) -> tuple[str | None, int | None]:
+        """
+        Find (lead_id, buyer_contact_id) for a resolved mask on this inbox.
+
+        Order: (1) an open thread on this inbox already linked to the mask;
+        (2) the mask's own provenance lead (must be in the inbox's org);
+        (3) org-scoped contact lookup by the buyer's real address (passed
+        by the caller — never logged).
+        """
+        # 1. Existing thread on this inbox linked to this mask
+        threads = self.sm.list_threads_for_inbox(inbox_id, include_closed=True)
+        for t in threads:
+            if t.get("buyer_mask_id") == mask["id"]:
+                return t["lead_id"], t.get("buyer_contact_id")
+
+        # 2. Mask provenance
+        mask_lead = mask.get("lead_id")
+        if mask_lead and self._lead_in_org(mask_lead, inbox_org):
+            return mask_lead, mask.get("buyer_contact_id")
 
         return None, None

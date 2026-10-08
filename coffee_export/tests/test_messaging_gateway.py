@@ -20,8 +20,15 @@ Run:  python -m tests.test_messaging_gateway
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+# Phase 4: buyer masking requires BUYER_MASK_SECRET. The test suite uses a
+# deterministic test secret (fail-closed means the suite CANNOT run without
+# one). The throwaway DB copies contain no production masks, so a distinct
+# test secret is safe and intentional.
+os.environ.setdefault("BUYER_MASK_SECRET", "test-buyer-mask-secret-phase4-0001")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -144,8 +151,10 @@ def test_full_gateway_flow() -> None:
     masked_from = send_result["masked_from"]
     thread_id = send_result["thread_id"]
     outbound_msg_id = send_result["message_id"]
+    buyer_alias = send_result.get("buyer_alias", "")
     print(f"    masked_from={masked_from}")
     print(f"    thread_id={thread_id}")
+    print(f"    buyer_alias={buyer_alias}")
     # NEW: assert professional-looking masked email derived from operator name
     assert masked_from == "marcus.bell@faithelexport.com", (
         f"expected marcus.bell@faithelexport.com, got {masked_from}"
@@ -153,14 +162,32 @@ def test_full_gateway_flow() -> None:
     assert "exporter-" not in masked_from, "masked email should NOT reveal 'exporter-' prefix"
     assert "faithelexport.com" in masked_from, "masked email should use Faith Export domain"
 
-    print("\n[3] Verify outbound message stored in DB")
+    # PHASE 4: the buyer's identity is a platform alias — deterministic,
+    # on the inbound domain, and NEVER the real address.
+    assert buyer_alias.startswith("buyer."), f"expected a buyer.* alias, got {buyer_alias}"
+    assert buyer_alias.endswith("@faithelexport.com"), f"alias on wrong domain: {buyer_alias}"
+    assert buyer_alias != buyer_email, "alias must not be the real address"
+
+    print("\n[3] Verify outbound message stored in DB (ALIAS, never the real address)")
     with StateManager() as sm:
         msg = sm.get_message(outbound_msg_id)
         assert msg, "outbound message not found"
         assert msg["direction"] == "outbound"
         assert msg["from_addr"] == masked_from
-        assert msg["to_addr"] == buyer_email
-        print(f"    stored: dir={msg['direction']} from={msg['from_addr']}")
+        assert msg["to_addr"] == buyer_alias, (
+            f"stored to_addr must be the alias, got {msg['to_addr']}"
+        )
+        assert msg["to_addr"] != buyer_email, "REAL buyer address leaked into storage!"
+        print(f"    stored: dir={msg['direction']} from={msg['from_addr']} to={msg['to_addr']}")
+
+        # The real address must exist ONLY in the encrypted registry.
+        mask = sm.find_buyer_mask_by_real_email("org-system", buyer_email)
+        assert mask, "no buyer mask registered for the verified contact"
+        assert mask["alias_address"] == buyer_alias
+        assert mask["real_email_encrypted"] != buyer_email, "registry stores plaintext!"
+        assert buyer_email not in mask["real_email_encrypted"], "ciphertext contains plaintext!"
+        assert sm.decrypt_buyer_email(mask) == buyer_email, "decrypt round-trip failed"
+        print(f"    registry: alias={mask['alias_address']} (real address encrypted, verified decryptable)")
 
     print("\n[4] Simulate inbound buyer reply (Resend webhook payload)")
     inbound_payload = {
@@ -191,10 +218,19 @@ def test_full_gateway_flow() -> None:
         msg = sm.get_message(inbound_msg_id)
         assert msg, "inbound message not found"
         assert msg["direction"] == "inbound"
-        assert msg["from_addr"] == buyer_email
+        # PHASE 4: the stored From: is the buyer's ALIAS — the real address
+        # that arrived in the webhook never reaches storage.
+        assert msg["from_addr"] == buyer_alias, (
+            f"stored from_addr must be the alias, got {msg['from_addr']}"
+        )
+        assert msg["from_addr"] != buyer_email, "REAL buyer address leaked into storage!"
         assert msg["to_addr"] == masked_from
+        # The stored raw payload (audit trail) must not contain the real address
+        if msg.get("raw_payload"):
+            assert buyer_email not in msg["raw_payload"], "real address leaked into raw_payload!"
         assert msg["is_read"] == 0, "inbound should start unread"
         assert msg["ai_processed"] == 1, "AI should have processed"
+        print(f"    from (stored alias)={msg['from_addr']}")
         print(f"    classification={msg['glm_classification']}")
         print(f"    summary={msg['glm_summary']}")
         print(f"    intent={msg['glm_intent']}")

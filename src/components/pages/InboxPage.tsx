@@ -26,7 +26,9 @@ export function InboxPage() {
   const [showCompose, setShowCompose] = useState(false);
   const [composeLeads, setComposeLeads] = useState<any[] | null>(null);
   const [composeLeadsError, setComposeLeadsError] = useState<string | null>(null);
-  const [compose, setCompose] = useState({ leadId: "", buyerEmail: "", subject: "", bodyText: "" });
+  // Phase 4: the compose form NEVER holds a real buyer address — only the
+  // lead reference and (for display) the platform alias + contact name.
+  const [compose, setCompose] = useState({ leadId: "", buyerAlias: "", contactName: "", subject: "", bodyText: "" });
   const [composeBusy, setComposeBusy] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
   const [composeNotice, setComposeNotice] = useState<string | null>(null);
@@ -108,15 +110,17 @@ export function InboxPage() {
   };
 
   const sendCompose = () => {
-    if (!compose.leadId || !compose.buyerEmail.trim() || !compose.bodyText.trim()) return;
+    if (!compose.leadId || !compose.bodyText.trim()) return;
     setComposeBusy(true);
     setComposeError(null);
     setComposeNotice(null);
+    // Phase 4: only the lead reference crosses the wire — the server
+    // resolves the verified contact and the gateway assigns/uses the
+    // buyer's masked alias. No real buyer address exists in the client.
     apiFetch("/api/inbox", {
       method: "POST",
       body: JSON.stringify({
         leadId: compose.leadId,
-        buyerEmail: compose.buyerEmail.trim(),
         subject: compose.subject.trim(),
         bodyText: compose.bodyText.trim(),
       }),
@@ -127,9 +131,9 @@ export function InboxPage() {
           setComposeNotice(
             data.dry_run
               ? "Stored as DRY-RUN (no RESEND_API_KEY configured) — nothing was actually delivered to the buyer."
-              : `Sent from ${data.masked_from || "your masked inbox"} — the buyer never sees your real email.`
+              : `Sent from ${data.masked_from || "your masked inbox"} to ${data.buyer_alias || "the buyer's masked address"} — real addresses never appear in your inbox.`
           );
-          setCompose({ leadId: "", buyerEmail: "", subject: "", bodyText: "" });
+          setCompose({ leadId: "", buyerAlias: "", contactName: "", subject: "", bodyText: "" });
           // Refresh conversation list so the new thread appears
           apiFetch("/api/inbox")
             .then((r) => r.json())
@@ -515,8 +519,12 @@ export function InboxPage() {
                   value={compose.leadId}
                   onChange={(e) => {
                     const lead = (composeLeads || []).find((l) => l.id === e.target.value);
-                    const contactEmail = lead?.primaryContact?.email || "";
-                    setCompose((c) => ({ ...c, leadId: e.target.value, buyerEmail: contactEmail || c.buyerEmail }));
+                    setCompose((c) => ({
+                      ...c,
+                      leadId: e.target.value,
+                      buyerAlias: lead?.maskedBuyer || "",
+                      contactName: lead?.primaryContact?.name || "",
+                    }));
                   }}
                   disabled={composeBusy}
                 >
@@ -534,15 +542,23 @@ export function InboxPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Buyer email (real contact — reserved/test domains are rejected)</label>
-                <input
-                  type="email"
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm focus:bg-white focus:border-gray-300 focus:outline-none"
-                  placeholder="buyer@company.com"
-                  value={compose.buyerEmail}
-                  onChange={(e) => setCompose((c) => ({ ...c, buyerEmail: e.target.value }))}
-                  disabled={composeBusy}
-                />
+                <label className="block text-xs font-medium text-gray-500 mb-1">Buyer (masked — real addresses are never shown or stored here)</label>
+                <div className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
+                  {compose.leadId ? (
+                    <>
+                      <span className="font-medium">{compose.contactName || "Primary contact"}</span>
+                      <span className="text-gray-500"> · </span>
+                      <span className="font-mono text-xs" title="The buyer sees this platform address once assigned; replies to it route back to your inbox">
+                        {compose.buyerAlias || "masked address — assigned on first send"}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-gray-400">Select a lead to see its masked buyer address…</span>
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Delivery goes to the lead's verified contact email — resolved server-side, never exposed in this form.
+                </p>
               </div>
 
               <div>
@@ -580,7 +596,7 @@ export function InboxPage() {
               </button>
               <button
                 onClick={sendCompose}
-                disabled={composeBusy || !compose.leadId || !compose.buyerEmail.trim() || !compose.bodyText.trim()}
+                disabled={composeBusy || !compose.leadId || !compose.bodyText.trim()}
                 className="rounded-lg bg-[#4A3520] px-4 py-2 text-sm font-medium text-white hover:bg-[#6B4E33] transition-colors flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Send className="h-3.5 w-3.5" /> {composeBusy ? "Sending…" : "Send from masked address"}

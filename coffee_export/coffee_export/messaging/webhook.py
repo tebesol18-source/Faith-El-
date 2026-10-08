@@ -27,7 +27,7 @@ from __future__ import annotations
 import os
 from typing import Any
 import hmac
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -68,7 +68,21 @@ def _verify_bridge_token(authorization: str | None) -> bool:
 
 
 class BridgeSendRequest(BaseModel):
-    """Request body for POST /api/bridge/send"""
+    """Request body for POST /api/bridge/send
+
+    Phase 4 masking policy: `buyer_email` may be a platform ALIAS
+    (buyer.<hex>@<inbound domain>) or a real address that the gateway
+    verifies against the lead's registered contacts — the registry, never
+    the client, decides who the mail goes to.
+
+    CC/BCC POLICY (explicit, enforced): outbound platform email carries NO
+    CC/BCC recipients — every CC'd address would be disclosed to all
+    recipients and would bypass buyer masking. extra="forbid" rejects any
+    cc/bcc (or otherwise unknown) key with a 422 before the gateway runs.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     operator_id: str
     operator_name: str | None = None
     display_name: str
@@ -81,7 +95,10 @@ class BridgeSendRequest(BaseModel):
 
 
 class BridgeReplyRequest(BaseModel):
-    """Request body for POST /api/bridge/reply"""
+    """Request body for POST /api/bridge/reply (extra=forbid — see send)."""
+
+    model_config = ConfigDict(extra="forbid")
+
     message_id: int
     body_text: str
     body_html: str | None = None
@@ -263,6 +280,7 @@ def create_inbound_app(
                     "message_id": result.get("message_id"),
                     "thread_id": result.get("thread_id"),
                     "masked_from": result.get("masked_from"),
+                    "buyer_alias": result.get("buyer_alias"),
                     "provider_message_id": result.get("provider_message_id"),
                     "dry_run": result.get("dry_run", False),
                 },
@@ -333,6 +351,7 @@ def create_inbound_app(
                     "outbound_message_id": result.get("outbound_message_id"),
                     "in_reply_to_message_id": result.get("in_reply_to_message_id"),
                     "thread_id": result.get("thread_id"),
+                    "buyer_alias": result.get("buyer_alias"),
                     "dry_run": result.get("dry_run", False),
                 },
             )
