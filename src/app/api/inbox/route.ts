@@ -80,6 +80,23 @@ function buyerDisplay(addr: string | null | undefined): string {
   return "buyer@"; // legacy/unhealed — real address withheld
 }
 
+// SR-1 (security review): on UNHEALED legacy threads (buyer_email not a
+// platform alias) the stored subject/body/preview may still contain the
+// plaintext buyer address — the gateway heals threads on first touch, but
+// until then this API must not emit those addresses. We cannot run the
+// registry resolver here (no masking secret on the JS side), so every
+// email-looking token that is NOT on the platform domain is replaced with
+// a generic placeholder. Platform aliases and the exporter's own masked
+// addresses pass through.
+const EMAIL_TOKEN_RE = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
+
+function redactExternalAddresses(text: string | null | undefined): string {
+  if (!text) return text ?? "";
+  return text.replace(EMAIL_TOKEN_RE, (token) =>
+    token.toLowerCase().endsWith("@" + INBOUND_DOMAIN) ? token : "[redacted address]"
+  );
+}
+
 // Frontend-expected shapes
 type FrontendConversation = {
   id: number;
@@ -181,6 +198,10 @@ export async function GET(request: NextRequest) {
 
       for (let i = 0; i < threads.length; i++) {
         const t = threads[i];
+        // Unhealed legacy thread? Its content fields may carry plaintext
+        // buyer addresses — redact every non-platform token (SR-1).
+        const legacyThread = !isPlatformAddress(t.buyer_email);
+        const contentRedactor = legacyThread ? redactExternalAddresses : (s: string | null | undefined) => s ?? "";
         const threadMessages = (msgStmt.all(orgId, t.thread_id) as any[]) || [];
         const msgs: FrontendMessage[] = threadMessages.map((m) => {
           // Phase 4: inbound senders are buyer aliases (platform domain).
@@ -203,8 +224,8 @@ export async function GET(request: NextRequest) {
           const msg: FrontendMessage = {
             direction: m.direction as "outbound" | "inbound",
             from: fromPart,
-            subject: m.subject || "",
-            body: m.body_text || "",
+            subject: contentRedactor(m.subject || ""),
+            body: contentRedactor(m.body_text || ""),
             time: messageTime(m.sent_ts || m.received_ts || m.created_ts),
             messageId: m.id,
             dryRun:
@@ -238,10 +259,10 @@ export async function GET(request: NextRequest) {
           (m) => m.direction === "inbound" && m.ai_processed
         );
 
-        // Build preview from the last message
+        // Build preview from the last message (redacted on legacy threads)
         const lastMsg = threadMessages[threadMessages.length - 1];
         const preview = lastMsg?.body_text
-          ? lastMsg.body_text.substring(0, 100).replace(/\n/g, " ")
+          ? contentRedactor(lastMsg.body_text).substring(0, 100).replace(/\n/g, " ")
           : "";
 
         // Phase 4: buyer identity is the platform alias — never a real
@@ -256,7 +277,7 @@ export async function GET(request: NextRequest) {
           buyer: buyerPart,
           buyerAlias,
           buyerCompany: t.lead_company || null,
-          subject: t.subject || "(no subject)",
+          subject: contentRedactor(t.subject || "(no subject)"),
           preview,
           time: relativeTime(t.last_message_ts),
           unread: (t.unread_count || 0) > 0,

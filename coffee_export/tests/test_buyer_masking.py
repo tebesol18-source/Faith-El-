@@ -126,9 +126,11 @@ class RecordingProvider(ResendEmailProvider):
     def __init__(self) -> None:
         super().__init__(inbound_domain="faithelexport.com")
         self.sent_to: list[str] = []
+        self.sent_payloads: list[dict[str, Any]] = []
 
     def send_email(self, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG003
         self.sent_to.append(kwargs["to_addr"])
+        self.sent_payloads.append(dict(kwargs))
         return {"success": True, "provider_message_id": "dry-run-test", "error": None, "dry_run": True}
 
 
@@ -322,10 +324,11 @@ def test_outbound_refusals() -> None:
     assert r["action"] == "send_refused" and "registered contact" in r["error"], r
     assert provider.sent_to == [], "refused sends must never reach the provider"
 
-    # b) Unknown alias -> refused
+    # b) Unknown alias -> refused (SR-1: unified error — indistinguishable
+    #    from a cross-tenant alias, no existence oracle)
     r = gw.send(operator_id="mask-op-002", display_name="Faith Export", lead_id=lead_id,
                 buyer_email="buyer.0123456789ab@faithelexport.com", subject="x", body_text="y")
-    assert r["action"] == "send_refused" and "unknown buyer alias" in r["error"], r
+    assert r["action"] == "send_refused" and "unknown or unauthorized" in r["error"], r
 
     # c) Cross-tenant: org-B caller using org-A's alias -> refused
     email_b = f"cross-{_n()}@buyer.example"
@@ -337,7 +340,8 @@ def test_outbound_refusals() -> None:
     alias_b = r["buyer_alias"]
     r = gw.send(operator_id="mask-op-002", display_name="Faith Export", lead_id=lead_id,
                 buyer_email=alias_b, subject="x", body_text="y")  # org-system caller
-    assert r["action"] == "send_refused" and "organization" in r["error"], r
+    assert r["action"] == "send_refused" and "unknown or unauthorized" in r["error"], r
+    # SR-1 finding 6: the two errors above are byte-identical (no oracle)
 
     # d) Revoked mask: BOTH the real address and the alias are blocked
     with StateManager() as sm:
@@ -653,6 +657,334 @@ def test_migration_preservation() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
+# 8. SR-1 independent security review — regression tests for every fix
+# ──────────────────────────────────────────────────────────────────────
+
+def test_sr1_revoked_address_still_redacted() -> None:
+    """SR-1 F1: a REVOKED buyer's address quoted in an ACTIVE buyer's inbound
+    is redacted from storage and never reaches the LLM prompt."""
+    print("\n[SR-1 F1] Revoked addresses redact like active ones")
+    _ensure_operator("mask-op-sr1a")
+    email_x = f"revoked-{_n()}@buyer.example"
+    email_y = f"active-{_n()}@buyer.example"
+    lead_x, _ = _ensure_lead_with_contact("org-system", email_x, "RevokedCo")
+    lead_y, _ = _ensure_lead_with_contact("org-system", email_y, "ActiveCo")
+    gw, _, ai = _gateway()
+    rx = gw.send(operator_id="mask-op-sr1a", display_name="Faith Export",
+                 lead_id=lead_x, buyer_email=email_x, subject="x", body_text="b",
+                 operator_name="SR Tester")
+    ry = gw.send(operator_id="mask-op-sr1a", display_name="Faith Export",
+                 lead_id=lead_y, buyer_email=email_y, subject="y", body_text="b",
+                 operator_name="SR Tester")
+    assert rx["action"] == "sent" and ry["action"] == "sent", (rx, ry)
+    alias_x, alias_y = rx["buyer_alias"], ry["buyer_alias"]
+    with StateManager() as sm:
+        sm.revoke_buyer_mask(alias_address=alias_x, reason="sr1 test")
+
+    body = f"We discussed this with Konrad <{email_x}> already.\nBest, Active"
+    r = gw.process_inbound(_inbound_payload(email_y, ry["masked_from"], body, f"sr1-f1-{_n()}"))
+    assert r["action"] == "received", r
+    with StateManager() as sm:
+        msg = sm.get_message(r["message_id"])
+        assert email_x not in msg["body_text"], "revoked address survived redaction (SR-1 F1)!"
+        assert alias_x in msg["body_text"], "revoked address must redact to its alias"
+    assert ai.calls, "AI processor must have run"
+    last = ai.calls[-1]
+    assert email_x not in last["body"] and email_x not in last["subject"], "revoked address reached the LLM (SR-1 F1)!"
+    print("    ✓ revoked address redacted from storage + LLM prompt")
+
+
+def test_sr1_heal_subject_and_reply_subject() -> None:
+    """SR-1 F2: the heal rewrites thread.subject, and reply() uses the
+    POST-heal subject — never the stale pre-heal copy."""
+    print("\n[SR-1 F2] Heal rewrites thread subject; reply not stale")
+    _ensure_operator("mask-op-sr1b")
+    email = f"sr1heal-{_n()}@buyer.example"
+    lead_id, contact_id = _ensure_lead_with_contact("org-system", email, "SRHealCo")
+    with StateManager() as sm:
+        inbox = sm.get_or_create_exporter_inbox(
+            operator_id="mask-op-sr1b", display_name="Faith Export",
+            inbound_domain="faithelexport.com", operator_name="SR Tester")
+        thread = sm.get_or_create_thread(
+            lead_id=lead_id, inbox_id=inbox["id"], buyer_email=email,
+            subject=f"Quote for {email}", buyer_contact_id=contact_id)
+        thread_id = thread["thread_id"]
+        in_id = sm.log_inbound_message(
+            thread_id=thread_id, from_addr=email, to_addr=inbox["masked_email"],
+            subject=f"Re: Quote for {email}", body_text="legacy body",
+            provider="resend", provider_message_id=f"sr1-inb-{_n()}")
+    gw, _, _ = _gateway()
+    r = gw.reply(message_id=in_id, body_text="healed reply", operator_id="mask-op-sr1b")
+    assert r["action"] == "replied", r
+    alias = r["buyer_alias"]
+    with StateManager() as sm:
+        t = sm.get_thread(thread_id)
+        assert email not in t["subject"], "thread.subject not healed (SR-1 F2a)!"
+        assert alias in t["subject"], "thread.subject must carry the alias after heal"
+        reply = sm.get_message(r["outbound_message_id"])
+        assert email not in reply["subject"], "reply used the stale pre-heal subject (SR-1 F2b)!"
+        assert alias in reply["subject"], "reply subject must carry the alias"
+    print("    ✓ thread.subject healed + reply subject from the healed row")
+
+
+def test_sr1_outbound_content_redacted() -> None:
+    """SR-1 F3: operator-authored subject/body quoting REGISTERED addresses
+    (the recipient's own or another buyer of the same org) are redacted
+    before storage, events, logs, and the provider payload."""
+    print("\n[SR-1 F3] Outbound operator-authored content redacted")
+    _ensure_operator("mask-op-sr1c")
+    email = f"sr1out-{_n()}@buyer.example"
+    other = f"sr1other-{_n()}@buyer.example"
+    lead_id, _ = _ensure_lead_with_contact("org-system", email, "SROutCo")
+    lead_o, _ = _ensure_lead_with_contact("org-system", other, "SROtherCo")
+    gw, provider, _ = _gateway()
+    r1 = gw.send(operator_id="mask-op-sr1c", display_name="Faith Export", lead_id=lead_id,
+                 buyer_email=email, subject="intro", body_text="hello", operator_name="SR Tester")
+    r2 = gw.send(operator_id="mask-op-sr1c", display_name="Faith Export", lead_id=lead_o,
+                 buyer_email=other, subject="intro", body_text="hello", operator_name="SR Tester")
+    assert r1["action"] == "sent" and r2["action"] == "sent", (r1, r2)
+    alias, alias_o = r1["buyer_alias"], r2["buyer_alias"]
+
+    r = gw.send(operator_id="mask-op-sr1c", display_name="Faith Export", lead_id=lead_id,
+                buyer_email=alias, subject=f"Quote for {email}",
+                body_text=f"As discussed with {other} — writing to {email} now",
+                operator_name="SR Tester")
+    assert r["action"] == "sent", r
+    with StateManager() as sm:
+        msg = sm.get_message(r["message_id"])
+        assert email not in msg["subject"] and email not in msg["body_text"], "own buyer address stored raw (SR-1 F3)!"
+        assert other not in msg["body_text"], "co-buyer address stored raw (SR-1 F3)!"
+        assert alias in msg["subject"] and alias_o in msg["body_text"]
+    # The provider payload carries redacted content too (buyer sees the alias)
+    sent = provider.sent_payloads[-1]
+    assert email not in sent["subject"] and other not in sent["text_body"], "raw address reached the provider payload (SR-1 F3)!"
+    print("    ✓ outbound subject/body/events/provider redacted to aliases")
+
+
+def test_sr1_provider_error_sanitized() -> None:
+    """SR-1 F4: provider HTTP error bodies never echo into the error string
+    (they can quote the real recipient address)."""
+    print("\n[SR-1 F4] Provider error bodies withheld")
+    from unittest.mock import patch
+
+    email = f"victim-{_n()}@buyer.example"
+    provider = ResendEmailProvider(api_key="re_test_key", inbound_domain="faithelexport.com")
+    assert not provider.dry_run
+
+    class FakeResp:
+        status_code = 422
+        text = f'{{"message":"validation error: to field {email} is not allowed"}}'
+        def json(self):  # noqa: N802 - requests.Response API
+            return {}
+
+    with patch("coffee_export.messaging.providers.resend.requests.post", return_value=FakeResp()):
+        result = provider.send_email(
+            from_addr="Faith <marcus.bell@faithelexport.com>", to_addr=email,
+            subject="s", text_body="b")
+    assert result["success"] is False
+    assert email not in result["error"], "provider error echoed the recipient (SR-1 F4)!"
+    assert "422" in result["error"], "status code should still be reported"
+    print("    ✓ provider errors carry the status code only")
+
+
+def test_sr1_alias_errors_indistinguishable() -> None:
+    """SR-1 F6: unknown alias and cross-tenant alias produce the IDENTICAL
+    caller-facing error (no tenant-existence oracle)."""
+    print("\n[SR-1 F6] Unknown vs cross-tenant alias errors identical")
+    _ensure_operator("mask-op-sr1d")
+    _ensure_operator("mask-op-sr1d-b", org="org-other", name="Org B Op")
+    email = f"sr1f6-{_n()}@buyer.example"
+    email_b = f"sr1f6b-{_n()}@buyer.example"
+    lead_id, _ = _ensure_lead_with_contact("org-system", email, "F6Co")
+    lead_b, _ = _ensure_lead_with_contact("org-other", email_b, "F6CoB")
+    gw, _, _ = _gateway()
+    rb = gw.send(operator_id="mask-op-sr1d-b", display_name="Faith B", lead_id=lead_b,
+                 buyer_email=email_b, subject="s", body_text="b",
+                 organization_id="org-other", operator_name="SR Tester")
+    assert rb["action"] == "sent", rb
+
+    r_unknown = gw.send(operator_id="mask-op-sr1d", display_name="Faith", lead_id=lead_id,
+                        buyer_email="buyer.ffffffffffff@faithelexport.com", subject="s", body_text="y")
+    r_cross = gw.send(operator_id="mask-op-sr1d", display_name="Faith", lead_id=lead_id,
+                      buyer_email=rb["buyer_alias"], subject="s", body_text="y")
+    assert r_unknown["action"] == "send_refused", r_unknown
+    assert r_cross["action"] == "send_refused", r_cross
+    assert r_unknown["error"] == r_cross["error"] == "unknown or unauthorized buyer alias"
+    print("    ✓ byte-identical refusal — no existence oracle")
+
+
+def test_sr1_entity_encoded_redaction() -> None:
+    """SR-1 F8: HTML-entity-encoded registered addresses are redacted."""
+    print("\n[SR-1 F8] Entity-encoded addresses redacted")
+    _ensure_operator("mask-op-sr1e")
+    email = f"sr1ent-{_n()}@buyer.example"
+    lead_id, _ = _ensure_lead_with_contact("org-system", email, "EntCo")
+    gw, _, _ = _gateway()
+    r = gw.send(operator_id="mask-op-sr1e", display_name="Faith Export", lead_id=lead_id,
+                buyer_email=email, subject="intro", body_text="hello", operator_name="SR Tester")
+    assert r["action"] == "sent", r
+    alias, masked_from = r["buyer_alias"], r["masked_from"]
+    local, dom = email.split("@")
+    html_body = (
+        f"<p>From: {local}&#64;{dom}</p>"
+        f"<p>Alt: {local}&#x40;{dom}</p>"
+    )
+    payload = {"data": {"from": email, "to": [masked_from], "subject": "entities",
+                        "text": "plain body", "html": html_body,
+                        "message_id": f"ent-{_n()}"}}
+    r2 = gw.process_inbound(payload)
+    assert r2["action"] == "received", r2
+    with StateManager() as sm:
+        msg = sm.get_message(r2["message_id"])
+        body_html = msg.get("body_html") or ""
+        assert local not in body_html, "entity-encoded address survived redaction (SR-1 F8)!"
+        assert alias in body_html, "entity-encoded address must redact to the alias"
+    print("    ✓ decimal + hex entity forms redacted")
+
+
+def test_sr1_truncation_after_redaction() -> None:
+    """SR-1 F6t: the stored raw payload is redacted BEFORE the 10k cut —
+    an address straddling the boundary can never be stored partially."""
+    print("\n[SR-1 F6t] Redact-then-truncate on the raw payload")
+    _ensure_operator("mask-op-sr1f")
+    email = f"sr1trunc-{_n()}@buyer.example"
+    lead_id, _ = _ensure_lead_with_contact("org-system", email, "TruncCo")
+    gw, _, _ = _gateway()
+    r = gw.send(operator_id="mask-op-sr1f", display_name="Faith Export", lead_id=lead_id,
+                buyer_email=email, subject="intro", body_text="hello", operator_name="SR Tester")
+    assert r["action"] == "sent", r
+    pad = "z" * 10040
+    payload = {"data": {"from": email, "to": [r["masked_from"]], "subject": "trunc",
+                        "text": "body", "message_id": f"tr-{_n()}",
+                        "notes": pad + " tail " + email + " " + pad}}
+    r2 = gw.process_inbound(payload)
+    assert r2["action"] == "received", r2
+    with StateManager() as sm:
+        msg = sm.get_message(r2["message_id"])
+        raw = msg.get("raw_payload") or ""
+        assert email not in raw, "real address in truncated raw payload!"
+        # No partial fragment of the local part either
+        assert email.split("@")[0][:10] not in raw, "partial address fragment stored (SR-1 F6t)!"
+    print("    ✓ full redaction before the 10k truncation")
+
+
+def test_sr1_idempotency_org_scoped() -> None:
+    """SR-1 F9: the same provider_message_id delivered to a DIFFERENT org's
+    inbox is not suppressed as a duplicate of the first org's copy."""
+    print("\n[SR-1 F9] Inbound idempotency scoped to the inbox's org")
+    _ensure_operator("mask-op-sr1g")
+    _ensure_operator("mask-op-sr1g-b", org="org-other", name="Org B Op")
+    email_a = f"idem-a-{_n()}@buyer.example"
+    email_b = f"idem-b-{_n()}@buyer.example"
+    lead_a, _ = _ensure_lead_with_contact("org-system", email_a, "IdemA")
+    lead_b, _ = _ensure_lead_with_contact("org-other", email_b, "IdemB")
+    gw, _, _ = _gateway()
+    ra = gw.send(operator_id="mask-op-sr1g", display_name="Faith", lead_id=lead_a,
+                 buyer_email=email_a, subject="s", body_text="b", operator_name="SR Tester")
+    rb = gw.send(operator_id="mask-op-sr1g-b", display_name="Faith B", lead_id=lead_b,
+                 buyer_email=email_b, subject="s", body_text="b",
+                 organization_id="org-other", operator_name="SR Tester")
+    assert ra["action"] == "sent" and rb["action"] == "sent", (ra, rb)
+
+    mid = f"collide-{_n()}"
+    r1 = gw.process_inbound(_inbound_payload(email_a, ra["masked_from"], "hi", mid))
+    assert r1["action"] == "received", r1
+    r2 = gw.process_inbound(_inbound_payload(email_b, rb["masked_from"], "hi", mid))
+    assert r2["action"] == "received", f"org B's copy suppressed by org A's id (SR-1 F9): {r2}"
+    assert r1["message_id"] != r2["message_id"]
+    print("    ✓ colliding provider ids stay org-local")
+
+
+def test_sr1_multiple_open_threads_deterministic() -> None:
+    """SR-1 F10: two open threads for (lead, inbox) no longer crash the
+    gateway — the most recently updated thread is picked deterministically."""
+    print("\n[SR-1 F10] Multiple open threads handled without crash")
+    _ensure_operator("mask-op-sr1h")
+    email = f"multi-{_n()}@buyer.example"
+    lead_id, contact_id = _ensure_lead_with_contact("org-system", email, "MultiCo")
+    from coffee_export.database.models.messaging import MessageThread
+    with StateManager() as sm:
+        inbox = sm.get_or_create_exporter_inbox(
+            operator_id="mask-op-sr1h", display_name="Faith Export",
+            inbound_domain="faithelexport.com", operator_name="SR Tester")
+        t1 = sm.get_or_create_thread(lead_id=lead_id, inbox_id=inbox["id"],
+                                     buyer_email=email, subject="T1",
+                                     buyer_contact_id=contact_id)
+        now = now_addis_iso_str()
+        sm.session.add(MessageThread(
+            thread_id=f"T-XX-{_n()}", lead_id=lead_id, inbox_id=inbox["id"],
+            buyer_contact_id=contact_id, buyer_email=email, subject="T2",
+            status="active", message_count=0, unread_count=0,
+            organization_id="org-system", created_ts=now, updated_ts=now))
+        sm._commit()
+        # Pre-SR-1 this raised MultipleResultsFound; now it picks one thread.
+        t3 = sm.get_or_create_thread(lead_id=lead_id, inbox_id=inbox["id"],
+                                     buyer_email=email, subject="T3",
+                                     buyer_contact_id=contact_id)
+        assert t3["thread_id"] in (t1["thread_id"],) or t3["thread_id"].startswith("T-XX-")
+        assert t3["status"] != "closed"
+    print("    ✓ deterministic pick, no MultipleResultsFound")
+
+
+def test_sr1_heal_rejects_foreign_alias() -> None:
+    """SR-1 F11: a thread whose buyer_email is ANOTHER org's alias is never
+    adopted by the self-heal (no cross-tenant mask linking)."""
+    print("\n[SR-1 F11] Heal refuses foreign-org aliases")
+    _ensure_operator("mask-op-sr1i", org="org-other", name="OrgB")
+    email_b = f"foreign-{_n()}@buyer.example"
+    lead_b, _ = _ensure_lead_with_contact("org-other", email_b, "ForeignCo")
+    gw, _, _ = _gateway()
+    rb = gw.send(operator_id="mask-op-sr1i", display_name="Faith B", lead_id=lead_b,
+                 buyer_email=email_b, subject="s", body_text="b",
+                 organization_id="org-other", operator_name="SR Tester")
+    assert rb["action"] == "sent", rb
+    alias_b = rb["buyer_alias"]
+
+    _ensure_operator("mask-op-sr1j")
+    email_a = f"ownaddr-{_n()}@buyer.example"
+    lead_a, contact_a = _ensure_lead_with_contact("org-system", email_a, "OwnCo")
+    with StateManager() as sm:
+        inbox = sm.get_or_create_exporter_inbox(
+            operator_id="mask-op-sr1j", display_name="Faith Export",
+            inbound_domain="faithelexport.com", operator_name="SR Tester")
+        thread = sm.get_or_create_thread(lead_id=lead_a, inbox_id=inbox["id"],
+                                         buyer_email=alias_b, subject="hijack",
+                                         buyer_contact_id=contact_a)
+        hijacked_id = thread["thread_id"]
+        result = sm.heal_thread_buyer_mask(hijacked_id, "faithelexport.com",
+                                           created_by="test:foreign-alias")
+    assert result is None, "heal adopted a foreign-org alias (SR-1 F11)!"
+    with StateManager() as sm:
+        t = sm.get_thread(hijacked_id)
+        assert t["buyer_mask_id"] is None, "thread must stay unlinked to the foreign mask"
+    print("    ✓ foreign alias refused, thread left unlinked")
+
+
+def test_sr1_revoke_org_scoped() -> None:
+    """SR-1 F12: revoke with an explicit organization_id cannot revoke
+    another org's mask."""
+    print("\n[SR-1 F12] Org-scoped revocation")
+    email = f"rev-org-{_n()}@buyer.example"
+    with StateManager() as sm:
+        mask = sm.get_or_create_buyer_mask(
+            organization_id="org-other", real_email=email,
+            inbound_domain="faithelexport.com", created_by="sr1-test")
+        assert mask["created"] is True
+        # Wrong org -> refused
+        assert sm.revoke_buyer_mask(alias_address=mask["alias_address"],
+                                    reason="hostile", organization_id="org-system") is False
+        # Wrong org -> still active
+        check = sm.find_buyer_mask_by_alias(mask["alias_address"])
+        assert check["status"] == "active", "cross-org revocation must not take effect!"
+        # Right org -> revoked
+        assert sm.revoke_buyer_mask(alias_address=mask["alias_address"],
+                                    reason="legit", organization_id="org-other") is True
+        check = sm.find_buyer_mask_by_alias(mask["alias_address"])
+        assert check["status"] == "revoked"
+    print("    ✓ cross-org revoke refused, own-org revoke works")
+
+
+# ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     test_crypto_primitives()
@@ -664,6 +996,17 @@ def main() -> None:
     test_legacy_thread_self_heal()
     test_bridge_forbids_cc_bcc()
     test_migration_preservation()
+    test_sr1_revoked_address_still_redacted()
+    test_sr1_heal_subject_and_reply_subject()
+    test_sr1_outbound_content_redacted()
+    test_sr1_provider_error_sanitized()
+    test_sr1_alias_errors_indistinguishable()
+    test_sr1_entity_encoded_redaction()
+    test_sr1_truncation_after_redaction()
+    test_sr1_idempotency_org_scoped()
+    test_sr1_multiple_open_threads_deterministic()
+    test_sr1_heal_rejects_foreign_alias()
+    test_sr1_revoke_org_scoped()
     print("\n" + "=" * 60)
     print("ALL PHASE 4 MASKING TESTS PASSED")
     print("=" * 60)

@@ -70,6 +70,31 @@ _BLOB_PREFIX = "v1:"
 # signatures, forwarded chains).
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
+# Entity-encoded addresses (HTML bodies): 'konrad&#64;roastery&#46;example' or
+# 'konrad&#x40;roastery.example'. SR-1 hardening — the plain regex misses
+# these, letting an entity-encoded REGISTERED address survive redaction.
+_ENTITY_AT = r"(?:&#0*64;|&#x0*40;)"
+_ENTITY_DOT = r"(?:&#0*46;|&#x0*2e;|\.)"
+_ENTITY_EMAIL_RE = re.compile(
+    r"[A-Za-z0-9._%+\-]+" + _ENTITY_AT + r"(?:[A-Za-z0-9\-]+" + _ENTITY_DOT + r")+[A-Za-z]{2,}",
+    re.IGNORECASE,
+)
+
+
+def _decode_numeric_entities(token: str) -> str:
+    """Decode HTML numeric entities (&#64; / &#x40;) in a token."""
+
+    def _repl(m: re.Match[str]) -> str:
+        body = m.group(0)[2:-1]  # strip the 2-char '&#' prefix and ';' suffix
+        try:
+            if body[:1] in ("x", "X"):
+                return chr(int(body[1:], 16))
+            return chr(int(body))
+        except ValueError:
+            return m.group(0)
+
+    return re.sub(r"&#x?[0-9a-fA-F]+;", _repl, token)
+
 
 def mask_secret() -> str:
     """The configured BUYER_MASK_SECRET, or '' when unset."""
@@ -247,10 +272,15 @@ def redact_text(
 
     ``resolver(email)`` returns the alias for a registered buyer address or
     None for unknown/third-party addresses (which are left untouched — we
-    only redact identities we are custodians of).
+    only redact identities we are custodians of). REGISTERED means any
+    registry row, ACTIVE or REVOKED — revocation blocks messaging, not
+    redaction hygiene (SR-1).
 
     Case-insensitive: 'Konrad@TestBuyer.example' and 'konrad@testbuyer.example'
-    both match the normalized registry identity.
+    both match the normalized registry identity. HTML-entity-encoded
+    addresses ('konrad&#64;roastery&#46;example', 'konrad&#x40;roastery.example')
+    are decoded for the lookup and the whole encoded span is replaced with
+    the alias (SR-1 hardening).
     """
     if not text:
         return text
@@ -262,13 +292,23 @@ def redact_text(
         if alias:
             replacements[token] = alias
 
-    if not replacements:
-        return text
-
     def _sub(match: re.Match[str]) -> str:
         return replacements.get(normalize_email(match.group(0)), match.group(0))
 
-    return _EMAIL_RE.sub(_sub, text)
+    out = _EMAIL_RE.sub(_sub, text) if replacements else text
+
+    # Second pass: entity-encoded spans (function replacement → no escape
+    # processing; unknown addresses keep their original span untouched).
+    if _ENTITY_EMAIL_RE.search(out):
+
+        def _esub(match: re.Match[str]) -> str:
+            decoded = normalize_email(_decode_numeric_entities(match.group(0)))
+            alias = resolver(decoded)
+            return alias if alias else match.group(0)
+
+        out = _ENTITY_EMAIL_RE.sub(_esub, out)
+
+    return out
 
 
 def strip_cc_bcc(payload: dict) -> dict:

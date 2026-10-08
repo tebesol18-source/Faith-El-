@@ -93,12 +93,27 @@ export async function GET(request: any) {
         LIMIT 10
       `).all(orgId) as any[];
 
+
+// SR-1 (security review): legacy MESSAGE_* events keyed the buyer identity
+// as buyer_email / from_addr — a pre-Phase-4 event could carry a plaintext
+// buyer address. Only platform aliases (or the new alias keys) may render.
+const DASH_INBOUND_DOMAIN = (process.env.INBOUND_EMAIL_DOMAIN || "faithelexport.com").toLowerCase();
+function dashBuyerLabel(p: any): string {
+  const alias = p.buyer_alias || p.from_alias;
+  if (alias) return alias;
+  const legacy = p.buyer_email || p.from_addr || "";
+  if (legacy && typeof legacy === "string" && legacy.toLowerCase().endsWith("@" + DASH_INBOUND_DOMAIN)) {
+    return legacy;
+  }
+  return "buyer";
+}
+
       const eventConfig: Record<string, { text: (p: any) => string; badge: string; badgeBg: string; badgeColor: string; dot: string }> = {
         LEAD_CREATED: { text: (p) => `New lead created: ${p.company_name || p.lead_id}`, badge: "Lead", badgeBg: "bg-blue-50", badgeColor: "text-blue-700", dot: "bg-blue-500" },
         LEAD_ENRICHED: { text: (p) => `Lead enriched: ${p.company_name || p.lead_id} → ${p.tier || "?"} tier`, badge: "Lead", badgeBg: "bg-blue-50", badgeColor: "text-blue-700", dot: "bg-blue-500" },
         LEAD_STATE_CHANGED: { text: (p) => `Lead ${p.lead_id} → ${p.to_state || "new state"}`, badge: "Lead", badgeBg: "bg-blue-50", badgeColor: "text-blue-700", dot: "bg-blue-500" },
-        MESSAGE_SENT: { text: (p) => `Outreach email sent to ${p.buyer_email || "buyer"}`, badge: "Email", badgeBg: "bg-indigo-50", badgeColor: "text-indigo-700", dot: "bg-indigo-500" },
-        MESSAGE_RECEIVED: { text: (p) => `Reply received from ${p.from_addr || "buyer"}`, badge: "Email", badgeBg: "bg-indigo-50", badgeColor: "text-indigo-700", dot: "bg-indigo-500" },
+        MESSAGE_SENT: { text: (p) => `Outreach email sent to ${dashBuyerLabel(p)}`, badge: "Email", badgeBg: "bg-indigo-50", badgeColor: "text-indigo-700", dot: "bg-indigo-500" },
+        MESSAGE_RECEIVED: { text: (p) => `Reply received from ${dashBuyerLabel(p)}`, badge: "Email", badgeBg: "bg-indigo-50", badgeColor: "text-indigo-700", dot: "bg-indigo-500" },
         THREAD_OPENED: { text: (p) => `New conversation: ${p.subject || p.thread_id}`, badge: "Inbox", badgeBg: "bg-purple-50", badgeColor: "text-purple-700", dot: "bg-purple-500" },
         CONTRACT_SIGNED: { text: (p) => `Contract signed: ${p.contract_id || ""}`, badge: "Contract", badgeBg: "bg-green-50", badgeColor: "text-green-700", dot: "bg-green-500" },
         SAMPLE_DISPATCHED: { text: (p) => `Sample dispatched to ${p.buyer || "buyer"}`, badge: "Sample", badgeBg: "bg-amber-50", badgeColor: "text-amber-700", dot: "bg-amber-500" },

@@ -157,7 +157,11 @@ class ResendEmailProvider:
             }
 
         if resp.status_code >= 400:
-            err = f"HTTP {resp.status_code}: {resp.text[:300]}"
+            # SR-1 (review finding 4): NEVER echo the provider's response
+            # body — Resend validation errors can quote the request payload
+            # (including the real recipient address), which would flow into
+            # gateway logs and the exporter-facing 502 body. Status code only.
+            err = f"HTTP {resp.status_code} (response body withheld — may contain recipient data)"
             log.error(f"Resend API error: {err}")
             return {
                 "success": False,
@@ -229,9 +233,13 @@ class ResendEmailProvider:
         base64-decoded after stripping the prefix), base64-encoded output,
         sent as `svix-signature: t=<ts>,v1=<sig>`.
 
-        Also accepted (dev/test fixtures only): the legacy scheme this code
-        used before Phase 2 — plain hex HMAC over the raw body with the raw
-        secret, header "v1,<hex>" — so existing local tests keep passing.
+        Also accepted (dev/test fixtures ONLY, SR-1 hardening): the legacy
+        scheme this code used before Phase 2 — plain hex HMAC over the raw
+        body with the raw secret, header "v1,<hex>". It has NO timestamp
+        binding, so a captured legacy-signed request is replayable forever —
+        it is therefore gated behind EMAIL_ALLOW_UNSIGNED_WEBHOOKS=1 (the
+        explicit local-dev override) and REJECTED whenever that flag is
+        unset.
 
         Replay protection: when the Svix timestamp is present and older than
         WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS, the request is rejected.
@@ -301,6 +309,17 @@ class ResendEmailProvider:
             return False
 
         # ── Scheme 2: legacy dev/test scheme ("v1,<hex>" over raw body) ──
+        # SR-1 (review finding 5): no timestamp binding — replayable forever
+        # if accepted in production. Only the explicit local-dev override may
+        # use it; with the flag unset the legacy scheme is rejected outright.
+        if os.environ.get("EMAIL_ALLOW_UNSIGNED_WEBHOOKS", "").strip() != "1":
+            log.error(
+                "Legacy dev webhook signature scheme rejected (no timestamp "
+                "binding, replayable). Accepted only with "
+                "EMAIL_ALLOW_UNSIGNED_WEBHOOKS=1 for local development."
+            )
+            return False
+
         tokens = [t.strip() for t in signature_header.split() if t.strip()]
         if not tokens:
             return False

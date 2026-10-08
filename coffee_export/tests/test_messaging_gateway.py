@@ -320,14 +320,26 @@ def test_full_gateway_flow() -> None:
             assert expected in seen, f"missing event: {expected}"
         print(f"    events seen: {sorted(seen)}")
 
-    print("\n[11] Webhook signature verification")
+    print("\n[11] Webhook signature verification (real Svix scheme)")
     provider = ResendEmailProvider(webhook_secret="test-secret-123")
     raw_body = b'{"data":{"from":"x@y.com"}}'
-    import hmac, hashlib
-    good_sig = hmac.new(b"test-secret-123", raw_body, hashlib.sha256).hexdigest()
-    assert provider.verify_webhook_signature(raw_body, f"v1,{good_sig}"), "valid sig rejected"
-    assert not provider.verify_webhook_signature(raw_body, "v1,deadbeef"), "bad sig accepted"
-    print("    ✓ valid signature accepted, invalid rejected")
+    import base64, hashlib, hmac, time
+    ts = int(time.time())
+    # Real Resend/Svix scheme: HMAC-SHA256 over "{id}.{ts}.{body}", base64.
+    # ("test-secret-123" is not base64, so the provider uses it as raw bytes.)
+    key = b"test-secret-123"
+    signed = f"msg_11.{ts}.".encode() + raw_body
+    good_sig = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
+    assert provider.verify_webhook_signature(
+        raw_body, f"t={ts},v1={good_sig}", svix_id="msg_11", svix_timestamp=str(ts)
+    ), "valid svix sig rejected"
+    assert not provider.verify_webhook_signature(
+        raw_body, f"t={ts},v1={'A' * 43 + '='}", svix_id="msg_11", svix_timestamp=str(ts)
+    ), "bad svix sig accepted"
+    # SR-1: the legacy dev scheme is refused in the default posture.
+    legacy = hmac.new(b"test-secret-123", raw_body, hashlib.sha256).hexdigest()
+    assert not provider.verify_webhook_signature(raw_body, f"v1,{legacy}"), "legacy scheme must be gated"
+    print("    ✓ valid svix accepted, invalid rejected, legacy scheme gated (SR-1)")
 
     print("\n[12] Webhook FastAPI app builds")
     from coffee_export.messaging.webhook import create_inbound_app

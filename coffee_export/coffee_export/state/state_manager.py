@@ -3815,12 +3815,18 @@ class StateManager:
         from coffee_export.database.models.messaging import BuyerMask, MessageThread
 
         existing = self.session.execute(
-            select(MessageThread).where(
+            select(MessageThread)
+            .where(
                 MessageThread.lead_id == lead_id,
                 MessageThread.inbox_id == inbox_id,
                 MessageThread.status != "closed",
             )
-        ).scalar_one_or_none()
+            # SR-1: multiple open threads for (lead, inbox) must not crash
+            # the gateway with MultipleResultsFound (scalar_one_or_none
+            # raises) — deterministically pick the most recently updated.
+            .order_by(MessageThread.updated_ts.desc(), MessageThread.thread_id.desc())
+            .limit(1)
+        ).scalars().first()
         if existing:
             # Legacy self-heal link: thread predates masking, a mask is now
             # known — link + rewrite (audited, idempotent).
@@ -4499,8 +4505,15 @@ class StateManager:
         mask_id: int | None = None,
         alias_address: str | None = None,
         reason: str = "",
+        organization_id: str | None = None,
     ) -> bool:
-        """Revoke a mask — blocks BOTH directions (inbound + outbound)."""
+        """Revoke a mask — blocks BOTH directions (inbound + outbound).
+
+        SR-1: optionally org-scoped — when ``organization_id`` is given, a
+        mask belonging to another org is NEVER revoked (returns False).
+        Today only internal callers/tests use this; the parameter exists so
+        any future admin tooling cannot revoke cross-tenant by accident.
+        """
         from coffee_export.database.models.messaging import BuyerMask
 
         stmt = select(BuyerMask)
@@ -4513,6 +4526,12 @@ class StateManager:
         row = self.session.execute(stmt.limit(1)).scalar_one_or_none()
         if not row or row.status == "revoked":
             return bool(row)
+        if organization_id is not None and row.organization_id != organization_id:
+            log.warning(
+                f"revoke_buyer_mask REFUSED: mask {row.alias_address} belongs "
+                f"to org {row.organization_id!r}, caller org {organization_id!r}"
+            )
+            return False
         row.status = "revoked"
         row.revoked_ts = now_addis_iso_str()
         row.revoke_reason = reason or "revoked by operator"
@@ -4525,7 +4544,14 @@ class StateManager:
         return True
 
     def _mask_resolver(self, organization_id: str) -> Any:
-        """Resolver(email) -> alias | None, scoped to one org (redaction)."""
+        """Resolver(email) -> alias | None, scoped to one org (redaction).
+
+        SR-1: ANY registered address resolves — ACTIVE or REVOKED.
+        Revocation blocks messaging (send/reply/inbound), not redaction
+        hygiene: a revoked buyer's real address quoted in stored content
+        must still be replaced by the alias, otherwise it survives in
+        messages, raw payloads and LLM prompts.
+        """
         cache: dict[str, str | None] = {}
 
         def resolver(email: str) -> str | None:
@@ -4535,7 +4561,7 @@ class StateManager:
             if token in cache:
                 return cache[token]
             mask = self.find_buyer_mask_by_real_email(organization_id, token)
-            alias = mask["alias_address"] if mask and mask["status"] == "active" else None
+            alias = mask["alias_address"] if mask else None
             cache[token] = alias
             return alias
 
@@ -4554,11 +4580,18 @@ class StateManager:
 
         old_buyer_email = (thread.buyer_email or "").strip().lower()
         alias = mask.alias_address
+        resolver = self._mask_resolver(thread.organization_id)
         thread.buyer_mask_id = mask.id
         thread.buyer_email = alias
+        # SR-1: the thread SUBJECT can quote the legacy plaintext address
+        # (e.g. 'Quote for konrad@roastery.example') — redact it too, or it
+        # survives the heal and is served verbatim by GET /api/inbox.
+        if thread.subject:
+            red_subject = masking.redact_text(thread.subject, resolver)
+            if red_subject != thread.subject:
+                thread.subject = red_subject
         thread.updated_ts = now_addis_iso_str()
 
-        resolver = self._mask_resolver(thread.organization_id)
         msgs = (
             self.session.execute(
                 select(InboxMessage).where(InboxMessage.thread_id == thread.thread_id)
@@ -4634,6 +4667,16 @@ class StateManager:
             # the alias points at, if any. Without one we cannot know the
             # real address (it was never registered) — honest None.
             mask = self.find_buyer_mask_by_alias(buyer_email)
+            if mask and mask["organization_id"] != thread.organization_id:
+                # SR-1: the alias belongs to ANOTHER org's registry. Adopting
+                # it would link this thread to a foreign tenant's mask (and
+                # let its alias resolution flow cross-org). Refuse.
+                log.warning(
+                    f"heal_thread_buyer_mask: thread {thread_id} carries alias "
+                    f"{buyer_email} belonging to org {mask['organization_id']!r} "
+                    f"(thread org {thread.organization_id!r}) — refusing to adopt"
+                )
+                return None
             if mask:
                 row = self.session.get(BuyerMask, mask["id"])
                 self._apply_thread_mask(thread, row)

@@ -18,6 +18,10 @@
  *   4. CROSS-TENANT: composing to another org's lead → 404 (fail closed).
  *   5. REVOCATION: after the mask is revoked, outbound compose → refused
  *      (403) and inbound from that buyer → rejected.
+ *   6. SR-1 LEGACY CONTENT: an unhealed pre-Phase-4 thread (plaintext
+ *      buyer_email + address in subject/body) is served by GET /api/inbox
+ *      with EVERY field redacted — identity to placeholders, content tokens
+ *      to "[redacted address]" — never the real address.
  *
  * Requires the hermetic runner (scripts/run-tests.mjs) environment:
  * TEST_BASE_URL + DATABASE_PATH point at the isolated server/DB, and
@@ -324,5 +328,64 @@ describe("Phase 4 — buyer email masking (compose, leak, round-trip, tenant, re
     expect(d2.action).toBe("rejected");
     expect(String(d2.reason)).toMatch(/revoked/);
     expect(JSON.stringify(d2)).not.toContain(falconRealEmail);
+  });
+
+  itOrSkip("SR-1: unhealed legacy thread content is redacted by /api/inbox (never emitted)", async () => {
+    // Simulate a pre-Phase-4 plaintext thread the gateway has never touched:
+    // buyer_email, subject and body all carry the real address, no mask link.
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(TEST_DB_PATH);
+    const legacyEmail = `legacy.buyer${Date.now()}@legacybuyer.example`;
+    let legacyThread = "";
+    try {
+      const inbox = db
+        .prepare("SELECT id, organization_id FROM exporter_inboxes WHERE is_active=1 ORDER BY id LIMIT 1")
+        .get() as any;
+      expect(inbox).toBeTruthy();
+      const now = new Date().toISOString();
+      legacyThread = `T-TEST-LEGACY-${Date.now()}`;
+      db.prepare(
+        `INSERT INTO message_threads (thread_id, lead_id, inbox_id, buyer_email, subject, status,
+           message_count, unread_count, organization_id, created_ts, updated_ts)
+         VALUES (?, ?, ?, ?, ?, 'awaiting_exporter', 1, 1, ?, ?, ?)`
+      ).run(legacyThread, falconLeadId, inbox.id, legacyEmail, `Quote for ${legacyEmail}`, inbox.organization_id, now, now);
+      db.prepare(
+        `INSERT INTO inbox_messages (thread_id, direction, from_addr, to_addr, subject, body_text,
+           provider, ai_processed, is_read, status, organization_id, received_ts, created_ts, updated_ts)
+         VALUES (?, 'inbound', ?, 'legacy.inbox@faithelexport.com', ?, ?, 'resend', 0, 0, 'new', ?, ?, ?, ?)`
+      ).run(
+        legacyThread,
+        legacyEmail,
+        `Re: Quote for ${legacyEmail}`,
+        `Please quote the washed Guji.\nBest,\n${legacyEmail}\n`,
+        inbox.organization_id,
+        now,
+        now,
+        now,
+      );
+    } finally {
+      db.close();
+    }
+
+    const r = await admin!.fetch(`/api/inbox?threadId=${legacyThread}`);
+    expect(r.status).toBe(200);
+    const d = await r.json();
+    expect(d.ok).toBe(true);
+    const conv = (d.conversations || []).find((c: any) => c.threadId === legacyThread);
+    expect(conv).toBeTruthy();
+    // Identity fields: placeholder, no alias leak
+    expect(conv.buyerAlias).toBeNull();
+    expect(conv.buyer).toBe("buyer@");
+    // Content fields (SR-1): subject/body/preview redacted, not raw
+    expect(String(conv.subject)).toContain("[redacted address]");
+    expect(String(conv.preview)).toContain("[redacted address]");
+    const msg = (d.messages || []).find((m: any) => m.direction === "inbound");
+    expect(msg).toBeTruthy();
+    expect(String(msg.subject)).toContain("[redacted address]");
+    expect(String(msg.body)).toContain("[redacted address]");
+    // Whole-payload leak scan
+    const whole = JSON.stringify(d);
+    expect(whole).not.toContain(legacyEmail);
+    expect(whole).not.toContain("@legacybuyer.example");
   });
 });

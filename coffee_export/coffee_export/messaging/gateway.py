@@ -180,6 +180,17 @@ class EmailGateway:
         real_to = resolved["real_to"]  # exists ONLY until the provider call below
         buyer_contact_id = resolved.get("buyer_contact_id") or buyer_contact_id
 
+        # SR-1 (review finding 3): redact REGISTERED real addresses from
+        # operator-authored content BEFORE it is stored, logged, published in
+        # events, or handed to the provider. The recipient's own address is
+        # registered (resolved above), so the buyer sees their platform alias
+        # even in quoted text — consistent with the Phase 4 invariant.
+        resolver = self.sm._mask_resolver(organization_id)
+        subject = buyer_masking.redact_text(subject, resolver)
+        body_text = buyer_masking.redact_text(body_text, resolver)
+        if body_html:
+            body_html = buyer_masking.redact_text(body_html, resolver)
+
         # 3. Thread (buyer_email = ALIAS; links the mask for inbound routing)
         thread = self.sm.get_or_create_thread(
             lead_id=lead_id,
@@ -323,24 +334,12 @@ class EmailGateway:
             )
             return {"action": "rejected", "reason": "missing addresses"}
 
-        # 1b. Idempotency: Resend retries webhook deliveries on non-2xx and
-        # timeouts. If we already stored this provider message, return the
-        # existing row instead of double-storing (no duplicate side effects).
-        if provider_message_id:
-            existing = self.sm.find_inbound_by_provider_message_id(provider_message_id)
-            if existing:
-                log.info(
-                    f"Inbound webhook duplicate ignored: provider_message_id="
-                    f"{provider_message_id} already stored as msg {existing['id']}"
-                )
-                return {
-                    "action": "duplicate",
-                    "message_id": existing["id"],
-                    "thread_id": existing["thread_id"],
-                    "duplicate_of": existing["id"],
-                }
-
-        # 2. Inbox lookup
+        # 2. Inbox lookup — FIRST, because the tenant context of an inbound
+        #    email is the INBOX's organization (the masked address belongs
+        #    to exactly one exporter inbox). Every subsequent check,
+        #    including idempotency, is scoped to that org (SR-1 finding 7:
+        #    a provider message id from one org must never suppress
+        #    another org's copy of a colliding id).
         inbox = self.sm.get_inbox_by_masked_email(to_addr)
         if not inbox or not inbox["is_active"]:
             log.warning(f"Inbound email to unknown/disabled inbox: {to_addr}")
@@ -352,6 +351,26 @@ class EmailGateway:
         # The tenant context of an inbound email is the INBOX's organization
         # (the masked address belongs to exactly one exporter inbox).
         inbox_org = inbox.get("organization_id") or "org-system"
+
+        # 1b. Idempotency (org-scoped): Resend retries webhook deliveries on
+        # non-2xx and timeouts. If we already stored this provider message
+        # in THIS org, return the existing row instead of double-storing
+        # (no duplicate side effects).
+        if provider_message_id:
+            existing = self.sm.find_inbound_by_provider_message_id(
+                provider_message_id, organization_id=inbox_org
+            )
+            if existing:
+                log.info(
+                    f"Inbound webhook duplicate ignored: provider_message_id="
+                    f"{provider_message_id} already stored as msg {existing['id']}"
+                )
+                return {
+                    "action": "duplicate",
+                    "message_id": existing["id"],
+                    "thread_id": existing["thread_id"],
+                    "duplicate_of": existing["id"],
+                }
 
         # 3. Resolve the buyer through the mask registry (Phase 4).
         #    Fail closed when masking cannot operate.
@@ -449,9 +468,12 @@ class EmailGateway:
         raw_stored = None
         if raw_payload:
             cleaned = buyer_masking.strip_cc_bcc(raw_payload)
+            # SR-1 (review finding 5): redact the FULL payload first, THEN
+            # truncate — cutting first can split an address so the regex no
+            # longer matches it, storing a partial real address forever.
             raw_stored = buyer_masking.redact_text(
-                json.dumps(cleaned)[:10000], resolver
-            )
+                json.dumps(cleaned), resolver
+            )[:10000]
 
         # 5. Thread (reuse existing or open new) — org attributed from inbox.
         #    buyer_email = ALIAS; legacy plaintext threads self-heal here.
@@ -655,17 +677,21 @@ class EmailGateway:
         thread_buyer = (thread.get("buyer_email") or "").strip().lower()
 
         if buyer_masking.is_platform_alias(thread_buyer, self.inbound_domain):
+            healed = False
             mask = self.sm.find_buyer_mask_by_alias(thread_buyer)
-            if not mask:
-                return {"action": "skipped", "reason": "buyer mask lookup failed"}
-            if mask["organization_id"] != thread_org:
-                log.warning(
-                    f"EmailGateway.reply() REFUSED: mask {mask['alias_address']} "
-                    f"belongs to org {mask['organization_id']}, thread org {thread_org}"
-                )
+            if not mask or mask["organization_id"] != thread_org:
+                # SR-1 finding 6: unified error — unknown vs cross-tenant alias
+                # must be indistinguishable to the caller (no existence
+                # oracle). Internal log keeps the distinction.
+                if mask:
+                    log.warning(
+                        f"EmailGateway.reply() REFUSED: alias {thread_buyer} "
+                        f"belongs to org {mask['organization_id']}, thread org "
+                        f"{thread_org} — cross-tenant reply blocked"
+                    )
                 return {
                     "action": "reply_refused",
-                    "reason": "buyer alias does not belong to caller's organization",
+                    "reason": "unknown or unauthorized buyer alias",
                 }
             if mask["status"] != "active":
                 return {
@@ -677,6 +703,7 @@ class EmailGateway:
             mask = self.sm.heal_thread_buyer_mask(
                 thread["thread_id"], self.inbound_domain, created_by="reply:selfheal"
             )
+            healed = True
             if not mask:
                 return {
                     "action": "skipped",
@@ -688,13 +715,33 @@ class EmailGateway:
                     "reason": f"buyer alias is {mask['status']} — sending blocked",
                 }
             if mask["organization_id"] != thread_org:
+                log.warning(
+                    f"EmailGateway.reply() REFUSED: healed mask "
+                    f"{mask['alias_address']} belongs to org "
+                    f"{mask['organization_id']}, thread org {thread_org}"
+                )
                 return {
                     "action": "reply_refused",
-                    "reason": "buyer alias does not belong to caller's organization",
+                    "reason": "unknown or unauthorized buyer alias",
                 }
 
         buyer_alias = mask["alias_address"]
         real_to = self.sm.decrypt_buyer_email(mask)  # provider boundary only
+
+        # SR-1 (review finding 2b): the heal above REWROTE the original
+        # message rows (subject/body redacted) AFTER `msg` was fetched —
+        # re-fetch so the reply subject comes from the healed row, never
+        # the stale pre-heal copy carrying the plaintext address.
+        if healed:
+            msg = self.sm.get_message(message_id) or msg
+
+        # SR-1 (review finding 3): redact registered real addresses from the
+        # operator-authored reply body before storage/events/provider (the
+        # subject already comes from the healed/redacted inbound row).
+        resolver = self.sm._mask_resolver(thread_org)
+        body_text = buyer_masking.redact_text(body_text, resolver)
+        if body_html:
+            body_html = buyer_masking.redact_text(body_html, resolver)
 
         # Use the inbound message's subject with "Re:" prefix if not already
         subject = msg["subject"]
@@ -825,18 +872,20 @@ class EmailGateway:
 
         if buyer_masking.is_platform_alias(email_norm, self.inbound_domain):
             mask = self.sm.find_buyer_mask_by_alias(email_norm)
-            if not mask:
-                return {"ok": False, "error": f"unknown buyer alias: {email_norm}"}
-            if mask["organization_id"] != organization_id:
-                # Cross-tenant alias use — refuse without confirming the
-                # alias exists elsewhere (no tenant- existence oracle).
-                log.warning(
-                    f"_resolve_outbound_recipient: alias {email_norm} not in "
-                    f"org {organization_id} — cross-tenant send blocked"
-                )
+            if not mask or mask["organization_id"] != organization_id:
+                # SR-1 (review finding 6): unknown alias and cross-tenant
+                # alias return the SAME caller-facing error — distinguishing
+                # them would hand an attacker a tenant-existence oracle
+                # (alias exists elsewhere vs not at all). The internal log
+                # keeps the distinction for operators.
+                if mask:
+                    log.warning(
+                        f"_resolve_outbound_recipient: alias {email_norm} not in "
+                        f"org {organization_id} — cross-tenant send blocked"
+                    )
                 return {
                     "ok": False,
-                    "error": "buyer alias does not belong to caller's organization",
+                    "error": "unknown or unauthorized buyer alias",
                 }
             if mask["status"] != "active":
                 return {

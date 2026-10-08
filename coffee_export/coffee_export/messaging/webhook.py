@@ -122,6 +122,18 @@ def create_inbound_app(
 
     _gateway: EmailGateway | None = gateway
 
+    # SR-1 (review finding: unsigned-override blast radius): the dev override
+    # disables BOTH webhook signatures and bridge bearer auth. Warn loudly at
+    # startup — not just per-request — so an operator starting the bridge with
+    # the flag left set cannot miss it.
+    if os.environ.get("EMAIL_ALLOW_UNSIGNED_WEBHOOKS", "").strip() == "1":
+        log.warning(
+            "⚠️  EMAIL_ALLOW_UNSIGNED_WEBHOOKS=1 is set — this bridge accepts "
+            "UNSIGNED webhooks and UNAUTHENTICATED bridge calls (any caller "
+            "can send mail to any org's verified contacts). Local development "
+            "ONLY. Unset the flag before any production deployment."
+        )
+
     def _get_gateway() -> EmailGateway:
         nonlocal _gateway
         if _gateway is None:

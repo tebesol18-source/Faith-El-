@@ -252,12 +252,25 @@ def test_webhook_replay_rejected():
     ) is False
 
 
-def test_legacy_dev_signature_still_accepted():
+def test_legacy_dev_signature_gated_to_dev_override():
+    """SR-1: the legacy scheme has NO timestamp binding (replayable forever).
+
+    It must be REJECTED in the default configuration and accepted only when
+    the explicit local-dev override EMAIL_ALLOW_UNSIGNED_WEBHOOKS=1 is set.
+    """
     provider = ResendEmailProvider(webhook_secret="legacy-secret")
     body = b'{"data":{"from":"x@y.com"}}'
     good = legacy_signature("legacy-secret", body)
-    assert provider.verify_webhook_signature(body, f"v1,{good}") is True
-    assert provider.verify_webhook_signature(body, "v1,deadbeef") is False
+
+    # Default (production posture): legacy scheme refused outright.
+    with patch.dict(os.environ, {"EMAIL_ALLOW_UNSIGNED_WEBHOOKS": ""}):
+        assert provider.verify_webhook_signature(body, f"v1,{good}") is False
+        assert provider.verify_webhook_signature(body, "v1,deadbeef") is False
+
+    # Explicit dev override: legacy scheme works for local fixtures.
+    with patch.dict(os.environ, {"EMAIL_ALLOW_UNSIGNED_WEBHOOKS": "1"}):
+        assert provider.verify_webhook_signature(body, f"v1,{good}") is True
+        assert provider.verify_webhook_signature(body, "v1,deadbeef") is False
 
 
 # ── 2. Bridge auth (missing / wrong secret) ──────────────────────────────────
