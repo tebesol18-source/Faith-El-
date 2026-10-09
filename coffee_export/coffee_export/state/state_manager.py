@@ -198,6 +198,50 @@ class StateManager:
         """Rollback the current session."""
         self.session.rollback()
 
+    # ── Tenant-ownership guards (Phase F org-scoping audit) ──
+    #
+    # The tenant-enforced repositories (repositories.py) scope READS by
+    # organization_id, but many StateManager methods fetched rows by primary
+    # key via session.get() with no org check — a caller scoped to org A
+    # could mutate org B's row by id. These helpers close that class of
+    # bypass. A cross-tenant row is treated EXACTLY like a missing row
+    # (NotFoundError) — no information leak about other orgs.
+
+    def _scoped_get(self, model, row_id, what: str, organization_id: str | None = None):
+        """Fetch a row by PK, enforcing tenant ownership.
+
+        Returns the row only if it exists AND belongs to the effective org
+        (``organization_id`` overrides this StateManager's org — used by
+        methods that take an explicit org parameter, e.g. the logistics
+        booking API). A row owned by another org raises NotFoundError
+        (indistinguishable from a missing row). A NULL organization_id is
+        normalized to 'org-system' for legacy rows.
+        """
+        row = self.session.get(model, row_id)
+        if row is None:
+            return None
+        self._require_same_org(row, what, row_id, organization_id=organization_id)
+        return row
+
+    def _require_same_org(
+        self, row, what: str, row_id, organization_id: str | None = None
+    ) -> None:
+        """Raise NotFoundError if ``row`` belongs to another org.
+
+        ``organization_id`` (when given) overrides this StateManager's org
+        for callers that legitimately operate across orgs with an explicit
+        tenant parameter.
+        """
+        row_org = getattr(row, "organization_id", None) or "org-system"
+        effective_org = organization_id or self.organization_id
+        if row_org != effective_org:
+            log.warning(
+                f"Cross-tenant access blocked: {what} '{row_id}' belongs to "
+                f"org '{row_org}' but the caller is scoped to "
+                f"'{effective_org}' — treated as not found"
+            )
+            raise NotFoundError(f"{what} '{row_id}' not found")
+
     # =============================================================
     # LEAD LIFECYCLE
     # =============================================================
@@ -360,7 +404,7 @@ class StateManager:
         if new_state not in ALLOWED_STATES:
             raise ValidationFailedError(f"new_state '{new_state}' not in {sorted(ALLOWED_STATES)}")
 
-        lead = self.session.get(Lead, lead_id)
+        lead = self._scoped_get(Lead, lead_id, "lead")
         if not lead:
             raise NotFoundError(f"lead_id '{lead_id}' not found")
 
@@ -415,7 +459,7 @@ class StateManager:
         if to_agent not in ALLOWED_AGENTS:
             raise ValidationFailedError(f"to_agent '{to_agent}' not in {sorted(ALLOWED_AGENTS)}")
 
-        lead = self.session.get(Lead, lead_id)
+        lead = self._scoped_get(Lead, lead_id, "lead")
         if not lead:
             raise NotFoundError(f"lead_id '{lead_id}' not found")
 
@@ -436,7 +480,7 @@ class StateManager:
 
     def advance_sequence_step(self, lead_id: str) -> int:
         """Increment sequence_step. Fails if already at max (6)."""
-        lead = self.session.get(Lead, lead_id)
+        lead = self._scoped_get(Lead, lead_id, "lead")
         if not lead:
             raise NotFoundError(f"lead_id '{lead_id}' not found")
 
@@ -456,7 +500,7 @@ class StateManager:
 
     def set_lead_field(self, lead_id: str, **fields) -> bool:
         """Set one or more fields on a lead (priority_tier, recommended_vp, etc.)."""
-        lead = self.session.get(Lead, lead_id)
+        lead = self._scoped_get(Lead, lead_id, "lead")
         if not lead:
             raise NotFoundError(f"lead_id '{lead_id}' not found")
 
@@ -494,13 +538,26 @@ class StateManager:
         return True
 
     def add_tag(self, lead_id: str, tag: str) -> bool:
-        """Add a tag to a lead (idempotent)."""
+        """Add a tag to a lead (idempotent, org-scoped)."""
+        # Parent check first — a lead in another org is not taggable here.
+        lead = self._scoped_get(Lead, lead_id, "lead")
+        if not lead:
+            raise NotFoundError(f"lead_id '{lead_id}' not found")
         existing = self.session.execute(
-            select(LeadTag).where(LeadTag.lead_id == lead_id, LeadTag.tag == tag)
+            select(LeadTag).where(
+                LeadTag.lead_id == lead_id,
+                LeadTag.tag == tag,
+                LeadTag.organization_id == self.organization_id,
+            )
         ).scalar_one_or_none()
         if existing:
             return True
-        self.session.add(LeadTag(lead_id=lead_id, tag=tag, tagged_ts=now_addis_iso_str()))
+        self.session.add(LeadTag(
+            lead_id=lead_id,
+            tag=tag,
+            tagged_ts=now_addis_iso_str(),
+            organization_id=self.organization_id,
+        ))
         self._commit()
         return True
 
@@ -516,7 +573,7 @@ class StateManager:
         is_buyer: bool = False,
     ) -> int:
         """Add a contact to a lead. Returns the contact ID."""
-        lead = self.session.get(Lead, lead_id)
+        lead = self._scoped_get(Lead, lead_id, "lead")
         if not lead:
             raise NotFoundError(f"lead_id '{lead_id}' not found")
 
@@ -689,7 +746,7 @@ class StateManager:
 
     def update_lot(self, lot_id: str, **fields) -> bool:
         """Update one or more fields on a lot."""
-        lot = self.session.get(Lot, lot_id)
+        lot = self._scoped_get(Lot, lot_id, "lot")
         if not lot:
             raise NotFoundError(f"lot_id '{lot_id}' not found")
 
@@ -1878,6 +1935,7 @@ class StateManager:
         sr = SampleRequest(
             sample_request_id=sample_request_id,
             lead_id=lead_id,
+            organization_id=self.organization_id,
             sample_type=sample_type,
             crop_year=crop_year,
             buyer_company=buyer_company,
@@ -1905,11 +1963,17 @@ class StateManager:
         substitute_for_lot_id: str | None = None,
     ) -> int:
         """Add a lot to a sample request. Returns the junction table ID."""
-        from coffee_export.database.models import SampleRequestLot
+        from coffee_export.database.models import SampleRequest, SampleRequestLot
+
+        # Parent check — a sample request in another org is not writable here.
+        sr = self._scoped_get(SampleRequest, sample_request_id, "sample_request")
+        if not sr:
+            raise NotFoundError(f"sample_request_id '{sample_request_id}' not found")
 
         srl = SampleRequestLot(
             sample_request_id=sample_request_id,
             lot_id=lot_id,
+            organization_id=self.organization_id,
             quantity_grams=quantity_grams,
             confirmed=1 if confirmed else 0,
             substitute_for_lot_id=substitute_for_lot_id,
@@ -1951,7 +2015,7 @@ class StateManager:
         """
         from coffee_export.database.models import SampleRequest
 
-        sr = self.session.get(SampleRequest, sample_request_id)
+        sr = self._scoped_get(SampleRequest, sample_request_id, "sample_request")
         if not sr:
             raise NotFoundError(f"sample_request_id '{sample_request_id}' not found")
 
@@ -1991,7 +2055,12 @@ class StateManager:
         Record a sample shipment (carrier tracking info).
         Returns shipment_id.
         """
-        from coffee_export.database.models import SampleShipment
+        from coffee_export.database.models import SampleRequest, SampleShipment
+
+        # Parent check — a sample request in another org is not writable here.
+        sr = self._scoped_get(SampleRequest, sample_request_id, "sample_request")
+        if not sr:
+            raise NotFoundError(f"sample_request_id '{sample_request_id}' not found")
 
         now = now_addis()
         year = now.year
@@ -2012,6 +2081,7 @@ class StateManager:
         sh = SampleShipment(
             shipment_id=shipment_id,
             sample_request_id=sample_request_id,
+            organization_id=self.organization_id,
             carrier=carrier,
             tracking_number=tracking_number,
             carrier_account=carrier_account,
@@ -2034,7 +2104,7 @@ class StateManager:
         """Update a sample shipment's status (picked_up → in_transit → delivered)."""
         from coffee_export.database.models import SampleShipment
 
-        sh = self.session.get(SampleShipment, shipment_id)
+        sh = self._scoped_get(SampleShipment, shipment_id, "sample shipment")
         if not sh:
             raise NotFoundError(f"shipment_id '{shipment_id}' not found")
         sh.status = status
@@ -2073,7 +2143,12 @@ class StateManager:
 
         Returns the cupping_score ID.
         """
-        from coffee_export.database.models import CuppingScore
+        from coffee_export.database.models import CuppingScore, SampleRequest
+
+        # Parent check — a sample request in another org is not writable here.
+        sr = self._scoped_get(SampleRequest, sample_request_id, "sample_request")
+        if not sr:
+            raise NotFoundError(f"sample_request_id '{sample_request_id}' not found")
 
         now = now_addis_iso_str()
         score_diff = None
@@ -2083,6 +2158,7 @@ class StateManager:
         cs = CuppingScore(
             sample_request_id=sample_request_id,
             lot_id=lot_id,
+            organization_id=self.organization_id,
             buyer_company=buyer_company,
             cupper_name=cupper_name,
             fragrance_aroma=fragrance_aroma,
@@ -2143,7 +2219,12 @@ class StateManager:
 
         Returns the decision_id.
         """
-        from coffee_export.database.models import SampleDecision
+        from coffee_export.database.models import SampleDecision, SampleRequest
+
+        # Parent check — a sample request in another org is not writable here.
+        sr = self._scoped_get(SampleRequest, sample_request_id, "sample_request")
+        if not sr:
+            raise NotFoundError(f"sample_request_id '{sample_request_id}' not found")
 
         now = now_addis()
         prefix = f"DEC-{now.strftime('%Y%m%d%H%M%S')}-{lot_id}"
@@ -2154,6 +2235,7 @@ class StateManager:
             decision_id=decision_id,
             sample_request_id=sample_request_id,
             lot_id=lot_id,
+            organization_id=self.organization_id,
             decision=decision,
             buyer_target_fob=buyer_target_fob,
             buyer_target_volume_bags=buyer_target_volume_bags,
@@ -2782,13 +2864,19 @@ class StateManager:
         notes: str = "",
     ) -> int:
         """Add a lot to a contract as a line item. Returns line item ID."""
-        from coffee_export.database.models import ContractLineItem
+        from coffee_export.database.models import Contract, ContractLineItem
+
+        # Parent check — a contract in another org is not writable here.
+        contract = self._scoped_get(Contract, contract_id, "contract")
+        if not contract:
+            raise NotFoundError(f"contract '{contract_id}' not found")
 
         total_price = quantity_bags * unit_price
         now = now_addis_iso_str()
         item = ContractLineItem(
             contract_id=contract_id,
             lot_id=lot_id,
+            organization_id=self.organization_id,
             quantity_bags=quantity_bags,
             unit_price=unit_price,
             total_price=total_price,
@@ -2834,7 +2922,7 @@ class StateManager:
         """
         from coffee_export.database.models import Contract
 
-        contract = self.session.get(Contract, contract_id)
+        contract = self._scoped_get(Contract, contract_id, "contract")
         if not contract:
             raise NotFoundError(f"contract '{contract_id}' not found")
 
@@ -2871,6 +2959,40 @@ class StateManager:
         rows = self.session.execute(stmt).scalars().all()
         return [{c.name: getattr(r, c.name) for c in r.__table__.columns} for r in rows]
 
+    def get_contract_for_sample(
+        self,
+        lead_id: str,
+        sample_request_id: str = "",
+    ) -> dict[str, Any] | None:
+        """Return the contract drafted from a given sample approval, if any.
+
+        Org-scoped idempotency lookup for Agent 5: SAMPLE_APPROVED is
+        delivered at-least-once, so before drafting a contract the agent
+        checks whether THIS org already has a contract for the same
+        (lead, sample_request) pair. When ``sample_request_id`` is empty,
+        any non-cancelled contract for the lead counts (a conservative
+        guard — an event without a sample reference replays onto a lead
+        that already contracted is skipped, never duplicated).
+        """
+        from coffee_export.database.models import Contract
+
+        stmt = (
+            select(Contract)
+            .where(
+                Contract.organization_id == self.organization_id,
+                Contract.lead_id == lead_id,
+                Contract.status != "cancelled",
+            )
+            .order_by(Contract.created_ts.desc())
+            .limit(1)
+        )
+        if sample_request_id:
+            stmt = stmt.where(Contract.sample_request_id == sample_request_id)
+        row = self.session.execute(stmt).scalars().first()
+        if not row:
+            return None
+        return {c.name: getattr(row, c.name) for c in row.__table__.columns}
+
     # ── Compliance Documents ──
 
     def add_compliance_document(
@@ -2902,12 +3024,18 @@ class StateManager:
 
         Returns the document ID.
         """
-        from coffee_export.database.models import ComplianceDocument
+        from coffee_export.database.models import ComplianceDocument, Contract
+
+        # Parent check — a contract in another org is not writable here.
+        contract = self._scoped_get(Contract, contract_id, "contract")
+        if not contract:
+            raise NotFoundError(f"contract '{contract_id}' not found")
 
         now = now_addis_iso_str()
         doc = ComplianceDocument(
             contract_id=contract_id,
             document_type=document_type,
+            organization_id=self.organization_id,
             file_path=file_path,
             issued_date=issued_date,
             expiry_date=expiry_date,
@@ -2934,7 +3062,7 @@ class StateManager:
         """Update a compliance document's status or fields."""
         from coffee_export.database.models import ComplianceDocument
 
-        doc = self.session.get(ComplianceDocument, doc_id)
+        doc = self._scoped_get(ComplianceDocument, doc_id, "compliance document")
         if not doc:
             raise NotFoundError(f"compliance document '{doc_id}' not found")
         if status:
@@ -2970,10 +3098,17 @@ class StateManager:
         return [{c.name: getattr(r, c.name) for c in r.__table__.columns} for r in rows]
 
     def get_compliance_document(self, doc_id: int) -> dict[str, Any] | None:
-        """Get a single compliance document by ID (includes contract_id)."""
+        """Get a single compliance document by ID (org-scoped, includes contract_id).
+
+        A document in another org is indistinguishable from a missing one
+        (None — the read contract).
+        """
         from coffee_export.database.models import ComplianceDocument
 
-        doc = self.session.get(ComplianceDocument, doc_id)
+        try:
+            doc = self._scoped_get(ComplianceDocument, doc_id, "compliance document")
+        except NotFoundError:
+            return None
         if not doc:
             return None
         return {c.name: getattr(doc, c.name) for c in doc.__table__.columns}
@@ -3199,10 +3334,17 @@ class StateManager:
         return {c.name: getattr(sh, c.name) for c in sh.__table__.columns}
 
     def get_shipment(self, shipment_id: str) -> dict[str, Any] | None:
-        """Return a shipment as dict, or None."""
+        """Return a shipment as dict (org-scoped), or None.
+
+        A shipment in another org is indistinguishable from a missing one
+        (None — the read contract), matching the repo-scoped get_lead.
+        """
         from coffee_export.database.models import Shipment
 
-        sh = self.session.get(Shipment, shipment_id)
+        try:
+            sh = self._scoped_get(Shipment, shipment_id, "shipment")
+        except NotFoundError:
+            return None
         if not sh:
             return None
         result = {c.name: getattr(sh, c.name) for c in sh.__table__.columns}
@@ -3218,12 +3360,17 @@ class StateManager:
     def update_shipment(
         self,
         shipment_id: str,
+        organization_id: str | None = None,
         **fields,
     ) -> bool:
-        """Update shipment fields (carrier, B/L, ports, dates, status)."""
+        """Update shipment fields (carrier, B/L, ports, dates, status).
+
+        ``organization_id`` overrides this StateManager's org for callers
+        (e.g. record_logistics_booking) that validated an explicit tenant.
+        """
         from coffee_export.database.models import Shipment
 
-        sh = self.session.get(Shipment, shipment_id)
+        sh = self._scoped_get(Shipment, shipment_id, "shipment", organization_id=organization_id)
         if not sh:
             raise NotFoundError(f"shipment '{shipment_id}' not found")
 
@@ -3274,12 +3421,18 @@ class StateManager:
         notes: str = "",
     ) -> int:
         """Add a lot to a shipment. Returns the item ID."""
-        from coffee_export.database.models import ShipmentItem
+        from coffee_export.database.models import Shipment, ShipmentItem
+
+        # Parent check — a shipment in another org is not writable here.
+        sh = self._scoped_get(Shipment, shipment_id, "shipment")
+        if not sh:
+            raise NotFoundError(f"shipment '{shipment_id}' not found")
 
         now = now_addis_iso_str()
         item = ShipmentItem(
             shipment_id=shipment_id,
             lot_id=lot_id,
+            organization_id=self.organization_id,
             quantity_bags=quantity_bags,
             notes=notes,
             created_ts=now,
@@ -3308,12 +3461,18 @@ class StateManager:
         bill_of_lading, insurance_cert, phytosanitary_cert,
         eudr_declaration, other
         """
-        from coffee_export.database.models import CustomsDocument
+        from coffee_export.database.models import CustomsDocument, Shipment
+
+        # Parent check — a shipment in another org is not writable here.
+        sh = self._scoped_get(Shipment, shipment_id, "shipment")
+        if not sh:
+            raise NotFoundError(f"shipment '{shipment_id}' not found")
 
         now = now_addis_iso_str()
         doc = CustomsDocument(
             shipment_id=shipment_id,
             document_type=document_type,
+            organization_id=self.organization_id,
             file_path=file_path,
             status=status,
             notes=notes,
@@ -3333,10 +3492,10 @@ class StateManager:
         file_path: str | None = None,
         notes: str | None = None,
     ) -> bool:
-        """Update a customs document."""
+        """Update a customs document (org-scoped)."""
         from coffee_export.database.models import CustomsDocument
 
-        doc = self.session.get(CustomsDocument, doc_id)
+        doc = self._scoped_get(CustomsDocument, doc_id, "customs document")
         if not doc:
             raise NotFoundError(f"customs document '{doc_id}' not found")
         if status:
@@ -3644,7 +3803,9 @@ class StateManager:
         # Shipment lifecycle + honest event
         if shipment_id:
             with contextlib.suppress(NotFoundError):
-                self.update_shipment(shipment_id, status="booked")
+                self.update_shipment(
+                    shipment_id, status="booked", organization_id=organization_id
+                )
             ev = LogisticsEvent(
                 organization_id=organization_id,
                 shipment_id=shipment_id,
@@ -4074,13 +4235,21 @@ class StateManager:
         Create an account for a delivered buyer. Returns account_id.
 
         Accounts are created when Agent 6 publishes SHIPMENT_DELIVERED.
-        The lead must be in CONTRACTED state.
+        The lead must be in CONTRACTED state. The account is stamped with
+        THIS StateManager's org (Agent 7 passes the owning org of the event
+        it is processing) — never the DB default.
         """
         from coffee_export.database.models import Account
 
-        # Check if account already exists for this lead
+        # Check if an account already exists for this lead IN THIS ORG —
+        # another org's account for the same lead_id must stay invisible.
         existing = self.session.execute(
-            select(Account).where(Account.lead_id == lead_id).limit(1)
+            select(Account)
+            .where(
+                Account.lead_id == lead_id,
+                Account.organization_id == self.organization_id,
+            )
+            .limit(1)
         ).scalar_one_or_none()
         if existing:
             log.debug(f"Account already exists for lead {lead_id}: {existing.account_id}")
@@ -4118,6 +4287,7 @@ class StateManager:
         account = Account(
             account_id=account_id,
             lead_id=lead_id,
+            organization_id=self.organization_id,
             account_manager=account_manager,
             relationship_status="active",
             total_volume_bags=total_volume,
@@ -4133,10 +4303,17 @@ class StateManager:
         return account_id
 
     def get_account(self, account_id: str) -> dict[str, Any] | None:
-        """Return an account as dict, or None."""
+        """Return an account as dict (org-scoped), or None.
+
+        An account in another org is indistinguishable from a missing one
+        (None — the read contract).
+        """
         from coffee_export.database.models import Account
 
-        account = self.session.get(Account, account_id)
+        try:
+            account = self._scoped_get(Account, account_id, "account")
+        except NotFoundError:
+            return None
         if not account:
             return None
         return {c.name: getattr(account, c.name) for c in account.__table__.columns}
@@ -4146,7 +4323,12 @@ class StateManager:
         from coffee_export.database.models import Account
 
         account = self.session.execute(
-            select(Account).where(Account.lead_id == lead_id).limit(1)
+            select(Account)
+            .where(
+                Account.lead_id == lead_id,
+                Account.organization_id == self.organization_id,
+            )
+            .limit(1)
         ).scalar_one_or_none()
         if not account:
             return None
@@ -4157,20 +4339,25 @@ class StateManager:
         status: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """List accounts with optional filter."""
+        """List accounts with optional filter (org-scoped)."""
         from coffee_export.database.models import Account
 
-        stmt = select(Account).order_by(Account.created_ts.desc()).limit(limit)
+        stmt = (
+            select(Account)
+            .where(Account.organization_id == self.organization_id)
+            .order_by(Account.created_ts.desc())
+            .limit(limit)
+        )
         if status:
             stmt = stmt.where(Account.relationship_status == status)
         rows = self.session.execute(stmt).scalars().all()
         return [{c.name: getattr(r, c.name) for c in r.__table__.columns} for r in rows]
 
     def update_account(self, account_id: str, **fields) -> bool:
-        """Update account fields."""
+        """Update account fields (org-scoped)."""
         from coffee_export.database.models import Account
 
-        account = self.session.get(Account, account_id)
+        account = self._scoped_get(Account, account_id, "account")
         if not account:
             raise NotFoundError(f"account '{account_id}' not found")
 
@@ -4211,11 +4398,17 @@ class StateManager:
 
         Returns the activity ID.
         """
-        from coffee_export.database.models import AccountActivity
+        from coffee_export.database.models import Account, AccountActivity
+
+        # Parent check — an account in another org is not writable here.
+        account = self._scoped_get(Account, account_id, "account")
+        if not account:
+            raise NotFoundError(f"account '{account_id}' not found")
 
         now = now_addis_iso_str()
         activity = AccountActivity(
             account_id=account_id,
+            organization_id=self.organization_id,
             activity_type=activity_type,
             activity_ts=activity_ts or now,
             participants=participants,
@@ -4250,7 +4443,10 @@ class StateManager:
         rows = (
             self.session.execute(
                 select(AccountActivity)
-                .where(AccountActivity.account_id == account_id)
+                .where(
+                    AccountActivity.account_id == account_id,
+                    AccountActivity.organization_id == self.organization_id,
+                )
                 .order_by(AccountActivity.activity_ts.desc())
                 .limit(limit)
             )
@@ -4719,12 +4915,21 @@ class StateManager:
         cost_usd: float = 0.0,
         provider: str = "",
         extracted_data: dict[str, Any] | None = None,
+        organization_id: str | None = None,
     ) -> bool:
+        """Persist GLM triage fields on an inbound message.
+
+        ``organization_id`` scopes the update (defaults to this
+        StateManager's org). The email bridge — which serves inboxes in
+        every org from one process — passes the OWNING inbox's org
+        explicitly (same pattern as find_inbound_by_provider_message_id).
+        A message in another org is treated as not found.
+        """
         import json as _json
 
         from coffee_export.database.models.messaging import InboxMessage
 
-        msg = self.session.get(InboxMessage, message_id)
+        msg = self._message_in_org(message_id, organization_id)
         if not msg:
             return False
 
@@ -4760,10 +4965,34 @@ class StateManager:
         self._commit()
         return True
 
-    def mark_message_read(self, message_id: int) -> bool:
-        from coffee_export.database.models.messaging import InboxMessage, MessageThread
+    def _message_in_org(self, message_id: int, organization_id: str | None = None):
+        """Fetch an InboxMessage by id, enforcing org ownership.
+
+        ``organization_id`` overrides this StateManager's org for callers
+        (the email bridge) that legitimately serve multiple orgs. Returns
+        None when the message does not exist or belongs to another org.
+        """
+        from coffee_export.database.models.messaging import InboxMessage
 
         msg = self.session.get(InboxMessage, message_id)
+        if not msg:
+            return None
+        effective_org = organization_id or self.organization_id
+        msg_org = msg.organization_id or "org-system"
+        if msg_org != effective_org:
+            log.warning(
+                f"Cross-tenant access blocked: message {message_id} belongs "
+                f"to org '{msg_org}' but the caller is scoped to "
+                f"'{effective_org}' — treated as not found"
+            )
+            return None
+        return msg
+
+    def mark_message_read(self, message_id: int, organization_id: str | None = None) -> bool:
+        """Mark a message read (org-scoped — see _message_in_org)."""
+        from coffee_export.database.models.messaging import InboxMessage, MessageThread
+
+        msg = self._message_in_org(message_id, organization_id)
         if not msg:
             return False
 
@@ -4784,13 +5013,16 @@ class StateManager:
         self._commit()
         return True
 
-    def mark_message_status(self, message_id: int, status: str) -> bool:
+    def mark_message_status(
+        self, message_id: int, status: str, organization_id: str | None = None
+    ) -> bool:
+        """Set a message's status (org-scoped — see _message_in_org)."""
         from coffee_export.database.models.messaging import InboxMessage
 
         if status not in ("new", "read", "replied", "archived", "ignored"):
             raise ValueError(f"invalid status: {status}")
 
-        msg = self.session.get(InboxMessage, message_id)
+        msg = self._message_in_org(message_id, organization_id)
         if not msg:
             return False
 
@@ -4907,6 +5139,7 @@ class StateManager:
                 "is_read": bool(r.is_read),
                 "status": r.status,
                 "provider_message_id": r.provider_message_id,
+                "organization_id": r.organization_id or "org-system",
                 "sent_ts": r.sent_ts,
                 "received_ts": r.received_ts,
                 "created_ts": r.created_ts,
@@ -4958,9 +5191,13 @@ class StateManager:
         }
 
     def close_thread(self, thread_id: str, reason: str = "") -> bool:
+        """Close a thread (org-scoped: another org's thread is not closable)."""
         from coffee_export.database.models.messaging import MessageThread
 
-        thread = self.session.get(MessageThread, thread_id)
+        try:
+            thread = self._scoped_get(MessageThread, thread_id, "thread")
+        except NotFoundError:
+            return False
         if not thread:
             return False
 

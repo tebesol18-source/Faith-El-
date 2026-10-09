@@ -86,6 +86,9 @@ class SampleRequestLot(Base):
         ForeignKey("sample_requests.sample_request_id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Column exists since migration a1b2c3d4e5f7; mapped so junction rows are
+    # stamped with the owning org by the app layer.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     lot_id: Mapped[str] = mapped_column(Text, ForeignKey("lots.lot_id"), nullable=False)
     quantity_grams: Mapped[int] = mapped_column(Integer, nullable=False)
     confirmed: Mapped[int] = mapped_column(Integer, default=0)
@@ -113,6 +116,9 @@ class SampleShipment(Base):
         ForeignKey("sample_requests.sample_request_id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Column exists since migration a1b2c3d4e5f7; mapped so sample shipments
+    # are stamped with the owning org by the app layer.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     carrier: Mapped[str | None] = mapped_column(Text)
     tracking_number: Mapped[str | None] = mapped_column(Text)
     carrier_account: Mapped[str | None] = mapped_column(Text)
@@ -152,6 +158,9 @@ class CuppingScore(Base):
         ForeignKey("sample_requests.sample_request_id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Column exists since migration a1b2c3d4e5f7; mapped so scores are
+    # stamped with the owning org by the app layer.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     lot_id: Mapped[str] = mapped_column(Text, ForeignKey("lots.lot_id"), nullable=False)
     buyer_company: Mapped[str] = mapped_column(Text, nullable=False)
     cupper_name: Mapped[str | None] = mapped_column(Text)
@@ -200,6 +209,9 @@ class SampleDecision(Base):
     sample_request_id: Mapped[str] = mapped_column(
         Text, ForeignKey("sample_requests.sample_request_id"), nullable=False
     )
+    # Column exists since migration a1b2c3d4e5f7; mapped so decisions are
+    # stamped with the owning org by the app layer.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     lot_id: Mapped[str] = mapped_column(Text, ForeignKey("lots.lot_id"), nullable=False)
     decision: Mapped[str] = mapped_column(Text, nullable=False)
     buyer_target_fob: Mapped[float | None] = mapped_column(REAL)

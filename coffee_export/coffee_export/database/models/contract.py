@@ -79,6 +79,10 @@ class ContractLineItem(Base):
     contract_id: Mapped[str] = mapped_column(
         Text, ForeignKey("contracts.contract_id", ondelete="CASCADE"), nullable=False
     )
+    # Column exists since migration a1b2c3d4e5f7; mapped so line items are
+    # stamped with the owning org by the app layer (see that migration's
+    # docstring) instead of inheriting the DB default.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     lot_id: Mapped[str] = mapped_column(Text, ForeignKey("lots.lot_id"), nullable=False)
     quantity_bags: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price: Mapped[float] = mapped_column(REAL, nullable=False)

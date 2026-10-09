@@ -71,6 +71,9 @@ class ShipmentItem(Base):
     shipment_id: Mapped[str] = mapped_column(
         Text, ForeignKey("shipments.shipment_id", ondelete="CASCADE"), nullable=False
     )
+    # Column exists since migration a1b2c3d4e5f7; mapped so items are
+    # stamped with the owning org by the app layer.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     lot_id: Mapped[str] = mapped_column(Text, ForeignKey("lots.lot_id"), nullable=False)
     contract_line_item_id: Mapped[str | None] = mapped_column(Text)
     quantity_bags: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -102,6 +105,9 @@ class CustomsDocument(Base):
     shipment_id: Mapped[str] = mapped_column(
         Text, ForeignKey("shipments.shipment_id", ondelete="CASCADE"), nullable=False
     )
+    # Column exists since migration a1b2c3d4e5f7; mapped so customs docs are
+    # stamped with the owning org by the app layer.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     document_type: Mapped[str] = mapped_column(Text, nullable=False)
     file_path: Mapped[str | None] = mapped_column(Text)
     submitted_ts: Mapped[str | None] = mapped_column(Text)

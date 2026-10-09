@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "test": "node scripts/run-tests.mjs",
     "test:python": "bash scripts/run-python-tests.sh",
+    "validate:python": "bash scripts/validate-python-runtime.sh",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:unit": "vitest run tests/lib",

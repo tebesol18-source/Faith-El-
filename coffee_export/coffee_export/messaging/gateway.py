@@ -523,6 +523,9 @@ class EmailGateway:
             cost_usd=ai_result["cost_usd"],
             provider=ai_result["provider"],
             extracted_data=ai_result.get("extracted_data"),
+            # The message belongs to the owning INBOX's org, which may not
+            # be this gateway process's default org — pass it explicitly.
+            organization_id=inbox_org,
         )
 
         # 8. Events — alias only.
@@ -787,8 +790,9 @@ class EmailGateway:
             organization_id=reply_org,
         )
 
-        # Mark the inbound as "replied"
-        self.sm.mark_message_status(message_id, "replied")
+        # Mark the inbound as "replied" (the message belongs to the
+        # owning inbox's org — pass it explicitly).
+        self.sm.mark_message_status(message_id, "replied", organization_id=reply_org)
 
         # Publish event
         self.bus.publish(

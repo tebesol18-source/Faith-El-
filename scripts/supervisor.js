@@ -55,7 +55,7 @@ const DB_PATH = process.env.COFFEE_DATABASE_URL
   : (require("fs").existsSync("/home/z/my-project/coffee_export/data/coffee_export.db")
       ? "/home/z/my-project/coffee_export/data/coffee_export.db"
       : "/home/z/my-project/state/coffee_export.db");
-const PID_FILE = "/tmp/coffee-export-supervisor.pid";
+const PID_FILE = process.env.SUPERVISOR_PID_FILE || "/tmp/coffee-export-supervisor.pid";
 
 // ── Email bridge (Python EmailGateway) ──
 // Approved outreach emails are sent through the REAL bridge — never faked.
@@ -75,6 +75,14 @@ const BRIDGE_SECRET = process.env.EMAIL_BRIDGE_SECRET || "";
 // unrouted and would have piled up as pending forever. The phantom
 // SHIPMENT_ARRIVED entry (not a real event type — publish-side validation
 // would reject it) is removed.
+//
+// 2026-10-09 (Phase F): SAMPLE_APPROVED is routed to "Agent 5" — same
+// starvation class fixed for the other Python agents: it was UNROUTED, so
+// any SAMPLE_APPROVED published by a Python Agent 4 run would sit pending
+// forever. The supervisor now triggers Python Agent 5, which DRAFTS the
+// contract + compliance checklist. Deliberate scope line (documented in
+// docs/production-hardening.md): contract SIGNING stays manual — a human
+// decision via `run_agent5.py sign` — and is never auto-triggered.
 const EVENT_ROUTING = {
   LEAD_CREATED: "Agent 2",
   LEAD_ENRICHED: "Agent 3",
@@ -85,6 +93,7 @@ const EVENT_ROUTING = {
   SAMPLE_REQUESTED: "Agent 1",
   LOT_CONFIRMED: "Agent 4",
   LOT_CONFIRMATION_FAILED: "Agent 4",
+  SAMPLE_APPROVED: "Agent 5",
   CONTRACT_SIGNED: "Agent 6",
   SHIPMENT_DELIVERED: "Agent 7",
   CONTRACT_COMPLETED: "Agent 7",
@@ -109,6 +118,10 @@ const EVENT_ROUTING = {
 //                 machinery: auto-restart / skip after max_consecutive_errors)
 // Recovery of dead-lettered events: coffee_export/scripts/event_admin.py
 const PYTHON_AGENT_RUNNERS = {
+  "Agent 5": {
+    script: "coffee_export/scripts/run_agent5.py",
+    eventTypes: ["SAMPLE_APPROVED"], // consumed by Agent5.get_leads_to_process()
+  },
   "Agent 6": {
     script: "coffee_export/scripts/run_agent6.py",
     eventTypes: ["CONTRACT_SIGNED"], // consumed by Agent6.get_leads_to_process()

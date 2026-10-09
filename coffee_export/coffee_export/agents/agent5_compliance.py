@@ -230,6 +230,14 @@ class Agent5(BaseAgent):
 
         This is the main entry point — called when Agent 4 publishes
         SAMPLE_APPROVED with the buyer's target terms.
+
+        IDEMPOTENT: the event bus is at-least-once, so the same
+        SAMPLE_APPROVED may be delivered more than once (retry, replay,
+        supervisor re-tick — Phase F wires this path to the supervisor
+        runtime). If a non-cancelled contract already exists for the same
+        (lead, sample_request) pair in this org, the existing contract is
+        returned and NOTHING is duplicated — no second contract, no
+        second line item, no second checklist, no second CONTRACT_DRAFTED.
         """
         lead = self.sm.get_lead(lead_id)
         if not lead:
@@ -241,6 +249,28 @@ class Agent5(BaseAgent):
             sr = self.sm.get_sample_request(sr_id)
             if not sr:
                 sr_id = None  # sample request doesn't exist, don't reference it
+
+        # Idempotency guard — never draft a second contract for the same
+        # sample approval (org-scoped lookup in StateManager). Uses the
+        # RESOLVED sr_id so the lookup matches what the contract row will
+        # actually store; an unresolvable/absent SR falls back to the
+        # conservative lead-level check.
+        existing = self.sm.get_contract_for_sample(
+            lead_id=lead_id,
+            sample_request_id=sr_id or "",
+        )
+        if existing:
+            log.info(
+                f"{self.agent_id} contract {existing['contract_id']} already "
+                f"exists for lead {lead_id} (sample_request="
+                f"{sr_id or 'unspecified'}) — replay ignored "
+                f"(idempotent redelivery)"
+            )
+            return {
+                "action": "contract_exists",
+                "contract_id": existing["contract_id"],
+                "status": existing.get("status", "draft"),
+            }
 
         # Get lot details for the contract line item
         lot = self.sm.get_lot(lot_id) if lot_id else None
@@ -1023,9 +1053,21 @@ register_agent("Agent 5", Agent5)
 # ═══════════════════════════════════════════════════════════════
 
 
-def run_agent5() -> Any:
-    """Run Agent 5 in event-driven mode (process SAMPLE_APPROVED)."""
-    return run_agent(Agent5())
+def run_agent5(organization_id: str = "org-system") -> Any:
+    """Run Agent 5 in event-driven mode (process SAMPLE_APPROVED).
+
+    ``organization_id`` scopes the run: the agent only consumes events and
+    touches rows belonging to that org. The Node supervisor passes the
+    owning org of the pending SAMPLE_APPROVED events it triggers this run
+    for (see scripts/supervisor.js — PYTHON_AGENT_RUNNERS).
+
+    Scope note (Phase F decision): this automated path DRAFTS contracts +
+    compliance checklists only. The legal act of SIGNING a contract stays
+    a human decision via the CLI (``run_agent5.py sign``) — an automated
+    signature would be exactly the pretend-a-sale behavior this system
+    must never do.
+    """
+    return run_agent(Agent5(organization_id=organization_id))
 
 
 def run_agent5_stats() -> dict[str, Any]:

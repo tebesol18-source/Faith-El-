@@ -205,10 +205,17 @@ def test() -> int:
             created_by="operator-test",
         )
         assert booking["booking_reference"] == "ESL-TEST-9931"
-        shipment = sm.get_shipment(shipment_id)
-        assert shipment["status"] == "booked", (
-            "recording a booking moves the shipment to booked"
+        # The shipment belongs to ORG_A (stamped above) — read it scoped.
+        # An org-system read must NOT see it (org-scoped get_shipment).
+        assert sm.get_shipment(shipment_id) is None, (
+            "org-system read must not see ORG_A's shipment"
         )
+        with StateManager(organization_id=ORG_A) as sm_a:
+            shipment = sm_a.get_shipment(shipment_id)
+            assert shipment is not None, "org-scoped read must see its own shipment"
+            assert shipment["status"] == "booked", (
+                "recording a booking moves the shipment to booked"
+            )
         events = sm.get_logistics_events(ORG_A, shipment_id)
         assert any(e["event_type"] == "booking_recorded" for e in events), (
             "booking must write an honest timeline event"

@@ -116,6 +116,14 @@ systemctl status faith-el-erp-supervisor
 
 # Check Caddy (HTTPS)
 curl https://faithel.com/api/health
+
+# Validate the Python agent runtime (Phase F) — the supervisor spawns
+# Agents 5/6/7 through coffee_export/venv; a broken venv would only
+# surface as AGENT_ERROR rows while events stay pending. This checks
+# interpreter, imports, agent CLI launches, DB + schema head — and with
+# --tick runs one live supervisor tick.
+npm run validate:python          # read-only checks
+npm run validate:python -- --tick  # + one live tick (writes supervisor_log rows)
 ```
 
 Open your browser to `https://faithel.com` and log in:

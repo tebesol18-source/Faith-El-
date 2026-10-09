@@ -169,6 +169,9 @@ class LeadTag(Base):
     lead_id: Mapped[str] = mapped_column(
         Text, ForeignKey("leads.lead_id", ondelete="CASCADE"), nullable=False
     )
+    # Column exists since migration a1b2c3d4e5f7; mapped so tags are stamped
+    # with the owning org by the app layer.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     tag: Mapped[str] = mapped_column(Text, nullable=False)
     tagged_ts: Mapped[str] = mapped_column(Text, nullable=False)
 

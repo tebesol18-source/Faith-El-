@@ -129,6 +129,20 @@ function seedSignedContract(): SeedResult {
   return JSON.parse(String(r.stdout).trim().split("\n").pop() || "{}") as SeedResult;
 }
 
+/** Seed a DECIDED_APPROVED lead + PENDING SAMPLE_APPROVED (no inline Agent 5). */
+function seedPendingSampleApproval(): { ok: boolean; lead_id?: string; lot_id?: string; sample_request_id?: string; error?: string } {
+  const r = runPython([
+    path.join(ROOT, "coffee_export", "scripts", "dev_seed_contract.py"),
+    "--organization",
+    "org-system",
+    "--no-process",
+  ]);
+  if (r.status !== 0) {
+    throw new Error(`seed --no-process failed (${r.status}): ${r.stderr || r.stdout}`);
+  }
+  return JSON.parse(String(r.stdout).trim().split("\n").pop() || "{}");
+}
+
 /** Insert a bus event the same way the Node API routes do. */
 function insertEvent(
   eventType: string,
@@ -404,6 +418,118 @@ describe("agent runtime — the production event path", () => {
       expect(q<{ n: number }>(
         `SELECT COUNT(*) n FROM supervisor_log WHERE event_type = 'AGENT_ERROR' AND message LIKE '%Python runtime failed%'`
       ).n).toBeGreaterThan(0);
+
+      cleanupDb();
+    }
+  );
+});
+
+describe("agent runtime — SAMPLE_APPROVED reaches Python Agent 5 (Phase F)", () => {
+  it(
+    "SAMPLE_APPROVED drafts the contract through the supervisor runtime, idempotently",
+    { timeout: 240_000 },
+    () => {
+      ensureVenv();
+      freshDb();
+
+      // 1. Seed a decided lead + a PENDING SAMPLE_APPROVED (no inline Agent 5).
+      const seed = seedPendingSampleApproval();
+      expect(seed.ok).toBe(true);
+      const leadId = seed.lead_id!;
+
+      const pending = qAll<{ id: number; organization_id: string }>(
+        `SELECT id, organization_id FROM events WHERE event_type = 'SAMPLE_APPROVED' AND status = 'pending'`
+      );
+      expect(pending.length).toBe(1);
+      expect(pending[0].organization_id).toBe("org-system");
+
+      // 2. One supervisor tick → spawns Python Agent 5 (org-scoped) →
+      //    drafts the contract + compliance checklist.
+      const tick = runSupervisorOnce();
+      expect(tick.status).toBe(0);
+
+      const ev = q<{ status: string; consumed_by: string }>(
+        `SELECT status, consumed_by FROM events WHERE id = ?`, pending[0].id
+      );
+      expect(ev.status).toBe("consumed");
+      expect(ev.consumed_by).toBe("Agent 5");
+
+      const contracts = qAll<{ contract_id: string; lead_id: string; status: string; organization_id: string }>(
+        `SELECT contract_id, lead_id, status, organization_id FROM contracts WHERE lead_id = ?`, leadId
+      );
+      expect(contracts.length).toBe(1);
+      expect(contracts[0].status).toBe("draft"); // DRAFTED, not signed — signing is a human act
+      expect(contracts[0].organization_id).toBe("org-system");
+
+      // Compliance checklist generated for the drafted contract.
+      const docs = qAll<{ document_type: string }>(
+        `SELECT document_type FROM compliance_documents WHERE contract_id = ?`,
+        contracts[0].contract_id
+      );
+      expect(docs.length).toBeGreaterThan(0);
+      expect(docs.map((d) => d.document_type)).toContain("eudr_attestation"); // EU destination
+
+      // The informational CONTRACT_DRAFTED was drained by the supervisor.
+      const drafted = q<{ status: string; consumed_by: string }>(
+        `SELECT status, consumed_by FROM events WHERE event_type = 'CONTRACT_DRAFTED'`
+      );
+      expect(drafted.status).toBe("consumed");
+      expect(drafted.consumed_by).toBe("supervisor");
+
+      // 3. Redelivery: publish the SAME approval twice more — no second
+      //    contract, no second checklist, no second CONTRACT_DRAFTED.
+      for (let i = 0; i < 2; i++) {
+        insertEvent(
+          "SAMPLE_APPROVED",
+          "sample_request",
+          seed.sample_request_id!,
+          {
+            sample_request_id: seed.sample_request_id,
+            lead_id: leadId,
+            lot_id: seed.lot_id || "",
+            decision: "approved",
+            buyer_target_fob: 4.5,
+            buyer_target_volume_bags: 200,
+            buyer_target_port: "Hamburg",
+            buyer_payment_terms: "LC at sight",
+          },
+          "org-system"
+        );
+      }
+      const tick2 = runSupervisorOnce();
+      expect(tick2.status).toBe(0);
+
+      expect(q<{ n: number }>(
+        `SELECT COUNT(*) n FROM contracts WHERE lead_id = ?`, leadId
+      ).n).toBe(1); // NOT 2/3
+      expect(q<{ n: number }>(
+        `SELECT COUNT(*) n FROM compliance_documents WHERE contract_id = ?`,
+        contracts[0].contract_id
+      ).n).toBe(docs.length); // unchanged
+      expect(q<{ n: number }>(
+        `SELECT COUNT(*) n FROM events WHERE event_type = 'CONTRACT_DRAFTED'`
+      ).n).toBe(1); // NOT 2/3
+
+      // 4. Cross-org approval: an event OWNED by another org cannot draft
+      //    for this org's lead (org-scoped Agent 5 run cannot see the lead).
+      const before = q<{ n: number }>(`SELECT COUNT(*) n FROM contracts`).n;
+      insertEvent(
+        "SAMPLE_APPROVED",
+        "sample_request",
+        seed.sample_request_id!,
+        {
+          sample_request_id: seed.sample_request_id,
+          lead_id: leadId,
+          decision: "approved",
+          buyer_target_fob: 4.5,
+          buyer_target_volume_bags: 200,
+          buyer_target_port: "Hamburg",
+        },
+        "org-abi-1786882934"
+      );
+      const tick3 = runSupervisorOnce();
+      expect(tick3.status).toBe(0);
+      expect(q<{ n: number }>(`SELECT COUNT(*) n FROM contracts`).n).toBe(before);
 
       cleanupDb();
     }

@@ -21,6 +21,10 @@ class Account(Base):
 
     account_id: Mapped[str] = mapped_column(Text, primary_key=True)
     lead_id: Mapped[str] = mapped_column(Text, ForeignKey("leads.lead_id"), nullable=False)
+    # Column exists since migration a1b2c3d4e5f7 (NOT NULL DEFAULT 'org-system');
+    # mapped here so Agent 7 stamps the OWNING org instead of relying on the
+    # DB default (which is wrong for any org other than org-system).
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     account_manager: Mapped[str | None] = mapped_column(Text)  # operator_id
     relationship_status: Mapped[str] = mapped_column(Text, default="active")
     total_volume_bags: Mapped[int] = mapped_column(Integer, default=0)
@@ -60,6 +64,8 @@ class AccountActivity(Base):
     account_id: Mapped[str] = mapped_column(
         Text, ForeignKey("accounts.account_id", ondelete="CASCADE"), nullable=False
     )
+    # Same as Account.organization_id — see migration a1b2c3d4e5f7.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
     activity_type: Mapped[str] = mapped_column(Text, nullable=False)
     activity_ts: Mapped[str] = mapped_column(Text, nullable=False)
     participants: Mapped[str | None] = mapped_column(Text)

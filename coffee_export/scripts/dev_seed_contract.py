@@ -14,6 +14,7 @@ Never run it against a production database: it creates business records.
 
 Usage:
     python coffee_export/scripts/dev_seed_contract.py [--organization org-system] [--country Germany]
+    python coffee_export/scripts/dev_seed_contract.py --no-process   # leave SAMPLE_APPROVED pending
 
 Output: single JSON line on stdout:
     {"ok": true, "contract_id": "CT-2026-0001", "lead_id": "L-2026-00001", "lot_id": "LOT-..."}
@@ -40,7 +41,7 @@ from coffee_export.events import SAMPLE_APPROVED, EventBus
 from coffee_export.state import StateManager
 
 
-def seed(organization_id: str, country: str) -> dict:
+def seed(organization_id: str, country: str, no_process: bool = False) -> dict:
     ts = str(int(time.time() * 1000))[-6:]
     now = now_addis_iso()
 
@@ -98,13 +99,14 @@ def seed(organization_id: str, country: str) -> dict:
             sm.update_lead_state(lead_id, state, agent=agent, current_agent="Agent 5")
 
     # ── SAMPLE_APPROVED → Agent 5 drafts the contract (real path) ──
+    sample_request_id = f"SR-SEED-{ts}"
     with EventBus(organization_id=organization_id) as bus:
         bus.publish(
             event_type=SAMPLE_APPROVED,
             entity_type="sample_request",
-            entity_id=f"SR-SEED-{ts}",
+            entity_id=sample_request_id,
             payload={
-                "sample_request_id": f"SR-SEED-{ts}",
+                "sample_request_id": sample_request_id,
                 "lead_id": lead_id,
                 "lot_id": lot_id,
                 "decision": "approved",
@@ -115,6 +117,17 @@ def seed(organization_id: str, country: str) -> dict:
             },
             published_by="Agent 4",
         )
+
+    if no_process:
+        # Leave the SAMPLE_APPROVED event PENDING — the supervisor runtime
+        # (Phase F: SAMPLE_APPROVED is routed to Agent 5) is what must pick
+        # it up. Used by tests/integration to prove the runtime path.
+        return {
+            "ok": True,
+            "lead_id": lead_id,
+            "lot_id": lot_id,
+            "sample_request_id": sample_request_id,
+        }
 
     with Agent5(organization_id=organization_id) as agent:
         events = agent.get_leads_to_process()
@@ -146,9 +159,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Seed a signed contract via the real Agent 5 path")
     parser.add_argument("--organization", default="org-system")
     parser.add_argument("--country", default="Germany")
+    parser.add_argument(
+        "--no-process",
+        action="store_true",
+        help="Publish SAMPLE_APPROVED but do NOT run Agent 5 inline — leaves the event pending for the supervisor runtime.",
+    )
     args = parser.parse_args()
     try:
-        print(json.dumps(seed(args.organization, args.country)))
+        print(json.dumps(seed(args.organization, args.country, no_process=args.no_process)))
         return 0
     except Exception as e:  # noqa: BLE001 — the JSON contract must hold on failure too
         print(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"}))

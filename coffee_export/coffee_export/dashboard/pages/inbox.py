@@ -159,12 +159,14 @@ def render() -> None:
             f"·  Status: {thread['status']}  ·  Messages: {thread['message_count']}"
         )
 
-        # Mark unread inbound messages as read when viewed
+        # Mark unread inbound messages as read when viewed.
+        # The message's org is passed explicitly — the dashboard serves
+        # operators of every org from one org-system process.
         for m in messages:
             if m["direction"] == "inbound" and not m["is_read"]:
                 try:
                     with StateManager() as sm:
-                        sm.mark_message_read(m["id"])
+                        sm.mark_message_read(m["id"], organization_id=m.get("organization_id"))
                 except Exception:  # noqa: BLE001
                     pass
 
