@@ -3,10 +3,13 @@
  * Reads shipments from the SQLite database.
  * Maps shipments → frontend Shipment shape with vessel, container, route, ETA, status.
  * Joins with contracts for buyer + value info.
+ * Also returns `logistics` per shipment: container/booking counts, export
+ * checklist progress and actions needed (Logistics Command Center).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getReadonlyDb, getWritableDb } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
+import { loadChecklistTemplate, nowIso } from "@/lib/logistics";
 
 function nowISO(): string {
   return new Date().toISOString().replace("Z", "+03:00");
@@ -55,10 +58,44 @@ export async function GET(request: any) {
         SELECT lot_id FROM shipment_items WHERE shipment_id = ? AND deleted_ts IS NULL
       `);
 
+      // Logistics Command Center per-shipment counters (real DB only)
+      const containersStmt = db.prepare(`
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN status = 'DELIVERED' THEN 1 ELSE 0 END) AS delivered
+        FROM logistics_containers
+        WHERE shipment_id = ? AND organization_id = ? AND deleted_ts IS NULL
+      `);
+      const bookingCountStmt = db.prepare(`
+        SELECT COUNT(*) AS n FROM logistics_bookings
+        WHERE shipment_id = ? AND organization_id = ? AND deleted_ts IS NULL
+      `);
+      const checklistStmt = db.prepare(`
+        SELECT SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done, COUNT(*) AS total
+        FROM logistics_checklist_items
+        WHERE shipment_id = ? AND organization_id = ? AND deleted_ts IS NULL
+      `);
+
       const shipments = rows.map((r) => {
         const items = (itemsStmt.all(r.shipment_id) as any[]) || [];
         const lots = items.map((i) => i.lot_id);
         const weightKg = (r.total_volume_bags || 0) * 60;
+
+        const containers = containersStmt.get(r.shipment_id, auth.user.organizationId) as
+          | { total: number; delivered: number | null }
+          | undefined;
+        const bookingCount = (bookingCountStmt.get(r.shipment_id, auth.user.organizationId) as
+          | { n: number }
+          | undefined)?.n ?? 0;
+        const checklist = checklistStmt.get(r.shipment_id, auth.user.organizationId) as
+          | { done: number | null; total: number }
+          | undefined;
+
+        // Actions needed — derived from stored facts (same rules as the
+        // detail bundle's next-actions section)
+        let actionsNeeded = 0;
+        if (r.status === "delayed" || r.status === "customs_hold") actionsNeeded++;
+        if (r.etd && !r.atd && r.etd < new Date().toISOString().slice(0, 10)) actionsNeeded++;
+        if (bookingCount === 0 && r.status === "draft") actionsNeeded++;
 
         // Calculate days
         const now = new Date();
@@ -113,6 +150,16 @@ export async function GET(request: any) {
           milestones: [],
           tempLog: [],
           events: [],
+          // Logistics Command Center (real counters from the shared DB)
+          rawStatus: r.status,
+          logistics: {
+            containers: containers?.total ?? 0,
+            containersDelivered: containers?.delivered ?? 0,
+            bookings: bookingCount,
+            checklistDone: checklist?.done ?? 0,
+            checklistTotal: checklist?.total ?? 0,
+            actionsNeeded,
+          },
         };
       });
 
@@ -130,7 +177,7 @@ export async function GET(request: any) {
  *
  * Body:
  *   contractId: string     (required)
- *   carrier: string        (required)
+ *   carrier: string        (optional — merged from the external booking record)
  *   departurePort: string  (required)
  *   arrivalPort: string    (required)
  *   etd: string            (required, ISO date — estimated time of departure)
@@ -160,9 +207,13 @@ export async function POST(request: NextRequest) {
   } = body || {};
 
   // ─── Validate required fields ───
+  // carrier is deliberately OPTIONAL in the Command Center flow: a shipment
+  // starts as a draft record (container requirement from the contract) and
+  // the carrier is merged on when the operator records the REAL external
+  // booking (POST /api/logistics/bookings). Requiring a carrier up front
+  // would encourage made-up carrier names.
   const missing: string[] = [];
   if (!contractId) missing.push("contractId");
-  if (!carrier) missing.push("carrier");
   if (!departurePort) missing.push("departurePort");
   if (!arrivalPort) missing.push("arrivalPort");
   if (!etd) missing.push("etd");
@@ -247,6 +298,35 @@ export async function POST(request: NextRequest) {
         now, now
       );
 
+      // ─── Logistics Command Center: seed the 18-step export checklist ───
+      // Same template the Python runtime seeds (data/logistics-checklist-
+      // template.json is the single source). Creating the checklist does
+      // NOT tick anything — every step is completed by a human, with
+      // external providers, and attested in Faith-El.
+      const template = loadChecklistTemplate();
+      const insertItem = db.prepare(`
+        INSERT INTO logistics_checklist_items (
+          organization_id, shipment_id, position, title, detail, status,
+          created_ts, updated_ts
+        ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+      `);
+      for (let i = 0; i < template.length; i++) {
+        insertItem.run(orgId, shipmentId, i + 1, template[i].title, template[i].detail || null, now, now);
+      }
+
+      // Timeline: the record's creation is a real event (nothing was booked)
+      db.prepare(`
+        INSERT INTO logistics_events (
+          organization_id, shipment_id, event_type, title, detail,
+          event_ts, source, created_by, created_ts, updated_ts
+        ) VALUES (?, ?, 'shipment_created', ?, ?, ?, 'operator', ?, ?, ?)
+      `).run(
+        orgId, shipmentId,
+        `Shipment record created for contract ${contractId}`,
+        "Shipment record created. No booking exists yet — the next step is finding a provider in Logistics Resources and booking on their official channel.",
+        now, auth.user.email, now, now
+      );
+
       return NextResponse.json({
         ok: true,
         shipment: {
@@ -264,6 +344,7 @@ export async function POST(request: NextRequest) {
           notes: notes || null,
           organization_id: orgId,
           created_ts: now,
+          checklistItems: template.length,
         },
       }, { status: 201 });
     } finally {

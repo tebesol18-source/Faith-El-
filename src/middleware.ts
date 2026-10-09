@@ -29,15 +29,26 @@ const SESSION_COOKIE = "session";
 const CSRF_COOKIE = "csrf-token";
 const CSRF_HEADER = "x-csrf-token";
 
-/** Routes that should be rate-limited, with per-route overrides. */
-const ROUTE_LIMITS: { pattern: RegExp; limit: number; windowMs: number }[] = [
+/** Routes that should be rate-limited, with per-route overrides.
+ *\n * Each entry carries a stable `bucketKey` so its rate-limit bucket is
+ * SEPARATE from the general API bucket. Before this fix every route
+ * shared ONE per-IP bucket: a burst of normal API traffic (limit 120)
+ * filled the bucket, and the login route — which checks the SAME bucket
+ * against its stricter limit of 10 — started returning 429. Normal app
+ * usage could therefore lock users out of logging in (e.g. a second user
+ * behind the same NAT, or a re-login after session expiry). Buckets are
+ * now keyed `bucketKey:clientId`, so login keeps its own brute-force
+ * budget no matter what the rest of the app does (regression-tested in
+ * tests/integration/rate-limit.test.ts — "API burst does not lock out login").
+ */
+const ROUTE_LIMITS: { pattern: RegExp; limit: number; windowMs: number; bucketKey: string }[] = [
   // Login: strict 10/min per IP — this is the ONLY brute-force control
   // (accounts have no lockout), and it's the contract documented in
   // tests/integration/rate-limit.test.ts.
-  { pattern: /^\/api\/auth\/login$/, limit: 10, windowMs: 60_000 },
-  { pattern: /^\/api\/auth\/request-access$/, limit: 20, windowMs: 60_000 },
-  { pattern: /^\/api\/agents\/research-leads$/, limit: 30, windowMs: 60_000 },
-  { pattern: /^\/api\/approvals$/, limit: 30, windowMs: 60_000 },
+  { pattern: /^\/api\/auth\/login$/, limit: 10, windowMs: 60_000, bucketKey: "auth-login" },
+  { pattern: /^\/api\/auth\/request-access$/, limit: 20, windowMs: 60_000, bucketKey: "auth-request-access" },
+  { pattern: /^\/api\/agents\/research-leads$/, limit: 30, windowMs: 60_000, bucketKey: "research-leads" },
+  { pattern: /^\/api\/approvals$/, limit: 30, windowMs: 60_000, bucketKey: "approvals" },
 ];
 
 const DEFAULT_API_LIMIT = 120;
@@ -81,9 +92,10 @@ export function middleware(request: NextRequest) {
   const routeLimit = ROUTE_LIMITS.find((r) => r.pattern.test(pathname)) ?? {
     limit: DEFAULT_API_LIMIT,
     windowMs: DEFAULT_API_WINDOW_MS,
+    bucketKey: "api", // one shared bucket for all general API routes (as before)
   };
 
-  const result = rateLimit(clientId, routeLimit.limit, routeLimit.windowMs);
+  const result = rateLimit(`${routeLimit.bucketKey}:${clientId}`, routeLimit.limit, routeLimit.windowMs);
 
   const headers = new Headers({
     "X-RateLimit-Limit": String(result.limit),
