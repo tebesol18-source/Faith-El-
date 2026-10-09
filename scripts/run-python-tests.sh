@@ -78,6 +78,8 @@ for agent in 2 3 4 5 6 7; do
 done
 run_on_fresh_db "StateManager smoke test" \
   "$VENV_DIR/bin/python" -m tests.test_state_manager
+run_on_fresh_db "Logistics resources (Command Center) test" \
+  "$VENV_DIR/bin/python" -m tests.test_logistics_resources
 
 # ── 4. Supervisor single tick (scheduler + health monitor) ──────────────────
 run_on_fresh_db "Supervisor single tick" \

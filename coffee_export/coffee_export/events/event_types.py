@@ -36,6 +36,10 @@ CONTRACT_SIGNED = "CONTRACT_SIGNED"
 CONTRACT_COMPLETED = "CONTRACT_COMPLETED"
 
 # ── Logistics events ──
+# SHIPMENT_CREATED: a shipment RECORD was created from a signed contract.
+# Deliberately distinct from SHIPMENT_BOOKED — creating a record books
+# nothing with any carrier (Logistics Command Center honesty contract).
+SHIPMENT_CREATED = "SHIPMENT_CREATED"
 SHIPMENT_BOOKED = "SHIPMENT_BOOKED"
 SHIPMENT_DEPARTED = "SHIPMENT_DEPARTED"
 SHIPMENT_DELIVERED = "SHIPMENT_DELIVERED"
@@ -98,6 +102,7 @@ ALL_EVENT_TYPES: frozenset[str] = frozenset(
         CONTRACT_COMPLETED,
         # Logistics
         SHIPMENT_BOOKED,
+        SHIPMENT_CREATED,
         SHIPMENT_DEPARTED,
         SHIPMENT_DELIVERED,
         CUSTOMS_HOLD,

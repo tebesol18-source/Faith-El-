@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "description": "Per-shipment export checklist template — single source of truth shared by the Python runtime (Agent 6 seeds it via StateManager.seed_logistics_checklist) and the Next.js API (POST /api/shipments seeds it via SQL). Every step is human-toggled: Faith-El never marks a step done on its own, because completing a step happens with EXTERNAL providers and can only be attested by an operator. Tests on both stacks assert the 18-item shape.",
+  "entries": [
+    {
+      "title": "Container requirement confirmed",
+      "detail": "Type, quantity, needed-by date and ports agreed from the contract"
+    },
+    {
+      "title": "Logistics provider selected",
+      "detail": "A provider from the directory has been chosen for this shipment"
+    },
+    {
+      "title": "Availability checked with provider",
+      "detail": "Space confirmed with the provider on their official channel"
+    },
+    {
+      "title": "Booking placed",
+      "detail": "Booking made with the provider (their reference obtained)"
+    },
+    {
+      "title": "Booking confirmation uploaded",
+      "detail": "The provider's written confirmation is stored on the shipment"
+    },
+    {
+      "title": "Transport to warehouse arranged",
+      "detail": "Trucking/rail for stuffing organised (segment recorded in Transport)"
+    },
+    {
+      "title": "Cargo ready at warehouse",
+      "detail": "Lots bagged, weighed and staged for stuffing"
+    },
+    {
+      "title": "Empty container picked up",
+      "detail": "Container collected from depot (container record updated)"
+    },
+    {
+      "title": "Container loaded/stuffed",
+      "detail": "Cargo stuffed into the container"
+    },
+    {
+      "title": "Container sealed",
+      "detail": "Seal number recorded on the container"
+    },
+    {
+      "title": "Export customs cleared",
+      "detail": "Origin export clearance complete"
+    },
+    {
+      "title": "Container delivered to port",
+      "detail": "Gate-in at origin port confirmed"
+    },
+    {
+      "title": "Shipping order confirmed",
+      "detail": "Carrier's shipping order (S/O) matched to the booking"
+    },
+    {
+      "title": "Bill of lading issued",
+      "detail": "B/L number recorded on the shipment"
+    },
+    {
+      "title": "Vessel departed",
+      "detail": "ATD recorded; vessel underway"
+    },
+    {
+      "title": "Shipment tracking active",
+      "detail": "Tracking reference recorded and being monitored"
+    },
+    {
+      "title": "Buyer notified of shipment",
+      "detail": "Shipping advice sent to the buyer (Inbox)"
+    },
+    {
+      "title": "Delivered to buyer",
+      "detail": "Delivery confirmed at destination"
+    }
+  ]
+}

@@ -3396,6 +3396,639 @@ class StateManager:
         }
 
     # =============================================================
+    # LOGISTICS RESOURCES — Command Center (org-scoped)
+    # =============================================================
+
+    # The platform org owns the GLOBAL provider directory rows
+    # (organization_id IS NULL). Tenant orgs see them read-only.
+    PLATFORM_ORG = "org-system"
+
+    def _assert_shipment_org(self, shipment_id: str, organization_id: str) -> None:
+        """Raise NotFoundError unless the shipment belongs to the org."""
+        from coffee_export.database.models import Shipment
+
+        sh = self.session.get(Shipment, shipment_id)
+        if not sh or sh.organization_id != organization_id:
+            raise NotFoundError(f"shipment '{shipment_id}' not found")
+
+    # ── Providers ──────────────────────────────────────────────────────
+
+    def list_logistics_providers(
+        self,
+        organization_id: str,
+        provider_type: str | None = None,
+        include_global: bool = True,
+        active_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """List providers visible to an org: its own rows + global rows."""
+        from coffee_export.database.models import LogisticsProvider
+
+        conds = []
+        if include_global:
+            conds.append(LogisticsProvider.organization_id.is_(None))
+        conds.append(LogisticsProvider.organization_id == organization_id)
+        from sqlalchemy import or_
+
+        stmt = (
+            select(LogisticsProvider)
+            .where(or_(*conds))
+            .order_by(LogisticsProvider.name.asc())
+        )
+        if provider_type:
+            stmt = stmt.where(LogisticsProvider.provider_type == provider_type)
+        if active_only:
+            stmt = stmt.where(LogisticsProvider.active.is_(True))
+        rows = self.session.execute(stmt).scalars().all()
+        return [
+            {c.name: getattr(r, c.name) for c in r.__table__.columns} for r in rows
+        ]
+
+    def get_logistics_provider(
+        self, provider_id: int, organization_id: str
+    ) -> dict[str, Any] | None:
+        """Get one provider (own-org or global), else None."""
+        from coffee_export.database.models import LogisticsProvider
+
+        p = self.session.get(LogisticsProvider, provider_id)
+        if not p or p.deleted_ts:
+            return None
+        if p.organization_id is not None and p.organization_id != organization_id:
+            return None
+        return {c.name: getattr(p, c.name) for c in p.__table__.columns}
+
+    def create_logistics_provider(
+        self, organization_id: str, **fields: Any
+    ) -> dict[str, Any]:
+        """Create an org-scoped provider directory entry."""
+        from coffee_export.database.models import LogisticsProvider
+
+        allowed = {
+            "name", "provider_type", "country", "city", "service_area",
+            "services", "phone", "email", "website_url", "booking_url",
+            "tracking_url", "empty_container_url", "address",
+            "official_source_url", "supports_contact",
+            "supports_external_booking", "supports_tracking",
+            "supports_quotation", "supports_empty_container",
+            "supports_document_submission", "integration_status",
+            "active", "verified", "last_verified_at", "notes",
+        }
+        if not str(fields.get("name", "")).strip():
+            raise ValueError("provider name is required")
+        now = now_addis_iso_str()
+        p = LogisticsProvider(
+            organization_id=organization_id,
+            created_ts=now,
+            updated_ts=now,
+        )
+        for k, v in fields.items():
+            if k in allowed and hasattr(p, k):
+                setattr(p, k, v)
+        # A provider row starts unverified: verified is a data-provenance
+        # mark set ONLY through verify_logistics_provider.
+        p.verified = False
+        p.last_verified_at = None
+        self.session.add(p)
+        self._commit()
+        log.info(
+            f"Created logistics provider '{p.name}' (id={p.id}) "
+            f"for org {organization_id}"
+        )
+        return {c.name: getattr(p, c.name) for c in p.__table__.columns}
+
+    def update_logistics_provider(
+        self, provider_id: int, organization_id: str, **fields: Any
+    ) -> dict[str, Any]:
+        """Update a provider. Global rows are only editable by the platform org.
+
+        'verified' is deliberately NOT settable here — use
+        verify_logistics_provider so provenance is always recorded.
+        """
+        from coffee_export.database.models import LogisticsProvider
+
+        p = self.session.get(LogisticsProvider, provider_id)
+        if not p or p.deleted_ts:
+            raise NotFoundError(f"logistics provider {provider_id} not found")
+        is_global = p.organization_id is None
+        if is_global and organization_id != self.PLATFORM_ORG:
+            raise NotFoundError(f"logistics provider {provider_id} not found")
+        if not is_global and p.organization_id != organization_id:
+            raise NotFoundError(f"logistics provider {provider_id} not found")
+
+        allowed = {
+            "name", "provider_type", "country", "city", "service_area",
+            "services", "phone", "email", "website_url", "booking_url",
+            "tracking_url", "empty_container_url", "address",
+            "official_source_url", "supports_contact",
+            "supports_external_booking", "supports_tracking",
+            "supports_quotation", "supports_empty_container",
+            "supports_document_submission", "integration_status",
+            "active", "notes",
+        }
+        for k, v in fields.items():
+            if k in allowed and hasattr(p, k):
+                setattr(p, k, v)
+        p.updated_ts = now_addis_iso_str()
+        self._commit()
+        return {c.name: getattr(p, c.name) for c in p.__table__.columns}
+
+    def verify_logistics_provider(
+        self, provider_id: int, organization_id: str, official_source_url: str
+    ) -> dict[str, Any]:
+        """Mark a provider's details as checked against an official source.
+
+        Recording WHERE the check happened is mandatory: 'verified' without
+        a source is a claim, not evidence.
+        """
+        from coffee_export.database.models import LogisticsProvider
+
+        p = self.session.get(LogisticsProvider, provider_id)
+        if not p or p.deleted_ts:
+            raise NotFoundError(f"logistics provider {provider_id} not found")
+        if p.organization_id is None and organization_id != self.PLATFORM_ORG:
+            raise NotFoundError(f"logistics provider {provider_id} not found")
+        if p.organization_id is not None and p.organization_id != organization_id:
+            raise NotFoundError(f"logistics provider {provider_id} not found")
+
+        if not str(official_source_url).strip():
+            raise ValueError("official_source_url is required to mark verified")
+        p.verified = True
+        p.official_source_url = str(official_source_url).strip()
+        p.last_verified_at = now_addis_iso_str()
+        p.updated_ts = now_addis_iso_str()
+        self._commit()
+        log.info(
+            f"Verified logistics provider '{p.name}' (id={p.id}) against "
+            f"{official_source_url}"
+        )
+        return {c.name: getattr(p, c.name) for c in p.__table__.columns}
+
+    # ── Bookings (records of EXTERNAL bookings) ────────────────────────
+
+    def record_logistics_booking(
+        self,
+        organization_id: str,
+        provider_name: str,
+        booking_reference: str,
+        shipment_id: str | None = None,
+        provider_id: int | None = None,
+        **fields: Any,
+    ) -> dict[str, Any]:
+        """Record a REAL external booking made by an operator.
+
+        Faith-El never places bookings — this row is the attestation that
+        the operator did, on the provider's official channel. Creating it
+        moves the shipment to 'booked' and writes a timeline event.
+        """
+        from coffee_export.database.models import LogisticsBooking, LogisticsEvent
+
+        if not str(booking_reference).strip():
+            raise ValueError("booking_reference is required")
+        if shipment_id:
+            self._assert_shipment_org(shipment_id, organization_id)
+
+        now = now_addis_iso_str()
+        b = LogisticsBooking(
+            organization_id=organization_id,
+            shipment_id=shipment_id,
+            provider_id=provider_id,
+            provider_name=str(provider_name),
+            booking_reference=str(booking_reference).strip(),
+            created_ts=now,
+            updated_ts=now,
+        )
+        allowed = {
+            "booked_date", "container_type", "quantity", "pickup_location",
+            "depot", "available_date", "container_numbers", "vessel",
+            "voyage", "etd", "eta", "confirmation_document", "notes",
+            "status", "created_by",
+        }
+        for k, v in fields.items():
+            if k in allowed and hasattr(b, k):
+                setattr(b, k, v)
+        self.session.add(b)
+        self._commit()
+
+        # Shipment lifecycle + honest event
+        if shipment_id:
+            with contextlib.suppress(NotFoundError):
+                self.update_shipment(shipment_id, status="booked")
+            ev = LogisticsEvent(
+                organization_id=organization_id,
+                shipment_id=shipment_id,
+                event_type="booking_recorded",
+                title=f"External booking recorded: {b.provider_name} "
+                      f"{b.booking_reference}",
+                detail=(
+                    f"{b.quantity} × {b.container_type or 'container'} booked "
+                    f"with {b.provider_name} (reference "
+                    f"{b.booking_reference}). Booking was made on the "
+                    f"provider's official channel — Faith-El recorded it."
+                ),
+                event_ts=now,
+                source="operator",
+                created_by=fields.get("created_by"),
+                created_ts=now,
+                updated_ts=now,
+            )
+            self.session.add(ev)
+            self._commit()
+
+        log.info(
+            f"Recorded external booking {b.booking_reference} with "
+            f"{b.provider_name} (org={organization_id})"
+        )
+        return {c.name: getattr(b, c.name) for c in b.__table__.columns}
+
+    def get_logistics_bookings(
+        self, organization_id: str, shipment_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """List an org's booking records (optionally for one shipment)."""
+        from coffee_export.database.models import LogisticsBooking
+
+        stmt = (
+            select(LogisticsBooking)
+            .where(LogisticsBooking.organization_id == organization_id)
+            .order_by(LogisticsBooking.created_ts.desc())
+        )
+        if shipment_id:
+            stmt = stmt.where(LogisticsBooking.shipment_id == shipment_id)
+        rows = self.session.execute(stmt).scalars().all()
+        return [
+            {c.name: getattr(r, c.name) for c in r.__table__.columns} for r in rows
+        ]
+
+    def update_logistics_booking(
+        self, booking_id: int, organization_id: str, **fields: Any
+    ) -> dict[str, Any]:
+        from coffee_export.database.models import LogisticsBooking
+
+        b = self.session.get(LogisticsBooking, booking_id)
+        if not b or b.deleted_ts or b.organization_id != organization_id:
+            raise NotFoundError(f"booking {booking_id} not found")
+        allowed = {
+            "booked_date", "container_type", "quantity", "pickup_location",
+            "depot", "available_date", "container_numbers", "vessel",
+            "voyage", "etd", "eta", "confirmation_document", "notes",
+            "status",
+        }
+        for k, v in fields.items():
+            if k in allowed and hasattr(b, k):
+                setattr(b, k, v)
+        b.updated_ts = now_addis_iso_str()
+        self._commit()
+        return {c.name: getattr(b, c.name) for c in b.__table__.columns}
+
+    # ── Containers ─────────────────────────────────────────────────────
+
+    def create_logistics_container(
+        self, organization_id: str, **fields: Any
+    ) -> dict[str, Any]:
+        from coffee_export.database.models import LogisticsContainer, LogisticsEvent
+
+        shipment_id = fields.get("shipment_id")
+        if shipment_id:
+            self._assert_shipment_org(shipment_id, organization_id)
+
+        now = now_addis_iso_str()
+        c = LogisticsContainer(
+            organization_id=organization_id,
+            created_ts=now,
+            updated_ts=now,
+        )
+        allowed = {
+            "shipment_id", "booking_id", "provider_id", "container_number",
+            "container_type", "seal_number", "depot", "pickup_date",
+            "loaded_date", "stuffed_date", "sealed_date", "gate_in_date",
+            "port_arrival_date", "vessel", "voyage", "bill_of_lading",
+            "status", "notes",
+        }
+        for k, v in fields.items():
+            if k in allowed and hasattr(c, k):
+                setattr(c, k, v)
+        self.session.add(c)
+        self._commit()
+
+        if shipment_id:
+            ev = LogisticsEvent(
+                organization_id=organization_id,
+                shipment_id=shipment_id,
+                container_id=c.id,
+                event_type="container_created",
+                title=f"Container added: {c.container_number or c.container_type} "
+                      f"({c.status})",
+                detail=fields.get("notes") or None,
+                event_ts=now,
+                source="operator",
+                created_by=fields.get("created_by"),
+                created_ts=now,
+                updated_ts=now,
+            )
+            self.session.add(ev)
+            self._commit()
+
+        return {col.name: getattr(c, col.name) for col in c.__table__.columns}
+
+    def get_logistics_containers(
+        self, organization_id: str, shipment_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        from coffee_export.database.models import LogisticsContainer
+
+        stmt = (
+            select(LogisticsContainer)
+            .where(LogisticsContainer.organization_id == organization_id)
+            .order_by(LogisticsContainer.id.desc())
+        )
+        if shipment_id:
+            stmt = stmt.where(LogisticsContainer.shipment_id == shipment_id)
+        rows = self.session.execute(stmt).scalars().all()
+        return [
+            {c.name: getattr(r, c.name) for c in r.__table__.columns} for r in rows
+        ]
+
+    def update_logistics_container(
+        self, container_id: int, organization_id: str, **fields: Any
+    ) -> dict[str, Any]:
+        from coffee_export.database.models import LogisticsContainer, LogisticsEvent
+
+        c = self.session.get(LogisticsContainer, container_id)
+        if not c or c.deleted_ts or c.organization_id != organization_id:
+            raise NotFoundError(f"container {container_id} not found")
+
+        allowed = {
+            "shipment_id", "booking_id", "provider_id", "container_number",
+            "container_type", "seal_number", "depot", "pickup_date",
+            "loaded_date", "stuffed_date", "sealed_date", "gate_in_date",
+            "port_arrival_date", "vessel", "voyage", "bill_of_lading",
+            "status", "notes",
+        }
+        prev_status = c.status
+        for k, v in fields.items():
+            if k in allowed and hasattr(c, k):
+                setattr(c, k, v)
+        c.updated_ts = now_addis_iso_str()
+        self._commit()
+
+        if c.shipment_id and c.status != prev_status:
+            now = now_addis_iso_str()
+            ev = LogisticsEvent(
+                organization_id=organization_id,
+                shipment_id=c.shipment_id,
+                container_id=c.id,
+                event_type="container_updated",
+                title=f"Container {c.container_number or c.id}: "
+                      f"{prev_status} → {c.status}",
+                detail=fields.get("notes") or None,
+                event_ts=now,
+                source="operator",
+                created_by=fields.get("created_by"),
+                created_ts=now,
+                updated_ts=now,
+            )
+            self.session.add(ev)
+            self._commit()
+
+        return {col.name: getattr(c, col.name) for col in c.__table__.columns}
+
+    # ── Events (timeline) ──────────────────────────────────────────────
+
+    def add_logistics_event(
+        self,
+        organization_id: str,
+        shipment_id: str,
+        event_type: str,
+        title: str,
+        detail: str | None = None,
+        event_ts: str | None = None,
+        source: str = "operator",
+        created_by: str | None = None,
+        container_id: int | None = None,
+    ) -> dict[str, Any]:
+        from coffee_export.database.models import LogisticsEvent
+
+        self._assert_shipment_org(shipment_id, organization_id)
+        now = now_addis_iso_str()
+        ev = LogisticsEvent(
+            organization_id=organization_id,
+            shipment_id=shipment_id,
+            container_id=container_id,
+            event_type=event_type,
+            title=title,
+            detail=detail,
+            event_ts=event_ts or now,
+            source=source,
+            created_by=created_by,
+            created_ts=now,
+            updated_ts=now,
+        )
+        self.session.add(ev)
+        self._commit()
+        return {c.name: getattr(ev, c.name) for c in ev.__table__.columns}
+
+    def get_logistics_events(
+        self, organization_id: str, shipment_id: str
+    ) -> list[dict[str, Any]]:
+        from coffee_export.database.models import LogisticsEvent
+
+        self._assert_shipment_org(shipment_id, organization_id)
+        rows = (
+            self.session.execute(
+                select(LogisticsEvent)
+                .where(
+                    LogisticsEvent.organization_id == organization_id,
+                    LogisticsEvent.shipment_id == shipment_id,
+                    LogisticsEvent.deleted_ts.is_(None),
+                )
+                .order_by(LogisticsEvent.event_ts.asc(), LogisticsEvent.id.asc())
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {c.name: getattr(r, c.name) for c in r.__table__.columns} for r in rows
+        ]
+
+    # ── Checklist ──────────────────────────────────────────────────────
+
+    def seed_logistics_checklist(
+        self, organization_id: str, shipment_id: str
+    ) -> list[dict[str, Any]]:
+        """Seed the 18-step export checklist for a shipment (idempotent)."""
+        from coffee_export.database.models import LogisticsChecklistItem
+
+        self._assert_shipment_org(shipment_id, organization_id)
+        existing = (
+            self.session.execute(
+                select(LogisticsChecklistItem).where(
+                    LogisticsChecklistItem.shipment_id == shipment_id,
+                    LogisticsChecklistItem.deleted_ts.is_(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if existing:
+            return [
+                {c.name: getattr(r, c.name) for c in r.__table__.columns}
+                for r in existing
+            ]
+
+        from coffee_export.logistics.checklist import EXPORT_CHECKLIST_TEMPLATE
+
+        now = now_addis_iso_str()
+        for pos, (title, detail) in enumerate(EXPORT_CHECKLIST_TEMPLATE, start=1):
+            self.session.add(
+                LogisticsChecklistItem(
+                    organization_id=organization_id,
+                    shipment_id=shipment_id,
+                    position=pos,
+                    title=title,
+                    detail=detail or None,
+                    status="pending",
+                    created_ts=now,
+                    updated_ts=now,
+                )
+            )
+        self._commit()
+        return self.get_logistics_checklist(organization_id, shipment_id)
+
+    def get_logistics_checklist(
+        self, organization_id: str, shipment_id: str
+    ) -> list[dict[str, Any]]:
+        from coffee_export.database.models import LogisticsChecklistItem
+
+        self._assert_shipment_org(shipment_id, organization_id)
+        rows = (
+            self.session.execute(
+                select(LogisticsChecklistItem)
+                .where(
+                    LogisticsChecklistItem.organization_id == organization_id,
+                    LogisticsChecklistItem.shipment_id == shipment_id,
+                    LogisticsChecklistItem.deleted_ts.is_(None),
+                )
+                .order_by(LogisticsChecklistItem.position.asc())
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {c.name: getattr(r, c.name) for c in r.__table__.columns} for r in rows
+        ]
+
+    def set_logistics_checklist_item(
+        self,
+        item_id: int,
+        organization_id: str,
+        status: str,
+        completed_by: str | None = None,
+    ) -> dict[str, Any]:
+        from coffee_export.database.models import LogisticsChecklistItem
+
+        item = self.session.get(LogisticsChecklistItem, item_id)
+        if not item or item.deleted_ts or item.organization_id != organization_id:
+            raise NotFoundError(f"checklist item {item_id} not found")
+        if status not in ("pending", "done", "not_applicable"):
+            raise ValueError(f"invalid checklist status: {status}")
+        item.status = status
+        item.completed_ts = now_addis_iso_str() if status == "done" else None
+        item.completed_by = completed_by if status == "done" else None
+        item.updated_ts = now_addis_iso_str()
+        self._commit()
+        return {c.name: getattr(item, c.name) for c in item.__table__.columns}
+
+    # ── Transport segments ─────────────────────────────────────────────
+
+    def add_logistics_transport_segment(
+        self, organization_id: str, shipment_id: str, **fields: Any
+    ) -> dict[str, Any]:
+        from coffee_export.database.models import (
+            LogisticsEvent,
+            LogisticsTransportSegment,
+        )
+
+        self._assert_shipment_org(shipment_id, organization_id)
+        now = now_addis_iso_str()
+        seg = LogisticsTransportSegment(
+            organization_id=organization_id,
+            shipment_id=shipment_id,
+            created_ts=now,
+            updated_ts=now,
+        )
+        allowed = {
+            "container_id", "segment_type", "provider_id", "provider_name",
+            "origin", "destination", "planned_date", "actual_date",
+            "reference", "cost", "currency", "status", "notes", "created_by",
+        }
+        for k, v in fields.items():
+            if k in allowed and hasattr(seg, k):
+                setattr(seg, k, v)
+        self.session.add(seg)
+        self._commit()
+
+        ev = LogisticsEvent(
+            organization_id=organization_id,
+            shipment_id=shipment_id,
+            container_id=seg.container_id,
+            event_type="transport_added",
+            title=f"Transport added: {seg.segment_type} "
+                  f"{seg.origin or '?'} → {seg.destination or '?'}",
+            detail=(
+                f"{seg.provider_name or 'unrecorded provider'} — "
+                f"ref {seg.reference or 'n/a'} ({seg.status})"
+            ),
+            event_ts=now,
+            source="operator",
+            created_by=fields.get("created_by"),
+            created_ts=now,
+            updated_ts=now,
+        )
+        self.session.add(ev)
+        self._commit()
+        return {c.name: getattr(seg, c.name) for c in seg.__table__.columns}
+
+    def get_logistics_transport_segments(
+        self, organization_id: str, shipment_id: str
+    ) -> list[dict[str, Any]]:
+        from coffee_export.database.models import LogisticsTransportSegment
+
+        self._assert_shipment_org(shipment_id, organization_id)
+        rows = (
+            self.session.execute(
+                select(LogisticsTransportSegment)
+                .where(
+                    LogisticsTransportSegment.organization_id == organization_id,
+                    LogisticsTransportSegment.shipment_id == shipment_id,
+                    LogisticsTransportSegment.deleted_ts.is_(None),
+                )
+                .order_by(LogisticsTransportSegment.id.asc())
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {c.name: getattr(r, c.name) for c in r.__table__.columns} for r in rows
+        ]
+
+    def update_logistics_transport_segment(
+        self, segment_id: int, organization_id: str, **fields: Any
+    ) -> dict[str, Any]:
+        from coffee_export.database.models import LogisticsTransportSegment
+
+        seg = self.session.get(LogisticsTransportSegment, segment_id)
+        if not seg or seg.deleted_ts or seg.organization_id != organization_id:
+            raise NotFoundError(f"transport segment {segment_id} not found")
+        allowed = {
+            "container_id", "segment_type", "provider_id", "provider_name",
+            "origin", "destination", "planned_date", "actual_date",
+            "reference", "cost", "currency", "status", "notes",
+        }
+        for k, v in fields.items():
+            if k in allowed and hasattr(seg, k):
+                setattr(seg, k, v)
+        seg.updated_ts = now_addis_iso_str()
+        self._commit()
+        return {c.name: getattr(seg, c.name) for c in seg.__table__.columns}
+
+    # =============================================================
     # ACCOUNTS & RELATIONSHIP (for Agent 7)
     # =============================================================
 

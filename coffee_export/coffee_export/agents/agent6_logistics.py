@@ -80,9 +80,11 @@ from coffee_export.events import (
     CONTRACT_SIGNED,
     CUSTOMS_HOLD,
     SHIPMENT_BOOKED,
+    SHIPMENT_CREATED,
     SHIPMENT_DELIVERED,
     SHIPMENT_DEPARTED,
 )
+from coffee_export.logistics.adapters import get_adapter
 from coffee_export.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -121,10 +123,28 @@ CUSTOMS_DOC_DESCRIPTIONS: dict[str, str] = {
 
 
 class Agent6(BaseAgent):
-    """Agent 6 — Logistics & Shipping Specialist."""
+    """Agent 6 — Logistics & Shipping Specialist (Logistics Command Center).
+
+    HONESTY CONTRACT (Logistics Command Center, docs/logistics-command-center.md)
+    -----------------------------------------------------------------------
+    Agent 6 coordinates the shipment RECORD — it never books, calls, emails
+    or "contacts" any carrier. Every provider interaction happens on the
+    provider's official channel by a human; Faith-El records the outcome:
+
+      * CONTRACT_SIGNED → creates the shipment record + the 18-step export
+        checklist + customs checklist, and publishes SHIPMENT_CREATED
+        (NOT SHIPMENT_BOOKED — creating a record books nothing).
+      * A REAL external booking (made by an operator on the provider's
+        channel) is recorded via record_external_booking() → only then does
+        the shipment become 'booked' and SHIPMENT_BOOKED is published, with
+        the provider's reference in the payload.
+      * Provider capabilities are answered by the adapter layer, which
+        today ALWAYS answers not_connected — there are no logistics API
+        integrations, and none may be faked.
+    """
 
     agent_id = "Agent 6"
-    description = "Logistics & Shipping — freight booking, customs, delivery tracking"
+    description = "Logistics & Shipping — shipment records, external booking records, customs, delivery tracking"
 
     def get_leads_to_process(self) -> list[dict[str, Any]]:
         """Consume CONTRACT_SIGNED events from Agent 5."""
@@ -163,7 +183,14 @@ class Agent6(BaseAgent):
         contract_id: str,
         lead_id: str = "",
     ) -> dict[str, Any]:
-        """Create a shipment from a signed contract."""
+        """Create a shipment RECORD from a signed contract.
+
+        Creates the record, seeds the 18-step export checklist and the
+        customs checklist, and publishes SHIPMENT_CREATED. It does NOT
+        book anything — no carrier is contacted, no space is requested.
+        The booking happens later, on the provider's official channel,
+        and is recorded via record_external_booking().
+        """
         contract = self.sm.get_contract(contract_id)
         if not contract:
             return {"action": "skipped", "reason": f"contract {contract_id} not found"}
@@ -185,9 +212,31 @@ class Agent6(BaseAgent):
         # Generate customs document checklist
         checklist = self.generate_customs_checklist(shipment_id)
 
-        # Publish SHIPMENT_BOOKED
+        # Seed the 18-step export checklist (org of the contract's shipment)
+        org_id = contract.get("organization_id") or "org-system"
+        export_checklist = self.sm.seed_logistics_checklist(
+            organization_id=org_id, shipment_id=shipment_id
+        )
+
+        # Timeline: the record's creation is a real event
+        self.sm.add_logistics_event(
+            organization_id=org_id,
+            shipment_id=shipment_id,
+            event_type="shipment_created",
+            title=f"Shipment record created from contract {contract_id}",
+            detail=(
+                "Shipment record created after CONTRACT_SIGNED. No booking "
+                "exists yet — the next step is finding a provider and "
+                "booking on their official channel."
+            ),
+            source="agent",
+            created_by=self.agent_id,
+        )
+
+        # Publish SHIPMENT_CREATED (honest: a record was created — nothing
+        # was booked; SHIPMENT_BOOKED is reserved for a real booking record)
         self.bus.publish(
-            event_type=SHIPMENT_BOOKED,
+            event_type=SHIPMENT_CREATED,
             entity_type="shipment",
             entity_id=shipment_id,
             payload={
@@ -197,14 +246,17 @@ class Agent6(BaseAgent):
                 "total_volume_bags": contract.get("total_volume_bags", 0),
                 "departure_port": "Djibouti",
                 "required_customs_docs": checklist.get("required", []),
+                "export_checklist_items": len(export_checklist),
             },
             published_by=self.agent_id,
         )
 
         log.info(
-            f"{self.agent_id} created shipment {shipment_id} for contract {contract_id}, "
+            f"{self.agent_id} created shipment record {shipment_id} for "
+            f"contract {contract_id} (record only — nothing booked), "
             f"{len(contract.get('line_items', []))} lot(s), "
-            f"{len(checklist.get('required', []))} customs docs required"
+            f"{len(checklist.get('required', []))} customs docs required, "
+            f"{len(export_checklist)} checklist steps seeded"
         )
 
         return {
@@ -212,11 +264,87 @@ class Agent6(BaseAgent):
             "shipment_id": shipment_id,
             "contract_id": contract_id,
             "customs_checklist": checklist,
+            "export_checklist_items": len(export_checklist),
         }
 
     # =============================================================
     # FREIGHT BOOKING
     # =============================================================
+
+    def record_external_booking(
+        self,
+        shipment_id: str,
+        provider_name: str,
+        booking_reference: str,
+        organization_id: str = "org-system",
+        provider_id: int | None = None,
+        **details: Any,
+    ) -> dict[str, Any]:
+        """Record a REAL booking an operator made on the provider's channel.
+
+        This is the ONLY path that publishes SHIPMENT_BOOKED, and its
+        payload carries the provider's own reference — evidence a human
+        completed the booking outside Faith-El. Faith-El never calls this
+        on its own.
+        """
+        booking = self.sm.record_logistics_booking(
+            organization_id=organization_id,
+            shipment_id=shipment_id,
+            provider_id=provider_id,
+            provider_name=provider_name,
+            booking_reference=booking_reference,
+            created_by=self.agent_id,
+            **details,
+        )
+
+        self.bus.publish(
+            event_type=SHIPMENT_BOOKED,
+            entity_type="shipment",
+            entity_id=shipment_id,
+            payload={
+                "shipment_id": shipment_id,
+                "provider_name": provider_name,
+                "booking_reference": booking_reference,
+                "container_type": booking.get("container_type"),
+                "quantity": booking.get("quantity", 1),
+                "etd": booking.get("etd"),
+                "eta": booking.get("eta"),
+                "recorded_by": "operator",
+                "note": (
+                    "Booking was made on the provider's official channel; "
+                    "Faith-El recorded the operator's attestation."
+                ),
+            },
+            published_by=self.agent_id,
+        )
+
+        log.info(
+            f"{self.agent_id} recorded EXTERNAL booking {booking_reference} "
+            f"with {provider_name} for {shipment_id} (operator attestation "
+            f"— Faith-El did not book anything itself)"
+        )
+        return {"action": "external_booking_recorded", "booking": booking}
+
+    def check_provider_capability(
+        self, provider: Any, capability: str
+    ) -> dict[str, Any]:
+        """Answer a provider capability via the adapter layer — honestly.
+
+        Returns {'connected': False, 'message': ...} for every provider
+        today: there are no logistics API integrations. The UI uses this
+        to decide between in-app and external actions.
+        """
+        adapter = get_adapter(provider)
+        method = {
+            "availability": lambda: adapter.get_availability("", 0),
+            "quote": adapter.get_quote,
+            "booking": lambda: adapter.create_booking(),
+            "tracking": lambda: adapter.get_tracking(""),
+        }.get(capability)
+        if method is None:
+            raise ValueError(f"unknown capability: {capability}")
+        result = method()
+        return {"connected": result.connected, "message": result.message}
 
     def book_shipment(
         self,
@@ -230,7 +358,12 @@ class Agent6(BaseAgent):
         etd: str = "",
         eta: str = "",
     ) -> dict[str, Any]:
-        """Book freight: update shipment with carrier and voyage details."""
+        """Record freight details an operator confirmed with the carrier.
+
+        Kept for compatibility with callers that update shipment fields
+        after an external booking. This does NOT place a booking — it
+        records what a human already arranged on the carrier's channel.
+        """
         self.sm.update_shipment(
             shipment_id,
             carrier=carrier,
@@ -245,13 +378,14 @@ class Agent6(BaseAgent):
         )
 
         log.info(
-            f"{self.agent_id} booked shipment {shipment_id}: "
-            f"{carrier} {vessel_name}, {departure_port} → {arrival_port}, "
-            f"ETD={etd}, ETA={eta}"
+            f"{self.agent_id} recorded confirmed freight details for "
+            f"{shipment_id}: {carrier} {vessel_name}, "
+            f"{departure_port} → {arrival_port}, ETD={etd}, ETA={eta} "
+            f"(details confirmed by the operator on the carrier's channel)"
         )
 
         return {
-            "action": "shipment_booked",
+            "action": "freight_details_recorded",
             "shipment_id": shipment_id,
             "carrier": carrier,
             "vessel": vessel_name,

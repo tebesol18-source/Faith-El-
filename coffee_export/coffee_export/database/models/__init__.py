@@ -21,6 +21,9 @@ Domain organization:
                         CuppingScore, SampleDecision, SampleBudget, SampleWaitlist
     contract.py       — Contract, ContractLineItem, ComplianceDocument
     logistics.py      — Shipment, ShipmentItem, CustomsDocument
+    logistics_resources.py — LogisticsProvider, LogisticsBooking,
+                        LogisticsContainer, LogisticsEvent,
+                        LogisticsChecklistItem, LogisticsTransportSegment
     relationship.py   — Account, AccountActivity
     events.py         — Event
 """
@@ -64,6 +67,14 @@ from coffee_export.database.models.logistics import (  # noqa: F401
     CustomsDocument,
     Shipment,
     ShipmentItem,
+)
+from coffee_export.database.models.logistics_resources import (  # noqa: F401
+    LogisticsBooking,
+    LogisticsChecklistItem,
+    LogisticsContainer,
+    LogisticsEvent,
+    LogisticsProvider,
+    LogisticsTransportSegment,
 )
 from coffee_export.database.models.outreach import (  # noqa: F401
     OutreachTouch,
@@ -122,6 +133,13 @@ __all__ = [
     "Shipment",
     "ShipmentItem",
     "CustomsDocument",
+    # Logistics resources (Command Center)
+    "LogisticsProvider",
+    "LogisticsBooking",
+    "LogisticsContainer",
+    "LogisticsEvent",
+    "LogisticsChecklistItem",
+    "LogisticsTransportSegment",
     # Relationship
     "Account",
     "AccountActivity",

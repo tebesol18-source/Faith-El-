@@ -36,6 +36,7 @@ from coffee_export.events import (
     CONTRACT_SIGNED,
     CUSTOMS_HOLD,
     SHIPMENT_BOOKED,
+    SHIPMENT_CREATED,
     SHIPMENT_DELIVERED,
     SHIPMENT_DEPARTED,
     EventBus,
@@ -183,14 +184,66 @@ def test() -> int:
     assert "eudr_declaration" in required, "EU should require eudr_declaration"
     assert "bill_of_lading" in required
 
-    # Verify SHIPMENT_BOOKED published
+    # Verify SHIPMENT_CREATED published (honest: a RECORD was created —
+    # nothing was booked, so SHIPMENT_BOOKED must NOT be published here)
+    with EventBus() as bus:
+        created = bus.replay(event_type=SHIPMENT_CREATED, limit=10)
+        assert len(created) >= 1
+        print(f"  ✓ SHIPMENT_CREATED events: {len(created)}")
+        booked = bus.replay(event_type=SHIPMENT_BOOKED, limit=10)
+        assert len(booked) == 0, (
+            "creating a shipment record must NOT publish SHIPMENT_BOOKED — "
+            "nothing was booked with any carrier"
+        )
+        print("  ✓ SHIPMENT_BOOKED correctly NOT published (nothing booked yet)")
+
+    # Verify the 18-step export checklist was seeded on the shipment
+    with StateManager() as sm:
+        shipment = sm.get_shipment(shipment_id)
+        org_id = shipment["organization_id"]
+        checklist_items = sm.get_logistics_checklist(org_id, shipment_id)
+        assert len(checklist_items) == 18, (
+            f"expected 18 export checklist steps, got {len(checklist_items)}"
+        )
+        print(f"  ✓ Export checklist seeded: {len(checklist_items)} steps")
+
+    # ── 3. RECORD AN EXTERNAL BOOKING (the honest path) ──
+    print("\n[3] RECORD EXTERNAL BOOKING (operator booked on the provider's channel)")
+    with StateManager() as sm:
+        shipment = sm.get_shipment(shipment_id)
+        org_id = shipment["organization_id"]
+    with Agent6() as agent:
+        result = agent.record_external_booking(
+            shipment_id=shipment_id,
+            provider_name="Ethiopian Shipping and Logistics (ESL)",
+            booking_reference="ESL-SMOKE-0001",
+            organization_id=org_id,
+            container_type="20GP",
+            quantity=2,
+            vessel="MV Bahri Dar",
+            voyage="V-118",
+            etd="2026-07-15",
+            eta="2026-08-10",
+        )
+    assert result["action"] == "external_booking_recorded"
+    booking = result["booking"]
+    print(f"  ✓ Action: {result['action']}")
+    print(f"  ✓ Provider: {booking['provider_name']} ref {booking['booking_reference']}")
     with EventBus() as bus:
         booked = bus.replay(event_type=SHIPMENT_BOOKED, limit=10)
-        assert len(booked) >= 1
-        print(f"  ✓ SHIPMENT_BOOKED events: {len(booked)}")
+        assert len(booked) >= 1, (
+            "recording a real external booking is the ONLY path that "
+            "publishes SHIPMENT_BOOKED"
+        )
+        payload = booked[-1]["payload"]
+        assert payload.get("booking_reference") == "ESL-SMOKE-0001"
+        print("  ✓ SHIPMENT_BOOKED published with the provider's reference")
+    with StateManager() as sm:
+        shipment = sm.get_shipment(shipment_id)
+        assert shipment["status"] == "booked"
+        print("  ✓ Shipment status → booked")
 
-    # ── 3. BOOK FREIGHT ──
-    print("\n[3] BOOK FREIGHT")
+    # ── 3b. FREIGHT DETAILS (compat wrapper) ──
     with Agent6() as agent:
         result = agent.book_shipment(
             shipment_id=shipment_id,
@@ -202,10 +255,8 @@ def test() -> int:
             etd="2026-07-15",
             eta="2026-08-10",
         )
-    print(f"  ✓ Action: {result['action']}")
-    print(f"  ✓ Carrier: {result['carrier']}")
-    print(f"  ✓ Route: {result['departure_port']} → {result['arrival_port']}")
-    assert result["action"] == "shipment_booked"
+    print(f"  ✓ Freight details recorded: {result['action']}")
+    assert result["action"] == "freight_details_recorded"
 
     # ── 4. CUSTOMS CHECKLIST ──
     print("\n[4] CUSTOMS CHECKLIST")

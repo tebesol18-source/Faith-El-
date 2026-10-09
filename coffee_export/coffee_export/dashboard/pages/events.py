@@ -40,6 +40,7 @@ def render() -> None:
                 "CONTRACT_SIGNED",
                 "CONTRACT_COMPLETED",
                 "SHIPMENT_BOOKED",
+                "SHIPMENT_CREATED",
                 "SHIPMENT_DEPARTED",
                 "SHIPMENT_DELIVERED",
                 "AGENT_STARTED",
