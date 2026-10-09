@@ -16,7 +16,7 @@ import { InventoryPage } from "@/components/pages/InventoryPage";
 import { SamplesPage } from "@/components/pages/SamplesPage";
 import { QuotesPage } from "@/components/pages/QuotesPage";
 import { CompliancePage } from "@/components/pages/CompliancePage";
-import { ShipmentsPage } from "@/components/pages/ShipmentsPage";
+import { LogisticsPage } from "@/components/pages/LogisticsPage";
 import { ContractsPage } from "@/components/pages/ContractsPage";
 import { FinancePage } from "@/components/pages/FinancePage";
 import { CoachPage } from "@/components/pages/CoachPage";
@@ -189,7 +189,7 @@ export default function App() {
         {currentPage === "samples" && <SamplesPage />}
         {currentPage === "quotes" && <QuotesPage />}
         {currentPage === "compliance" && <CompliancePage />}
-        {currentPage === "shipments" && <ShipmentsPage />}
+        {currentPage === "shipments" && <LogisticsPage />}
         {currentPage === "contracts" && <ContractsPage />}
         {currentPage === "finance" && <FinancePage />}
         {currentPage === "coach" && <CoachPage onNavigate={setCurrentPage} />}

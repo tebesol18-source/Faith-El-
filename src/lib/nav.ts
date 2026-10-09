@@ -39,7 +39,7 @@ export const navGroups: NavGroup[] = [
     { icon: ScrollText, label: "Contracts", page: "contracts" },
   ]},
   { label: "Operations", items: [
-    { icon: Truck, label: "Shipments", page: "shipments" },
+    { icon: Truck, label: "Logistics", page: "shipments", highlight: true },
     { icon: ShieldCheck, label: "Compliance", page: "compliance", highlight: true },
   ] },
   { label: null, items: [
