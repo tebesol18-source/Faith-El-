@@ -650,3 +650,20 @@ Stage Summary:
 - Dry-run unchanged: no RESEND_API_KEY, nothing delivered; inbound still fails closed without a valid Svix signature (legacy scheme now dev-only).
 - Rotation: BUYER_MASK_SECRET must NOT be rotated casually — the runbook (audit → backup → rewrap with both secrets → verify → activate → rollback) is now the documented procedure. The current dev secret remains in untracked .env.
 - Still NOT production-ready: real sending still gated on owner credentials + public bridge + domain verification; independent review is now DONE with findings remediated (this entry).
+
+---
+Task ID: LCC-2
+Agent: main (Super Z)
+Task: REBUILD the Logistics Command Center (lost local commit 494ddea) after the Oct 9 environment reset wiped the unpushed work. Same 27-point brief, same honesty contract.
+
+Work Log:
+- Environment reset at Oct 9 06:30 wiped the local repo including the unpushed LCC commit (494ddea, +8,436 lines). GitHub was safe through 3e83ae1 (SR-1 had been pushed Oct 8 12:19). Recovered from system mirrors: 9 E2E evidence screenshots, ESL verification data, worklog, audit evidence — used to rebuild faithfully.
+- Stage A (f5e8f51): migration b9d0e1f2a4b5 (6 tables + verified ESL seed), models, StateManager org-scoped methods, LogisticsProviderAdapter (NOT_CONNECTED), Agent 6 honesty reshape (SHIPMENT_CREATED vs SHIPMENT_BOOKED semantics, record_external_booking), shared 18-step checklist template (data/logistics-checklist-template.json), Python tests.
+- Stage B (b83c1f5): 11 /api/logistics/* routes + /api/shipments enrichment (checklist seeding, logistics counters, carrier optional) + login-lockout rate-limit fix (route-class buckets) + 21 integration tests.
+- Stage C (51a2a4c): LogisticsPage (8 stats, alerts, filters, shipment cards), ShipmentDrawer (5 tabs), FindContainerModal, RecordBookingModal (with confirmation upload via /api/logistics/documents), ProviderAdminModal, NewShipmentModal, nav rename Shipments→Logistics, old AI shipments page removed.
+- Stage D (this commit): dead-button/fake-data sweep (zero dead buttons, zero fake providers; orphaned PlaceholderPage removed), docs/logistics-command-center.md (capability contract: FUNCTIONAL INSIDE FAITH-EL / EXTERNAL ACTION REQUIRED / FUTURE API INTEGRATION, ESL verification record, API surface, limitations).
+
+Stage Summary:
+- Full verification after every stage; final: eslint 0/0 · tsc 0 · JS 305/305 · Python suites all green · production build ✓.
+- E2E journey evidence: download/e2e-logistics-evidence/ (original run) — fresh run re-verified.
+- Everything the module shows is real DB data; every external action opens a verified official channel; nothing claims automation that does not exist.
