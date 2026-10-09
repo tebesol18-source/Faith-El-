@@ -52,7 +52,10 @@ export function clearAuthToken() {
  */
 export function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const headers = new Headers(options.headers);
-  if (options.body && !headers.has("Content-Type")) {
+  // JSON by default — but NEVER override a FormData body: the browser must
+  // set multipart/form-data with its own boundary, or multipart endpoints
+  // (e.g. /api/logistics/documents) reject the request with 400.
+  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 

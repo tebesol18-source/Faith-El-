@@ -35,6 +35,7 @@ yarn-error.log*
 !.env.example
 
 # throwaway test DB + logs created by scripts/run-tests.mjs
+/state/test-*.db*
 /state/test-coffee_export.db*
 /state/test-python-coffee_export.db*
 /state/test-dbpath-override.db

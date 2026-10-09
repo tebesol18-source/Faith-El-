@@ -58,6 +58,16 @@ export async function GET(request: any) {
         SELECT lot_id FROM shipment_items WHERE shipment_id = ? AND deleted_ts IS NULL
       `);
 
+      // Container pickup-date risk (mirrors the detail bundle's task rule:
+      // pickup today+2 or closer, container not yet picked up/delivered)
+      const pickupRiskStmt = db.prepare(`
+        SELECT COUNT(*) AS n FROM logistics_containers
+        WHERE shipment_id = ? AND organization_id = ? AND deleted_ts IS NULL
+          AND pickup_date IS NOT NULL AND pickup_date != ''
+          AND pickup_date <= date('now', '+2 days')
+          AND status NOT IN ('PICKED_UP', 'CANCELLED', 'DELIVERED')
+      `);
+
       // Logistics Command Center per-shipment counters (real DB only)
       const containersStmt = db.prepare(`
         SELECT COUNT(*) AS total,
@@ -96,6 +106,10 @@ export async function GET(request: any) {
         if (r.status === "delayed" || r.status === "customs_hold") actionsNeeded++;
         if (r.etd && !r.atd && r.etd < new Date().toISOString().slice(0, 10)) actionsNeeded++;
         if (bookingCount === 0 && r.status === "draft") actionsNeeded++;
+        const pickupRisk = (pickupRiskStmt.get(r.shipment_id, auth.user.organizationId) as
+          | { n: number }
+          | undefined)?.n ?? 0;
+        if (pickupRisk > 0) actionsNeeded++;
 
         // Calculate days
         const now = new Date();

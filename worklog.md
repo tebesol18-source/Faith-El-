@@ -667,3 +667,21 @@ Stage Summary:
 - Full verification after every stage; final: eslint 0/0 · tsc 0 · JS 305/305 · Python suites all green · production build ✓.
 - E2E journey evidence: download/e2e-logistics-evidence/ (original run) — fresh run re-verified.
 - Everything the module shows is real DB data; every external action opens a verified official channel; nothing claims automation that does not exist.
+
+---
+Task ID: LCC-3
+Agent: main (Super Z)
+Task: Final E2E verification of the Logistics Command Center (20-step journey) + fixes for the two genuine defects it surfaced.
+
+Work Log:
+- Baseline re-verified on the actual HEAD (3eeae9b, remote-confirmed): eslint 0/0 · tsc 0 · JS 305/305 · Python all suites · build ✓.
+- Extended scripts/e2e-logistics-journey.mjs to the full 20-checkpoint journey (A auth/nav + console-error monitoring + stat-vs-API parity, B ESL directory + admin permission model, C shipment via UI + contract linkage + reload persistence, D booking + confirmation upload/retrieval + milestones, E delay detection + arrival + idempotency + cross-tenant).
+- Journey executed against an isolated throwaway DB as the seller (abi); buyer = real Neumann Kaffee Gruppe from the verified directory; RUN_ID unique per run.
+- DEFECT 1 (found by the journey, FIXED): apiFetch forced Content-Type application/json onto FormData bodies → booking-confirmation uploads always 400. Fix: skip the default content-type for FormData (src/lib/auth-client.ts) + regression test tests/lib/auth-client.test.ts (3 tests).
+- DEFECT 2 (found by the journey, FIXED): the shipment-card actionsNeeded counter omitted container pickup-date risks that the detail bundle's tasks DO flag (inconsistent rules). Fix: GET /api/shipments now counts containers with pickup_date ≤ today+2 not yet picked up (mirrors the detail rule).
+- Full 20/20 journey passed end-to-end (log in repo evidence directory; screenshots at /home/z/my-project/download/e2e-logistics-evidence-fresh/ — 17 files, secrets-scanned).
+- Post-fix baseline: eslint 0/0 · tsc 0 · JS 308/308 · Python all suites (committed DB sha-asserted untouched) · build ✓.
+- Agent 6 runtime classification recorded honestly: the UI shipment path is E2E-verified; the Python event-driven CONTRACT_SIGNED path is test-covered but no production scheduler invokes Python agents (pre-existing architecture — the supervisor only uses the Python email bridge); shipment-level "delivered" transition exists in Agent 6 + tests but has no UI action (NOT WIRED — documented, not fabricated).
+
+Stage Summary:
+- E2E verdict: PASS (all 20 checkpoints). Two real defects found and fixed with regression tests. Evidence + script committed; screenshots kept OUT of git (outside the repo tree).
