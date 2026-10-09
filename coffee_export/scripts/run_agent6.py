@@ -30,7 +30,7 @@ from coffee_export.utils.logging import setup_logging
 
 
 def cmd_run(args):
-    result = run_agent6()
+    result = run_agent6(organization_id=args.organization)
     print(f"\n{result.summary()}")
     for lr in result.lead_results:
         status = "✓" if lr.success else "✗"
@@ -141,7 +141,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Agent 6 — Logistics & Shipping CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("run", help="Run Agent 6 (event-driven)").set_defaults(func=cmd_run)
+    p = sub.add_parser("run", help="Run Agent 6 (event-driven)")
+    p.add_argument(
+        "--organization",
+        default="org-system",
+        help="Organization scope for this run (default: org-system). The supervisor passes the owning org of the pending events.",
+    )
+    p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("book", help="Book freight")
     p.add_argument("shipment_id")

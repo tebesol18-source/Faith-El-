@@ -2751,6 +2751,7 @@ class StateManager:
         contract = Contract(
             contract_id=contract_id,
             lead_id=lead_id,
+            organization_id=self.organization_id,
             sample_request_id=sample_request_id,
             contract_number=contract_number or contract_id,
             contract_date=now[:10],
@@ -3120,6 +3121,7 @@ class StateManager:
         arrival_port: str = "",
         etd: str = "",
         eta: str = "",
+        organization_id: str | None = None,
     ) -> str:
         """
         Create a shipment record linked to a contract. Returns shipment_id.
@@ -3127,6 +3129,12 @@ class StateManager:
         Shipments are created when Agent 5 publishes CONTRACT_SIGNED.
         Status flow: draft → booked → loaded → departed → in_transit
         → arrived → customs_hold → delivered (or delayed/cancelled)
+
+        ``organization_id`` stamps the shipment's owning org. It defaults to
+        this StateManager's org, so a supervisor-triggered agent run scoped
+        to the event's org creates the shipment in THAT org — never in the
+        org-system default (which would make the shipment invisible to the
+        org's Node API queries).
         """
         from coffee_export.database.models import Shipment
 
@@ -3148,6 +3156,7 @@ class StateManager:
         sh = Shipment(
             shipment_id=shipment_id,
             contract_id=contract_id,
+            organization_id=organization_id or self.organization_id,
             carrier=carrier,
             vessel_name=vessel_name,
             bill_of_lading_number=bill_of_lading_number,
@@ -3164,6 +3173,30 @@ class StateManager:
         self._commit()
         log.info(f"Created shipment {shipment_id} for contract {contract_id}")
         return shipment_id
+
+    def get_shipment_for_contract(self, contract_id: str) -> dict[str, Any] | None:
+        """Return the most recent non-deleted shipment for a contract in
+        THIS org, or None. Org-scoped — used by Agent 6's idempotency guard
+        (an at-least-once event bus may redeliver CONTRACT_SIGNED; the
+        shipment must not be duplicated)."""
+        from coffee_export.database.models import Shipment
+
+        sh = (
+            self.session.execute(
+                select(Shipment)
+                .where(
+                    Shipment.contract_id == contract_id,
+                    Shipment.organization_id == self.organization_id,
+                    Shipment.deleted_ts.is_(None),
+                )
+                .order_by(Shipment.created_ts.desc())
+                .limit(1)
+            )
+            .scalar_one_or_none()
+        )
+        if not sh:
+            return None
+        return {c.name: getattr(sh, c.name) for c in sh.__table__.columns}
 
     def get_shipment(self, shipment_id: str) -> dict[str, Any] | None:
         """Return a shipment as dict, or None."""

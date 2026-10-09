@@ -78,3 +78,6 @@ coffee_export/data/backups/
 
 # stale runtime DB backups — git history already retains every committed state
 /state/*.bak
+
+# logistics booking-confirmation uploads (runtime storage, hashed files created by operators/tests)
+/upload/logistics/

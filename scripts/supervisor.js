@@ -63,7 +63,18 @@ const BRIDGE_URL = process.env.EMAIL_BRIDGE_URL || "http://localhost:8000";
 const BRIDGE_SECRET = process.env.EMAIL_BRIDGE_SECRET || "";
 
 // ─── Event → Agent routing ───
-// Which agent handles which event type
+// Which agent handles which event type.
+//
+// 2026-10-09 (Phase E): CONTRACT_SIGNED is now routed to "Agent 6" — the
+// agent that CONSUMES it (Python Agent 6 creates the shipment record).
+// It was previously routed to "Agent 5" (the PUBLISHER), and since the
+// Node-side claimer had no Agent 5 case, every CONTRACT_SIGNED event was
+// marked 'consumed' with NO processing — Python Agent 6 never saw one in
+// production. SHIPMENT_DELIVERED + CONTRACT_COMPLETED are routed to
+// "Agent 7" (Python: account + delivery follow-up) — previously they were
+// unrouted and would have piled up as pending forever. The phantom
+// SHIPMENT_ARRIVED entry (not a real event type — publish-side validation
+// would reject it) is removed.
 const EVENT_ROUTING = {
   LEAD_CREATED: "Agent 2",
   LEAD_ENRICHED: "Agent 3",
@@ -74,13 +85,82 @@ const EVENT_ROUTING = {
   SAMPLE_REQUESTED: "Agent 1",
   LOT_CONFIRMED: "Agent 4",
   LOT_CONFIRMATION_FAILED: "Agent 4",
-  CONTRACT_SIGNED: "Agent 5",
-  SHIPMENT_DEPARTED: "Agent 6",
-  SHIPMENT_ARRIVED: "Agent 6",
+  CONTRACT_SIGNED: "Agent 6",
+  SHIPMENT_DELIVERED: "Agent 7",
+  CONTRACT_COMPLETED: "Agent 7",
   LEAD_NURTURED: "Agent 7",
   LEAD_QUALIFIED: "Agent 7",
   LEAD_GHOSTED: "Agent 7",
 };
+
+// ─── Python agent runtime (Phase E) ───
+// Events whose processing lives in the PYTHON agent runtime. The Node
+// supervisor NEVER claims or consumes these itself — that would mark them
+// complete with no work done (the exact starvation bug this wiring fixed).
+// Instead, for each org with pending events of these types, the supervisor
+// spawns the agent's CLI once; the agent claims/consumes via the shared
+// org-scoped event bus and owns retry semantics itself:
+//   process ok  → mark_consumed
+//   process err → mark_failed → back to 'pending' with retry:N in
+//                 error_message → 'dead_letter' after 3 attempts
+//   agent crash → events stay 'pending' (never silently consumed); the
+//                 spawn failure is logged to supervisor_log and counted in
+//                 the agent's consecutive_errors (existing bounded-retry
+//                 machinery: auto-restart / skip after max_consecutive_errors)
+// Recovery of dead-lettered events: coffee_export/scripts/event_admin.py
+const PYTHON_AGENT_RUNNERS = {
+  "Agent 6": {
+    script: "coffee_export/scripts/run_agent6.py",
+    eventTypes: ["CONTRACT_SIGNED"], // consumed by Agent6.get_leads_to_process()
+  },
+  "Agent 7": {
+    script: "coffee_export/scripts/run_agent7.py",
+    eventTypes: ["SHIPMENT_DELIVERED", "CONTRACT_COMPLETED"], // consumed by Agent7
+  },
+};
+
+// Informational events: recorded for observability, no agent action
+// required. The supervisor drains these (marks consumed, no processing) so
+// the queue does not fill with records nobody is expected to act on — the
+// same policy the Agent 3 comment in claimAndProcessEvents documents.
+// Everything NOT listed here and NOT in a Python runner's eventTypes keeps
+// its existing Node handling.
+const INFORMATIONAL_EVENT_TYPES = [
+  "AGENT_STARTED",        // agent-run telemetry (published by AgentRunner)
+  "AGENT_COMPLETED",
+  "AGENT_FAILED",
+  "CONTRACT_DRAFTED",     // Agent 5 drafted a contract — the contract row is the record
+  "SHIPMENT_CREATED",     // a shipment RECORD exists — distinct from BOOKED
+  "SHIPMENT_BOOKED",      // operator recorded an external booking (timeline already updated)
+  "SHIPMENT_DEPARTED",    // Python record_departure already updated shipment + timeline
+  "ACCOUNT_CREATED",      // Agent 7 account record created
+  "CUSTOMS_HOLD",         // customs hold recorded on the shipment timeline
+];
+
+// Python interpreter for agent runs. Resolution order:
+//   1. SUPERVISOR_PYTHON_BIN (explicit override)
+//   2. coffee_export/venv/bin/python  (production layout — deploy-oracle.sh)
+//   3. .venv/bin/python               (dev/test layout — run-python-tests.sh)
+//   4. "python3"                      (PATH fallback — failures are observable)
+function resolvePythonBin() {
+  if (process.env.SUPERVISOR_PYTHON_BIN) return process.env.SUPERVISOR_PYTHON_BIN;
+  const path = require("path");
+  const fs2 = require("fs");
+  const repoRoot = path.resolve(__dirname, "..");
+  const candidates = [
+    path.join(repoRoot, "coffee_export", "venv", "bin", "python"),
+    path.join(repoRoot, ".venv", "bin", "python"),
+  ];
+  for (const c of candidates) {
+    try {
+      if (fs2.existsSync(c)) return c;
+    } catch { /* unreadable — try next */ }
+  }
+  return "python3";
+}
+
+// Bounded timeout for one Python agent run (spawn safety valve).
+const PYTHON_RUN_TIMEOUT_MS = parseInt(process.env.SUPERVISOR_PYTHON_TIMEOUT_MS || "", 10) || 90_000;
 
 // Agent descriptions (for logging)
 const AGENT_NAMES = {
@@ -154,12 +234,30 @@ class Supervisor {
    *  Uses a transaction to prevent race conditions —
    *  events are claimed and processed atomically.
    *  No 'processing' intermediate state (not in DB constraint).
+   *
+   *  PHASE E: event types consumed by a PYTHON agent runtime
+   *  (PYTHON_AGENT_RUNNERS) are NEVER claimed/consumed here — they are
+   *  delegated to processPythonAgentEvents(), which triggers the Python
+   *  agent and lets IT claim/consume via the shared org-scoped bus.
+   *  Everything else keeps the Node-side handling below.
    */
   claimAndProcessEvents(agentId) {
+    const runner = PYTHON_AGENT_RUNNERS[agentId] || null;
+    const pythonTypes = runner ? runner.eventTypes : [];
+
+    // Python-mediated events first (may spawn the agent runtime)
+    let pyProcessed = 0;
+    let pyErrors = 0;
+    if (runner) {
+      const pyResult = this.processPythonAgentEvents(agentId, runner);
+      pyProcessed = pyResult.processed;
+      pyErrors = pyResult.errors;
+    }
+
     const eventTypes = Object.entries(EVENT_ROUTING)
-      .filter(([_, ag]) => ag === agentId)
+      .filter(([et, ag]) => ag === agentId && !pythonTypes.includes(et))
       .map(([et]) => et);
-    if (eventTypes.length === 0) return { processed: 0, errors: 0 };
+    if (eventTypes.length === 0) return { processed: pyProcessed, errors: pyErrors };
 
     const placeholders = eventTypes.map(() => "?").join(",");
 
@@ -171,10 +269,10 @@ class Supervisor {
       LIMIT 10
     `).all(...eventTypes);
 
-    if (events.length === 0) return { processed: 0, errors: 0 };
+    if (events.length === 0) return { processed: pyProcessed, errors: pyErrors };
 
-    let processed = 0;
-    let errors = 0;
+    let processed = pyProcessed;
+    let errors = pyErrors;
 
     for (const event of events) {
       try {
@@ -223,12 +321,14 @@ class Supervisor {
             WHERE id = ? AND status = 'pending'
           `).run(nowISO(), agentId, event.id);
 
-          // Publish follow-up events
+          // Publish follow-up events — carrying the SOURCE event's org so
+          // the follow-up is consumable in the org it belongs to (a
+          // cross-org drop would strand it in org-system forever).
           if (event.event_type === "LEAD_CREATED") {
             this.db.prepare(`
-              INSERT INTO events (event_type, entity_type, entity_id, payload, published_by, published_ts, status)
-              VALUES (?, ?, ?, ?, ?, ?, 'pending')
-            `).run("LEAD_ENRICHED", "lead", payload.lead_id, JSON.stringify(payload), agentId, nowISO());
+              INSERT INTO events (event_type, entity_type, entity_id, payload, published_by, published_ts, status, organization_id)
+              VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+            `).run("LEAD_ENRICHED", "lead", payload.lead_id, JSON.stringify(payload), agentId, nowISO(), event.organization_id || "org-system");
           }
         });
 
@@ -255,12 +355,203 @@ class Supervisor {
     return { processed, errors };
   }
 
+  /** PHASE E — trigger the PYTHON agent runtime for its consumed event types.
+   *
+   *  For every org with pending events of this agent's Python-consumed
+   *  types, spawn the agent CLI once (org-scoped). The agent claims the
+   *  events through the shared event bus, processes them, and marks each
+   *  consumed / failed(retry) / dead_letter itself. The supervisor NEVER
+   *  consumes these events on the agent's behalf — a spawn failure leaves
+   *  them pending (observable, retried next tick), never silently done.
+   */
+  processPythonAgentEvents(agentId, runner) {
+    const placeholders = runner.eventTypes.map(() => "?").join(",");
+    const events = this.db.prepare(`
+      SELECT id, event_type, entity_type, entity_id, payload, organization_id, published_ts
+      FROM events
+      WHERE status = 'pending' AND event_type IN (${placeholders})
+      ORDER BY published_ts ASC
+      LIMIT 50
+    `).all(...runner.eventTypes);
+    if (events.length === 0) return { processed: 0, errors: 0 };
+
+    // Group by OWNING org — each spawned run is org-scoped: the agent's
+    // bus consume + StateManager only see that org's events and rows.
+    const byOrg = {};
+    for (const e of events) {
+      const org = e.organization_id || "org-system";
+      (byOrg[org] = byOrg[org] || []).push(e);
+    }
+
+    let processed = 0;
+    let errors = 0;
+
+    for (const [org, orgEvents] of Object.entries(byOrg)) {
+      const result = this.invokePythonAgent(agentId, runner, org, orgEvents);
+      processed += result.consumed;
+
+      if (result.failed > 0) {
+        // The agent ran but explicitly failed some events (its own retry
+        // policy applies: retry:N → dead_letter after MAX_RETRIES).
+        // Observable — never silent.
+        this.logEvent(
+          agentId, "AGENT_EVENT_FAILED", "warning",
+          `${agentId} failed ${result.failed} event(s) for org ${org} — see events.error_message (retry:N; dead_letter after 3 attempts). Recover via coffee_export/scripts/event_admin.py`,
+          "Agent owns the retry policy; failed events stay queued or dead-lettered for review",
+          JSON.stringify({ org, eventIds: result.failedIds, agentOutput: result.outputTail })
+        );
+        log(`  ⚠️  ${agentId} (${AGENT_NAMES[agentId]}): ${result.failed} event(s) failed in Python run (org ${org})`);
+      }
+
+      if (result.untouched.length > 0) {
+        // Run exited 0 but never claimed these events (batch limit, or the
+        // agent does not consume them). Left pending — flagged so a
+        // misrouting cannot hide as a quiet, permanent backlog.
+        this.logEvent(
+          agentId, "AGENT_EVENTS_UNTOUCHED", "warning",
+          `${agentId} finished a run for org ${org} but ${result.untouched.length} event(s) are still pending and untouched — they will be re-triggered next tick. Repeated occurrences mean the agent never claims these event types.`,
+          "Events remain pending; re-triggered next tick",
+          JSON.stringify({ org, eventIds: result.untouched })
+        );
+      }
+
+      if (!result.ok) {
+        // Spawn-level failure (crash / timeout / missing interpreter):
+        // events stay pending, the failure is logged, and the agent's
+        // consecutive_errors grow so the existing auto-restart machinery
+        // bounds the retry loop.
+        errors += orgEvents.length;
+        this.logEvent(
+          agentId, "AGENT_ERROR", "error",
+          `${agentId} Python runtime failed for org ${org}: ${result.error}. ${orgEvents.length} event(s) left PENDING — nothing was consumed.`,
+          "Events stay pending; will retry on next tick (bounded by consecutive_errors + auto-restart)",
+          JSON.stringify({ org, eventIds: orgEvents.map((e) => e.id), error: result.error, agentOutput: result.outputTail })
+        );
+        log(`  ⛔ ${agentId} (${AGENT_NAMES[agentId]}): Python run FAILED (org ${org}) — ${result.error}`);
+      } else if (result.consumed > 0) {
+        log(`  ${agentId} (${AGENT_NAMES[agentId]}): Python runtime processed ${result.consumed} event(s) (org ${org})`);
+      }
+    }
+
+    return { processed, errors };
+  }
+
+  /** Spawn ONE bounded, org-scoped Python agent run and verify what it
+   *  actually did to the events (never trust the exit code alone). */
+  invokePythonAgent(agentId, runner, org, orgEvents) {
+    const { execFileSync } = require("child_process");
+    const path = require("path");
+    const repoRoot = path.resolve(__dirname, "..");
+    const script = path.join(repoRoot, runner.script);
+    const ids = orgEvents.map((e) => e.id);
+    const idPlaceholders = ids.map(() => "?").join(",");
+
+    let stdout = "";
+    try {
+      // Args travel as argv (no shell), the DB location as env — same
+      // pattern as executeApprovedEmail's bridge call. The DB URL is made
+      // ABSOLUTE (sqlite:////abs/path) so the child resolves the same file
+      // regardless of its own cwd.
+      stdout = execFileSync(resolvePythonBin(), [script, "run", "--organization", org], {
+        encoding: "utf-8",
+        timeout: PYTHON_RUN_TIMEOUT_MS,
+        killSignal: "SIGKILL",
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          COFFEE_DATABASE_URL: `sqlite:///${path.resolve(DB_PATH)}`,
+          PYTHONUNBUFFERED: "1",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (err) {
+      const killed = err.killed || /timed?\s?out/i.test(String(err.message));
+      const combined = `${err.stderr || ""}${err.stdout || ""}`.trim();
+      return {
+        ok: false,
+        error: killed
+          ? `run exceeded ${PYTHON_RUN_TIMEOUT_MS}ms and was killed`
+          : `${err.message}${combined ? ` — ${combined.slice(-400)}` : ""}`,
+        consumed: 0,
+        failed: 0,
+        failedIds: [],
+        untouched: ids,
+        outputTail: combined.slice(-400),
+      };
+    }
+
+    // Verify the actual event states after the run.
+    const rows = this.db.prepare(
+      `SELECT id, status, error_message FROM events WHERE id IN (${idPlaceholders})`
+    ).all(...ids);
+    let consumed = 0;
+    let failed = 0;
+    const failedIds = [];
+    const untouched = [];
+    for (const r of rows) {
+      if (r.status === "consumed") {
+        consumed++;
+      } else if (r.status === "dead_letter" || r.status === "failed") {
+        failed++;
+        failedIds.push(r.id);
+      } else if (r.status === "pending") {
+        // pending + retry:N = the agent failed it and its retry policy
+        // already requeued it (counts as handled); pending + nothing = the
+        // run never reached it (flagged as untouched).
+        if (r.error_message && r.error_message.startsWith("retry:")) {
+          failed++;
+          failedIds.push(r.id);
+        } else {
+          untouched.push(r.id);
+        }
+      }
+    }
+    return {
+      ok: true,
+      consumed,
+      failed,
+      failedIds,
+      untouched,
+      outputTail: String(stdout || "").trim().slice(-400),
+    };
+  }
+
+  /** PHASE E — drain informational events (queue hygiene).
+   *
+   *  AGENT_* telemetry and the logistics/relationship notice events
+   *  (SHIPMENT_CREATED, SHIPMENT_BOOKED, SHIPMENT_DEPARTED, ACCOUNT_CREATED,
+   *  CUSTOMS_HOLD) are records for observability — the work they describe
+   * was already persisted by whoever published them. No agent is expected
+   * to act on them, so the supervisor marks them consumed (by
+   * 'supervisor') to keep the queue empty and the backlog checks honest.
+   */
+  drainInformationalEvents() {
+    const placeholders = INFORMATIONAL_EVENT_TYPES.map(() => "?").join(",");
+    const rows = this.db.prepare(`
+      SELECT id FROM events
+      WHERE status = 'pending' AND event_type IN (${placeholders})
+      ORDER BY published_ts ASC
+      LIMIT 100
+    `).all(...INFORMATIONAL_EVENT_TYPES);
+    if (rows.length === 0) return 0;
+    const now = nowISO();
+    const update = this.db.prepare(`
+      UPDATE events SET status = 'consumed', consumed_ts = ?, consumed_by = 'supervisor'
+      WHERE id = ? AND status = 'pending'
+    `);
+    const txn = this.db.transaction(() => {
+      for (const r of rows) update.run(now, r.id);
+    });
+    txn();
+    return rows.length;
+  }
+
   /** Publish a new event */
-  publishEvent(eventType, entityType, entityId, payload, publishedBy) {
+  publishEvent(eventType, entityType, entityId, payload, publishedBy, organizationId) {
     this.db.prepare(`
-      INSERT INTO events (event_type, entity_type, entity_id, payload, published_by, published_ts, status)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending')
-    `).run(eventType, entityType, entityId, JSON.stringify(payload), publishedBy, nowISO());
+      INSERT INTO events (event_type, entity_type, entity_id, payload, published_by, published_ts, status, organization_id)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+    `).run(eventType, entityType, entityId, JSON.stringify(payload), publishedBy, nowISO(), organizationId || "org-system");
   }
 
   /** Run one agent — atomically claim and process its pending events */
@@ -1346,11 +1637,16 @@ abi@faithel.com`;
             WHERE lead_id = ? AND current_state = 'ENRICHED'
           `).run(nowISO(), payload.lead_id);
 
-          // Publish MESSAGE_SENT event (with honest delivery info)
+          // Publish MESSAGE_SENT event (with honest delivery info).
+          // Carries the LEAD's org so the event is consumable where it
+          // belongs (a cross-org drop would strand it in org-system).
+          const leadRowForEvent = this.db
+            .prepare("SELECT organization_id FROM leads WHERE lead_id = ? AND deleted_ts IS NULL")
+            .get(payload.lead_id);
           this.publishEvent("MESSAGE_SENT", "inbox_message", payload.lead_id, {
             ...payload,
             delivery: sendResult.delivery,
-          }, "Agent 3");
+          }, "Agent 3", (leadRowForEvent && leadRowForEvent.organization_id) || "org-system");
 
           this.logEvent("Agent 3", "ACTION_EXECUTED", "info",
             `Outreach email ${sendResult.delivery.dry_run ? "stored in DRY-RUN (not delivered)" : "sent"} to ${payload.company || payload.lead_id} (approved by admin)`,
@@ -1427,6 +1723,14 @@ abi@faithel.com`;
     for (const c of controls) {
       const result = this.runAgent(c.agent_id);
       if (result && result.processed) totalProcessed += result.processed;
+    }
+
+    // Phase 1b (Phase E): drain informational events (AGENT_* telemetry,
+    // SHIPMENT_CREATED/BOOKED/DEPARTED, ACCOUNT_CREATED, CUSTOMS_HOLD) so
+    // the queue stays empty and backlog alerts stay meaningful.
+    const drained = this.drainInformationalEvents();
+    if (drained > 0) {
+      log(`  supervisor: drained ${drained} informational event(s) (no action required)`);
     }
 
     // Phase 2: Supervisor check

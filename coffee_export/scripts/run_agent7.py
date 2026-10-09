@@ -27,7 +27,7 @@ from coffee_export.utils.logging import setup_logging
 
 
 def cmd_run(args):
-    result = run_agent7()
+    result = run_agent7(organization_id=args.organization)
     print(f"\n{result.summary()}")
     for lr in result.lead_results:
         status = "✓" if lr.success else "✗"
@@ -134,7 +134,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Agent 7 — Sales & Relationship CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("run", help="Run Agent 7 (event-driven)").set_defaults(func=cmd_run)
+    p = sub.add_parser("run", help="Run Agent 7 (event-driven)")
+    p.add_argument(
+        "--organization",
+        default="org-system",
+        help="Organization scope for this run (default: org-system). The supervisor passes the owning org of the pending events.",
+    )
+    p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("log", help="Log a relationship activity")
     p.add_argument("account_id")

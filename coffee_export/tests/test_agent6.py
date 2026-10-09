@@ -14,8 +14,9 @@ Tests:
   9. Arrival
   10. Delivery (publishes SHIPMENT_DELIVERED + CONTRACT_COMPLETED)
   11. Customs hold
-  12. Events published
-  13. Architecture compliance
+  12. Idempotent replay (redelivered CONTRACT_SIGNED creates nothing)
+  13. Organization scoping (foreign-org agent sees nothing)
+  14. Architecture compliance
 
 Run:  python -m tests.test_agent6
 """
@@ -30,7 +31,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from coffee_export.agents.agent6_logistics import Agent6
 from coffee_export.agents.registry import create_agent, list_registered_agents
 from coffee_export.database.base import now_addis_iso
-from coffee_export.database.models import Coop, WashingStation
+from coffee_export.database.models import Coop, Shipment, WashingStation
+from sqlalchemy import func, select
 from coffee_export.events import (
     CONTRACT_COMPLETED,
     CONTRACT_SIGNED,
@@ -355,8 +357,56 @@ def test() -> int:
         assert len(holds) >= 1
         print(f"  ✓ CUSTOMS_HOLD events: {len(holds)}")
 
-    # ── 11. ARCHITECTURE COMPLIANCE ──
-    print("\n[11] ARCHITECTURE COMPLIANCE (no direct DB access)")
+    # ── 12. IDEMPOTENT REPLAY (at-least-once redelivery) ──
+    print("\n[12] IDEMPOTENT REPLAY — a redelivered CONTRACT_SIGNED must not duplicate anything")
+
+    def _shipment_count(cid: str) -> int:
+        with StateManager() as sm:
+            return int(
+                sm.session.execute(
+                    select(func.count(Shipment.shipment_id)).where(Shipment.contract_id == cid)
+                ).scalar()
+                or 0
+            )
+
+    shipments_before = _shipment_count(contract2_id)
+    with Agent6() as agent:
+        replay_result = agent.create_shipment_from_contract(contract2_id, lead2_id)
+    print(f"  ✓ Action: {replay_result['action']}")
+    print(f"  ✓ Shipment ID: {replay_result.get('shipment_id', 'N/A')}")
+    assert replay_result["action"] == "shipment_exists", (
+        "replaying CONTRACT_SIGNED for a contract that already has a shipment "
+        "must return shipment_exists, not create a second shipment"
+    )
+    assert replay_result["shipment_id"] == shipment2_id
+    shipments_after = _shipment_count(contract2_id)
+    with StateManager() as sm:
+        checklist_after = len(sm.get_logistics_checklist("org-system", shipment2_id))
+    assert shipments_after == shipments_before, "duplicate shipment created on replay"
+    assert checklist_after == 18, f"checklist duplicated on replay: {checklist_after}"
+    with EventBus() as bus:
+        created_events = bus.replay(event_type=SHIPMENT_CREATED, limit=50)
+        for_contract2 = [e for e in created_events if e.get("payload", {}).get("contract_id") == contract2_id]
+    assert len(for_contract2) == 1, "SHIPMENT_CREATED re-published on replay"
+    print(f"  ✓ Still {shipments_after} shipment(s), 18 checklist steps, 1 SHIPMENT_CREATED")
+
+    # ── 13. ORGANIZATION SCOPING (event ownership) ──
+    print("\n[13] ORGANIZATION SCOPING — a foreign-org agent cannot see this org's contract")
+    with Agent6(organization_id="org-abi-1786882934") as agent:
+        cross_result = agent.create_shipment_from_contract(contract2_id, lead2_id)
+    print(f"  ✓ Action: {cross_result['action']}")
+    assert cross_result["action"] == "skipped", (
+        "an org-scoped Agent 6 must not create a shipment for another org's contract"
+    )
+    assert _shipment_count(contract2_id) == shipments_before, "cross-org agent created a shipment"
+    # And the org-abi event bus has no CONTRACT_SIGNED to consume at all
+    with EventBus(organization_id="org-abi-1786882934") as bus:
+        foreign = bus.consume(subscriber_id="Agent 6", event_type=CONTRACT_SIGNED, limit=10)
+    assert foreign == [], "org-abi bus must not deliver org-system events"
+    print("  ✓ Cross-org lookup skipped; org-abi bus delivers no org-system events")
+
+    # ── 14. ARCHITECTURE COMPLIANCE ──
+    print("\n[14] ARCHITECTURE COMPLIANCE (no direct DB access)")
     import subprocess
 
     result_check = subprocess.run(

@@ -86,14 +86,22 @@ class BatchResult:
 
 
 class BaseAgent(ABC):
-    """Abstract base class all agents inherit from."""
+    """Abstract base class all agents inherit from.
+
+    ``organization_id`` scopes BOTH the StateManager and the EventBus, so an
+    agent only ever sees its org's leads/contracts/shipments and only ever
+    consumes events published for that org. The Node supervisor passes the
+    owning org of each pending event when it triggers a Python agent run
+    (see scripts/supervisor.js — PYTHON_AGENT_RUNNERS). Default keeps the
+    historical single-org behaviour ("org-system").
+    """
 
     agent_id: str = "BaseAgent"
     description: str = ""
 
-    def __init__(self) -> None:
-        self.sm = StateManager()
-        self.bus = EventBus()
+    def __init__(self, organization_id: str = "org-system") -> None:
+        self.sm = StateManager(organization_id=organization_id)
+        self.bus = EventBus(organization_id=organization_id)
         self._should_stop = False
 
     def __enter__(self) -> BaseAgent:

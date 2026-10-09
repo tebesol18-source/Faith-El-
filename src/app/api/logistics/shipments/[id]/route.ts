@@ -178,6 +178,23 @@ export async function GET(
         });
       }
 
+      // 6. Delivery-ready hint: shipment arrived AND every non-cancelled
+      //    container DELIVERED — the shipment-level final delivery action
+      //    is now available (derived ONLY from stored facts).
+      if (shipment.status === "arrived" && (containers as Record<string, unknown>[]).length > 0) {
+        const notDelivered = (containers as Record<string, unknown>[]).filter(
+          (c) => c.status !== "DELIVERED" && c.status !== "CANCELLED"
+        );
+        if (notDelivered.length === 0) {
+          tasks.push({
+            severity: "info",
+            title: "All containers delivered — record the final delivery",
+            detail:
+              "Every container on this shipment is DELIVERED. Record the shipment-level final delivery to complete the contract and hand off to Agent 7 (account + delivery follow-up).",
+          });
+        }
+      }
+
       return NextResponse.json({
         ok: true,
         shipment,

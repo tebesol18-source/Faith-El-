@@ -13,8 +13,8 @@
 
 import { useEffect, useState } from "react";
 import {
-  AlertTriangle, ArrowRight, CalendarDays, CheckCircle2, ChevronDown, Circle,
-  ClipboardList, Download, FileText, Plus, Ship, Truck, X as XIcon,
+  AlertTriangle, Anchor, ArrowRight, CalendarDays, CheckCircle2, ChevronDown, Circle,
+  ClipboardList, Download, FileText, PackageCheck, Plus, Ship, Truck, X as XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/auth-client";
@@ -132,6 +132,10 @@ export function ShipmentDrawer({
   const [eDetail, setEDetail] = useState("");
   const [eDate, setEDate] = useState("");
 
+  // Shipment-level arrival / final delivery action state
+  const [confirmAction, setConfirmAction] = useState<null | "arrive" | "deliver">(null);
+  const [ataInput, setAtaInput] = useState("");
+
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -245,6 +249,29 @@ export function ShipmentDrawer({
     }
   }
 
+  /** Shipment-level arrival / final delivery — POST /arrival.
+   *  Operator attestation only: Faith-El records what the operator
+   *  confirms happened on the ground; it never invents carrier data. */
+  async function submitArrival(action: "arrive" | "deliver") {
+    setBusy(true);
+    try {
+      const r = await apiFetch(`/api/logistics/shipments/${shipmentId}/arrival`, {
+        method: "POST",
+        body: JSON.stringify({ action, ata: ataInput || undefined }),
+      });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error);
+      setConfirmAction(null);
+      setAtaInput("");
+      await load();
+      onChanged();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to record arrival/delivery");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (error && !detail) {
     return (
       <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/40">
@@ -269,6 +296,19 @@ export function ShipmentDrawer({
   const docsCount =
     detail.bookings.filter((b) => parseDoc(b.confirmation_document)).length +
     (detail.customsDocs || []).length;
+
+  // Shipment-level arrival/delivery availability (mirrors the API guards:
+  // /api/logistics/shipments/[id]/arrival)
+  const undeliveredContainers = detail.containers.filter(
+    (c) => c.status !== "DELIVERED" && c.status !== "CANCELLED"
+  );
+  const canArrive = ["departed", "in_transit", "delayed"].includes(s.status);
+  const deliverStatusEligible =
+    ["departed", "in_transit", "arrived", "customs_hold", "delayed"].includes(s.status);
+  const canDeliver = deliverStatusEligible && undeliveredContainers.length === 0;
+  // Show the section whenever an action is possible, or to explain WHY the
+  // final delivery is still blocked (open containers) in eligible statuses.
+  const showArrivalSection = canArrive || deliverStatusEligible;
 
   const tabs: { key: typeof tab; label: string; badge?: number }[] = [
     { key: "overview", label: "Overview & Tasks", badge: detail.tasks.length || undefined },
@@ -349,6 +389,102 @@ export function ShipmentDrawer({
                   ))}
                 </dl>
               </section>
+
+              {/* Shipment-level arrival & final delivery (operator attestation) */}
+              {showArrivalSection && (
+                <section className="bg-white rounded-xl border border-gray-200 p-4">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-3 flex items-center gap-1.5">
+                    <Anchor className="w-3.5 h-3.5" /> Arrival &amp; delivery
+                  </h3>
+
+                  {confirmAction === null ? (
+                    <div className="flex flex-wrap gap-2">
+                      {canArrive && (
+                        <button
+                          onClick={() => setConfirmAction("arrive")}
+                          disabled={busy}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-stone-700 hover:bg-stone-800 disabled:opacity-50 rounded-lg px-3 py-2 transition-colors"
+                        >
+                          <Anchor className="w-3.5 h-3.5" /> Record Arrival
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setConfirmAction("deliver")}
+                        disabled={busy || !canDeliver}
+                        title={
+                          canDeliver
+                            ? "Record final delivery of the entire shipment"
+                            : "Every non-cancelled container must be DELIVERED first"
+                        }
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-amber-800 hover:bg-amber-900 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg px-3 py-2 transition-colors"
+                      >
+                        <PackageCheck className="w-3.5 h-3.5" /> Record Final Delivery
+                      </button>
+                      {undeliveredContainers.length > 0 && (
+                        <p className="w-full text-xs text-gray-500 mt-1">
+                          Final delivery unlocks when every container is DELIVERED — still open:{" "}
+                          {undeliveredContainers
+                            .map((c) => `${c.container_number || `#${c.id}`} (${c.status.replace(/_/g, " ").toLowerCase()})`)
+                            .join(", ")}
+                          .
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-3">
+                      {confirmAction === "deliver" ? (
+                        <div className="text-xs text-amber-900">
+                          <p className="font-semibold">Record final delivery of {s.shipment_id}?</p>
+                          <p className="mt-1">
+                            This attests the ENTIRE shipment was delivered to the buyer. The contract
+                            {s.contract_id ? ` ${s.contract_id}` : ""} will be marked completed and the
+                            delivery is handed to Agent 7 (account + follow-up). This is a terminal
+                            transition — it cannot be undone.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-stone-700">
+                          <p className="font-semibold">Record arrival of {s.shipment_id}?</p>
+                          <p className="mt-1">
+                            This attests the shipment arrived at the destination port ({s.arrival_port || "destination"}).
+                            Container milestones can still be updated afterwards.
+                          </p>
+                        </div>
+                      )}
+                      <div>
+                        <label className="block text-[10px] uppercase font-semibold text-gray-500 mb-1">
+                          Actual time of arrival (optional — blank = now)
+                        </label>
+                        <input
+                          type="datetime-local"
+                          value={ataInput}
+                          onChange={(e) => setAtaInput(e.target.value)}
+                          className="text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => void submitArrival(confirmAction)}
+                          disabled={busy}
+                          className={cn(
+                            "text-xs font-semibold text-white rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50",
+                            confirmAction === "deliver" ? "bg-amber-800 hover:bg-amber-900" : "bg-stone-700 hover:bg-stone-800"
+                          )}
+                        >
+          {confirmAction === "deliver" ? "Confirm Final Delivery" : "Confirm Arrival"}
+                        </button>
+                        <button
+                          onClick={() => { setConfirmAction(null); setAtaInput(""); }}
+                          disabled={busy}
+                          className="text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-lg px-3 py-1.5 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
 
               {/* Next actions */}
               {detail.tasks.length > 0 && (

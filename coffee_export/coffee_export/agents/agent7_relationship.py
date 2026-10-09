@@ -154,13 +154,26 @@ class Agent7(BaseAgent):
             return {"action": "failed", "error": str(e)}
 
     def _handle_delivery(self, event_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-        """Handle SHIPMENT_DELIVERED: create account + log activity."""
+        """Handle SHIPMENT_DELIVERED: create account + log activity.
+
+        IDEMPOTENT: the event bus is at-least-once, so the same
+        SHIPMENT_DELIVERED may be redelivered (retry / replay / supervisor
+        re-tick). If a delivery_followup activity for THIS shipment is
+        already recorded on the account, nothing is duplicated — no second
+        activity, no second ACCOUNT_CREATED event.
+        """
         shipment_id = payload.get("shipment_id", "")
         contract_id = payload.get("contract_id", "")
 
-        # Get contract to find lead_id
+        # Get contract to find lead_id (org-scoped: a contract in another
+        # org is invisible here — this IS the event-ownership validation)
         contract = self.sm.get_contract(contract_id) if contract_id else None
         if not contract:
+            log.warning(
+                f"{self.agent_id} SHIPMENT_DELIVERED references contract "
+                f"{contract_id!r} which does not exist in org "
+                f"{self.sm.organization_id!r} — skipping"
+            )
             return {"action": "skipped", "reason": f"contract {contract_id} not found"}
 
         lead_id = contract.get("lead_id", "")
@@ -172,6 +185,28 @@ class Agent7(BaseAgent):
             lead_id=lead_id,
             account_manager="operator",
         )
+
+        # Idempotency guard: a delivery_followup for THIS shipment already
+        # recorded? Then this is a redelivered event — do not duplicate the
+        # activity or the ACCOUNT_CREATED publish.
+        marker = f"Shipment {shipment_id} delivered"
+        existing_activities = self.sm.get_account_activities(account_id)
+        for act in existing_activities:
+            if (
+                act.get("activity_type") == "delivery_followup"
+                and marker in (act.get("summary") or "")
+            ):
+                log.info(
+                    f"{self.agent_id} delivery_followup for {shipment_id} "
+                    f"already recorded on account {account_id} — replay "
+                    f"ignored (idempotent redelivery)"
+                )
+                return {
+                    "action": "delivery_already_recorded",
+                    "account_id": account_id,
+                    "shipment_id": shipment_id,
+                    "contract_id": contract_id,
+                }
 
         # Log delivery follow-up activity
         self.sm.add_account_activity(
@@ -579,9 +614,15 @@ register_agent("Agent 7", Agent7)
 # ═══════════════════════════════════════════════════════════════
 
 
-def run_agent7() -> Any:
-    """Run Agent 7 in event-driven mode (process SHIPMENT_DELIVERED)."""
-    return run_agent(Agent7())
+def run_agent7(organization_id: str = "org-system") -> Any:
+    """Run Agent 7 in event-driven mode (process SHIPMENT_DELIVERED).
+
+    ``organization_id`` scopes the run: the agent only consumes events and
+    touches rows belonging to that org. The Node supervisor passes the
+    owning org of the pending delivery/completion events it triggers this
+    run for (see scripts/supervisor.js — PYTHON_AGENT_RUNNERS).
+    """
+    return run_agent(Agent7(organization_id=organization_id))
 
 
 def run_agent7_stats() -> dict[str, Any]:

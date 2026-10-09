@@ -27,6 +27,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import path from "node:path";
 import { createTestClient } from "./helpers";
 
 interface TestClient {
@@ -542,5 +543,278 @@ describe("Logistics Command Center — rate-limit regression (login not locked o
     });
     expect(loginR.status).toBe(401); // wrong password — but NOT 429
     expect(loginR.headers.get("x-ratelimit-limit")).toBe("10");
+  });
+});
+
+describe("Logistics Command Center — shipment-level arrival & final delivery", () => {
+  // Direct-DB status seeding is only safe on the HERMETIC runner's throwaway
+  // DB (run-tests.mjs sets DATABASE_PATH). A bare dev-server run skips these
+  // cases instead of mutating a developer's database.
+  const hermetic = !!process.env.DATABASE_PATH;
+  const itHermetic = serverAvailable && hermetic ? it : it.skip;
+  const TEST_DB_PATH = path.resolve(process.cwd(), process.env.DATABASE_PATH || "state/coffee_export.db");
+
+  let plainShipId = ""; // no containers on this one
+  let containerShipId = ""; // gets a booking + 2 containers
+
+  beforeAll(async () => {
+    if (!serverAvailable) return;
+    // Two fresh shipments for isolated state control (the module-level
+    // shipmentId is mutated by the booking tests above).
+    for (const [i, set] of [
+      [0, "Arrival Plain"],
+      [1, "Arrival Containers"],
+    ] as const) {
+      const r = await admin.fetch("/api/shipments", {
+        method: "POST",
+        body: JSON.stringify({
+          contractId,
+          carrier: set,
+          departurePort: "Djibouti",
+          arrivalPort: "Hamburg",
+          etd: "2026-11-05",
+          eta: "2026-11-28",
+        }),
+      });
+      expect(r.status).toBe(201);
+      const id = (await json(r)).shipment.id;
+      if (i === 0) plainShipId = id;
+      else containerShipId = id;
+    }
+
+    // A booking with two container numbers on the second shipment
+    const bR = await admin.fetch("/api/logistics/bookings", {
+      method: "POST",
+      body: JSON.stringify({
+        shipment_id: containerShipId,
+        provider_name: "ESL",
+        booking_reference: `ESL-ARRIVAL-${Date.now()}`,
+        container_type: "20GP",
+        quantity: 2,
+        container_numbers: "ARRV0000001,ARRV0000002",
+        etd: "2026-11-05",
+        eta: "2026-11-28",
+      }),
+    });
+    expect(bR.status).toBe(201);
+  }, 120_000);
+
+  /** Seed a shipment status the Node API cannot set directly (in production
+   *  the Python runtime records departures; the state machine is shared). */
+  async function seedStatus(shipId: string, status: string) {
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(TEST_DB_PATH);
+    try {
+      db.prepare(`UPDATE shipments SET status = ? WHERE shipment_id = ?`).run(status, shipId);
+    } finally {
+      db.close();
+    }
+  }
+
+  itHermetic("invalid action / invalid ata refused; unauthenticated 401; cross-org 404; CSRF enforced", async () => {
+    const badAction = await admin.fetch(`/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "teleport" }),
+    });
+    expect(badAction.status).toBe(400);
+
+    const badAta = await admin.fetch(`/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "arrive", ata: "not-a-date" }),
+    });
+    expect(badAta.status).toBe(400);
+
+    // Unauthenticated (no session cookie — the matched CSRF pair passes the
+    // middleware, so the 401 comes from the route's auth check itself)
+    const unauth = await fetch(`${BASE_URL}/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: "csrf-token=test-csrf-value",
+        "x-csrf-token": "test-csrf-value",
+        "x-forwarded-for": "10.77.3.1",
+      },
+      body: JSON.stringify({ action: "arrive" }),
+    });
+    expect(unauth.status).toBe(401);
+
+    // Cross-org: the second org cannot even see the shipment
+    const cross = await secondOrg.fetch(`/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "arrive" }),
+    });
+    expect(cross.status).toBe(404);
+
+    // CSRF double-submit: a mutation without the token pair → 403
+    // (rejected by the middleware before the route runs)
+    const csrf = await fetch(`${BASE_URL}/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-forwarded-for": "10.77.3.2" },
+      body: JSON.stringify({ action: "arrive" }),
+    });
+    expect(csrf.status).toBe(403);
+  });
+
+  itHermetic("arrive/deliver refused from draft (nothing has shipped) — no invalid forward jump", async () => {
+    const arrive = await admin.fetch(`/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "arrive" }),
+    });
+    expect(arrive.status).toBe(400);
+    expect((await json(arrive)).error).toContain("departed first");
+
+    const deliver = await admin.fetch(`/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "deliver" }),
+    });
+    expect(deliver.status).toBe(400);
+    expect((await json(deliver)).error).toContain("past departure");
+  });
+
+  itHermetic("arrive from in_transit: status + ATA persisted, honest timeline event, duplicate refused", async () => {
+    await seedStatus(plainShipId, "in_transit");
+
+    const r = await admin.fetch(`/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "arrive", ata: "2026-12-01T14:30:00+03:00" }),
+    });
+    expect(r.status).toBe(200);
+    const d = await json(r);
+    expect(d.action).toBe("arrived");
+    expect(d.shipment.status).toBe("arrived");
+    expect(String(d.shipment.ata)).toContain("2026-12-01T14:30");
+
+    // Persists across a fresh read; timeline records the attestation
+    const detail = await json(await admin.fetch(`/api/logistics/shipments/${plainShipId}`));
+    expect(detail.shipment.status).toBe("arrived");
+    const ev = detail.events.find((e: any) => e.event_type === "status_change");
+    expect(ev).toBeTruthy();
+    expect(ev.title).toContain("arrived at destination port");
+    expect(ev.source).toBe("operator");
+    expect(ev.created_by).toBe("admin@faithel.com");
+
+    // Duplicate arrival → 409, not a silent re-apply
+    const dup = await admin.fetch(`/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "arrive" }),
+    });
+    expect(dup.status).toBe(409);
+  });
+
+  itHermetic("deliver (no containers recorded): terminal transition, contract completed, Agent 7 events published", async () => {
+    const r = await admin.fetch(`/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "deliver" }),
+    });
+    expect(r.status).toBe(200);
+    const d = await json(r);
+    expect(d.action).toBe("delivered");
+    expect(d.shipment.status).toBe("delivered");
+    expect(d.published).toEqual(["SHIPMENT_DELIVERED", "CONTRACT_COMPLETED"]);
+
+    // Contract completed (same rule as Python Agent 6 record_delivery)
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(TEST_DB_PATH);
+    try {
+      const c = db
+        .prepare(`SELECT status FROM contracts WHERE contract_id = ?`)
+        .get(contractId) as { status: string };
+      expect(c.status).toBe("completed");
+
+      // The two events sit on the bus, org-scoped, with the payloads the
+      // Python side consumes — the supervisor's Agent 7 trigger.
+      const evs = db
+        .prepare(
+          `SELECT event_type, organization_id, payload FROM events
+           WHERE event_type IN ('SHIPMENT_DELIVERED','CONTRACT_COMPLETED') AND entity_id IN (?, ?)
+           ORDER BY id DESC LIMIT 2`
+        )
+        .all(plainShipId, contractId) as { event_type: string; organization_id: string; payload: string }[];
+      const types = evs.map((e) => e.event_type).sort();
+      expect(types).toEqual(["CONTRACT_COMPLETED", "SHIPMENT_DELIVERED"]);
+      for (const e of evs) {
+        expect(e.organization_id).toBe("org-system");
+      }
+      const deliveredPayload = JSON.parse(evs.find((e) => e.event_type === "SHIPMENT_DELIVERED")!.payload);
+      expect(deliveredPayload.shipment_id).toBe(plainShipId);
+      expect(deliveredPayload.contract_id).toBe(contractId);
+    } finally {
+      db.close();
+    }
+
+    // Timeline carries the terminal event
+    const detail = await json(await admin.fetch(`/api/logistics/shipments/${plainShipId}`));
+    expect(detail.shipment.status).toBe("delivered");
+    expect(detail.events.some((e: any) => e.title.includes("final delivery recorded"))).toBe(true);
+
+    // Duplicate delivery → 409; backward arrival after delivery → 409
+    const dup = await admin.fetch(`/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "deliver" }),
+    });
+    expect(dup.status).toBe(409);
+    const back = await admin.fetch(`/api/logistics/shipments/${plainShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "arrive" }),
+    });
+    expect(back.status).toBe(409);
+  });
+
+  itHermetic("partial shipment: deliver blocked while containers undelivered; unlocks when all delivered", async () => {
+    await seedStatus(containerShipId, "in_transit");
+    const arriveR = await admin.fetch(`/api/logistics/shipments/${containerShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "arrive" }),
+    });
+    expect(arriveR.status).toBe(200);
+
+    // Both containers still BOOKED → delivery refused with the blockers listed
+    const blocked = await admin.fetch(`/api/logistics/shipments/${containerShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "deliver" }),
+    });
+    expect(blocked.status).toBe(400);
+    const blockedD = await json(blocked);
+    expect(blockedD.error).toContain("2 container(s)");
+    expect(blockedD.error).toContain("ARRV0000001");
+    expect(blockedD.error).toContain("ARRV0000002");
+
+    // No delivery events were published while blocked
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(TEST_DB_PATH);
+    try {
+      const n = db
+        .prepare(`SELECT COUNT(*) n FROM events WHERE event_type = 'SHIPMENT_DELIVERED' AND entity_id = ?`)
+        .get(containerShipId) as { n: number };
+      expect(n.n).toBe(0);
+    } finally {
+      db.close();
+    }
+
+    // Delivery-ready hint appears in the derived tasks ONLY after all
+    // containers are DELIVERED
+    let detail = await json(await admin.fetch(`/api/logistics/shipments/${containerShipId}`));
+    expect(detail.tasks.some((t: any) => t.title.includes("record the final delivery"))).toBe(false);
+
+    for (const c of detail.containers) {
+      const pr = await admin.fetch(`/api/logistics/containers/${c.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "DELIVERED" }),
+      });
+      expect(pr.status).toBe(200);
+    }
+
+    detail = await json(await admin.fetch(`/api/logistics/shipments/${containerShipId}`));
+    expect(detail.tasks.some((t: any) => t.title.includes("record the final delivery"))).toBe(true);
+
+    // Now the shipment-level delivery succeeds
+    const deliverR = await admin.fetch(`/api/logistics/shipments/${containerShipId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "deliver" }),
+    });
+    expect(deliverR.status).toBe(200);
+    const deliverD = await json(deliverR);
+    expect(deliverD.shipment.status).toBe("delivered");
+    expect(deliverD.published).toEqual(["SHIPMENT_DELIVERED", "CONTRACT_COMPLETED"]);
   });
 });

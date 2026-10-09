@@ -190,12 +190,44 @@ class Agent6(BaseAgent):
         book anything — no carrier is contacted, no space is requested.
         The booking happens later, on the provider's official channel,
         and is recorded via record_external_booking().
+
+        IDEMPOTENT: the event bus is at-least-once, so the same
+        CONTRACT_SIGNED event may be delivered more than once (retry,
+        replay, supervisor re-tick). If a shipment already exists for
+        this contract in this org, the existing shipment is returned and
+        NOTHING is duplicated — no second shipment, no second checklist,
+        no second timeline milestone, no second SHIPMENT_CREATED event.
         """
         contract = self.sm.get_contract(contract_id)
         if not contract:
+            # Org-scoped lookup: a contract in ANOTHER org is invisible
+            # here — this IS the event-ownership validation. Consuming
+            # with a logged skip is the honest terminal action (retrying
+            # cannot make a foreign-org contract appear in this org).
+            log.warning(
+                f"{self.agent_id} CONTRACT_SIGNED references contract "
+                f"{contract_id!r} which does not exist in org "
+                f"{self.sm.organization_id!r} — skipping (no shipment created)"
+            )
             return {"action": "skipped", "reason": f"contract {contract_id} not found"}
 
-        # Create the shipment
+        # Idempotency guard — never create a second shipment for a contract
+        existing = self.sm.get_shipment_for_contract(contract_id)
+        if existing:
+            log.info(
+                f"{self.agent_id} shipment {existing['shipment_id']} already "
+                f"exists for contract {contract_id} — replay ignored "
+                f"(idempotent redelivery)"
+            )
+            return {
+                "action": "shipment_exists",
+                "shipment_id": existing["shipment_id"],
+                "contract_id": contract_id,
+                "status": existing.get("status", "draft"),
+            }
+
+        # Create the shipment (stamped with THIS agent's org == the event's
+        # org == the contract's org, validated by the org-scoped lookup above)
         shipment_id = self.sm.create_shipment(
             contract_id=contract_id,
             departure_port="Djibouti",  # default export port
@@ -656,9 +688,15 @@ register_agent("Agent 6", Agent6)
 # ═══════════════════════════════════════════════════════════════
 
 
-def run_agent6() -> Any:
-    """Run Agent 6 in event-driven mode (process CONTRACT_SIGNED)."""
-    return run_agent(Agent6())
+def run_agent6(organization_id: str = "org-system") -> Any:
+    """Run Agent 6 in event-driven mode (process CONTRACT_SIGNED).
+
+    ``organization_id`` scopes the run: the agent only consumes events and
+    touches rows belonging to that org. The Node supervisor passes the
+    owning org of the pending CONTRACT_SIGNED events it triggers this run
+    for (see scripts/supervisor.js — PYTHON_AGENT_RUNNERS).
+    """
+    return run_agent(Agent6(organization_id=organization_id))
 
 
 def run_agent6_stats() -> dict[str, Any]:

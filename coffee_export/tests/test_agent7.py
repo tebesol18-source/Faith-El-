@@ -12,6 +12,8 @@ Tests:
   7. Activity timeline
   8. Repeat order request
   9. Events published (ACCOUNT_CREATED, NPS_COLLECTED, REPEAT_ORDER_REQUESTED)
+  10. Replay idempotency (redelivered SHIPMENT_DELIVERED duplicates nothing)
+  11. Organization scoping (foreign-org agent sees no delivery)
   10. Relationship stats
   11. Architecture compliance
 
@@ -283,8 +285,57 @@ def test() -> int:
     assert stats["total_accounts"] >= 1
     assert stats["nps_responses"] >= 1
 
-    # ── 10. ARCHITECTURE COMPLIANCE ──
-    print("\n[10] ARCHITECTURE COMPLIANCE (no direct DB access)")
+    # ── 10. REPLAY IDEMPOTENCY (at-least-once redelivery) ──
+    print("\n[10] REPLAY IDEMPOTENCY — a redelivered SHIPMENT_DELIVERED duplicates nothing")
+    with StateManager() as sm:
+        activities_before = len(sm.get_account_activities(account_id))
+    with EventBus() as bus:
+        created_before = len(bus.replay(event_type=ACCOUNT_CREATED, limit=50))
+
+    with EventBus() as bus:
+        bus.publish(
+            event_type=SHIPMENT_DELIVERED,
+            entity_type="shipment",
+            entity_id="SH-TEST-001",
+            payload={
+                "shipment_id": "SH-TEST-001",
+                "contract_id": contract_id,
+                "ata": "2026-08-10T14:00:00+02:00",
+            },
+            published_by="Agent 6",
+        )
+    with Agent7() as agent:
+        result = agent.get_leads_to_process()
+        assert len(result) >= 1
+        replay_result = agent.process_lead(result[0])
+    print(f"  ✓ Action: {replay_result['action']}")
+    assert replay_result["action"] == "delivery_already_recorded", (
+        "a redelivered SHIPMENT_DELIVERED must be recognized as already recorded"
+    )
+    assert replay_result["account_id"] == account_id
+    with StateManager() as sm:
+        activities_after = len(sm.get_account_activities(account_id))
+    with EventBus() as bus:
+        created_after = len(bus.replay(event_type=ACCOUNT_CREATED, limit=50))
+    assert activities_after == activities_before, "delivery_followup duplicated on replay"
+    assert created_after == created_before, "ACCOUNT_CREATED re-published on replay"
+    print(f"  ✓ Still {activities_after} activit(ies), {created_after} ACCOUNT_CREATED event(s)")
+
+    # ── 11. ORGANIZATION SCOPING (event ownership) ──
+    print("\n[11] ORGANIZATION SCOPING — a foreign-org agent sees no delivery")
+    with Agent7(organization_id="org-abi-1786882934") as agent:
+        cross_result = agent._handle_delivery(0, {"shipment_id": "SH-TEST-001", "contract_id": contract_id})
+    print(f"  ✓ Action: {cross_result['action']}")
+    assert cross_result["action"] == "skipped", (
+        "an org-scoped Agent 7 must not process another org's contract"
+    )
+    with EventBus(organization_id="org-abi-1786882934") as bus:
+        foreign = bus.consume(subscriber_id="Agent 7", event_type=SHIPMENT_DELIVERED, limit=10)
+    assert foreign == [], "org-abi bus must not deliver org-system events"
+    print("  ✓ Cross-org delivery skipped; org-abi bus delivers no org-system events")
+
+    # ── 12. ARCHITECTURE COMPLIANCE ──
+    print("\n[12] ARCHITECTURE COMPLIANCE (no direct DB access)")
     import subprocess
 
     result_check = subprocess.run(

@@ -5,6 +5,12 @@
  * the real UI + API assertions + screenshots + teardown. Nothing mocked.
  * Hard 8-minute budget: the script force-exits so a hung selector can
  * never eat the tool timeout.
+ *
+ * Phase E checkpoints (after 20-pre/20-reload): 20-arrive (shipment-level
+ * arrival through the real UI), 20-deliver (final delivery: terminal
+ * confirmation, contract completion, Agent 7 handoff events, persistence
+ * after a full reload), 20-agent7 (one supervisor tick triggers the real
+ * Python Agent 7 runtime — account + delivery follow-up for the buyer).
  */
 import { spawn, execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -529,6 +535,155 @@ async function main() {
   pass("reload: shipment + booking + 2 containers + 1/18 checklist all persist; zero duplicates");
   shot("15-after-reload");
 
+  // ── Step 20-arrive: shipment-level ARRIVAL through the real UI ──
+  step("20-arrive", "shipment-level arrival: UI action + confirmation + persistence");
+  // The vessel must be underway for the arrival action to exist. In
+  // production the Python runtime records departures; seed that REAL state
+  // directly on the throwaway DB (no fake API is invented for a state the
+  // Python side owns).
+  {
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(TEST_DB);
+    try {
+      db.prepare("UPDATE shipments SET status = 'in_transit' WHERE shipment_id = ?").run(shipmentId);
+    } finally {
+      db.close();
+    }
+  }
+  // (Re)open the shipment drawer from the list
+  if (ev(`!!document.querySelector('[role="dialog"]')`) === "true") {
+    ab(["find", "role", "button", "click", "--name", "Close"]);
+    await sleep(700);
+  }
+  ab(["find", "text", shipmentId, "click"]);
+  await sleep(1800);
+  clickBtn("Record Arrival");
+  await sleep(600);
+  shot("16-arrival-confirm");
+  clickBtn("Confirm Arrival");
+  await sleep(2000);
+  {
+    const r = await seller.fetch(`/api/logistics/shipments/${shipmentId}`);
+    const d = await r.json();
+    if (d.shipment.status !== "arrived") throw new Error(`arrival not persisted: ${d.shipment.status}`);
+    if (!d.shipment.ata) throw new Error("ATA not persisted");
+    if (!d.events.some((e) => e.event_type === "status_change" && e.title.includes("arrived at destination port"))) {
+      throw new Error("arrival timeline event missing");
+    }
+  }
+  pass("shipment ARRIVED via the UI: status + ATA + timeline persisted");
+  shot("17-shipment-arrived");
+
+  // Duplicate arrival is refused (409) — no silent re-apply
+  {
+    const r = await seller.fetch(`/api/logistics/shipments/${shipmentId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "arrive" }),
+    });
+    if (r.status !== 409) throw new Error(`duplicate arrival not refused: ${r.status}`);
+  }
+  pass("duplicate arrival refused (409)");
+
+  // ── Step 20-deliver: shipment-level FINAL DELIVERY through the real UI ──
+  step("20-deliver", "shipment-level final delivery: confirmation + contract completion + Agent 7 handoff");
+  clickBtn("Record Final Delivery");
+  await sleep(600);
+  shot("18-delivery-confirm");
+  clickBtn("Confirm Final Delivery");
+  await sleep(2200);
+  {
+    const r = await seller.fetch(`/api/logistics/shipments/${shipmentId}`);
+    const d = await r.json();
+    if (d.shipment.status !== "delivered") throw new Error(`delivery not persisted: ${d.shipment.status}`);
+    if (!d.events.some((e) => e.title.includes("final delivery recorded"))) {
+      throw new Error("delivery timeline event missing");
+    }
+  }
+  // Contract completed + the two Agent 7 handoff events published, org-scoped
+  {
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(TEST_DB, { readonly: true });
+    try {
+      const c = db.prepare("SELECT status FROM contracts WHERE contract_id = ?").get(contract.id);
+      if (!c || c.status !== "completed") throw new Error(`contract not completed: ${c && c.status}`);
+      const evs = db.prepare(
+        `SELECT event_type, organization_id, status FROM events
+         WHERE event_type IN ('SHIPMENT_DELIVERED','CONTRACT_COMPLETED') AND entity_id IN (?, ?)`
+      ).all(shipmentId, contract.id);
+      if (evs.length !== 2) throw new Error(`expected 2 handoff events, got ${evs.length}`);
+      for (const e of evs) {
+        if (e.organization_id !== "org-abi-1786882934") throw new Error(`event org wrong: ${e.organization_id}`);
+        if (e.status !== "pending") throw new Error(`event status wrong: ${e.status}`);
+      }
+    } finally {
+      db.close();
+    }
+  }
+  pass(`shipment DELIVERED via the UI; contract ${contract.id} completed; Agent 7 handoff events published (org-scoped)`);
+  shot("19-shipment-delivered");
+
+  // Duplicate delivery refused (409); delivery survives a full reload
+  {
+    const r = await seller.fetch(`/api/logistics/shipments/${shipmentId}/arrival`, {
+      method: "POST",
+      body: JSON.stringify({ action: "deliver" }),
+    });
+    if (r.status !== 409) throw new Error(`duplicate delivery not refused: ${r.status}`);
+  }
+  ab(["reload"]);
+  await sleep(3000);
+  ab(["eval", "(() => { window.__lccErrors = []; window.addEventListener('error', e => window.__lccErrors.push(String(e.message))); window.addEventListener('unhandledrejection', e => window.__lccErrors.push('unhandledrejection: ' + String(e.reason))); return 'ok'; })()"]);
+  ab(["find", "title", "Logistics", "click"]);
+  await sleep(2000);
+  // The "All" filter hides delivered shipments by design — switch to the
+  // Delivered filter to find the row again.
+  clickBtn("Delivered");
+  await sleep(800);
+  ab(["find", "text", shipmentId, "click"]);
+  await sleep(1800);
+  {
+    const statusText = ev(`(document.querySelector('[role="dialog"]')?.textContent || '').includes('delivered')`);
+    if (statusText !== "true") throw new Error("delivered status not visible in the drawer after reload");
+  }
+  pass("duplicate delivery refused (409); delivered state persists after a full reload");
+  shot("19b-delivered-after-reload");
+
+  // ── Step 20-agent7: the supervisor triggers the Python Agent 7 runtime ──
+  step("20-agent7", "supervisor tick → Python Agent 7: account + delivery follow-up for abi's buyer");
+  {
+    const out = execFileSync(process.execPath, [path.join(ROOT, "scripts", "supervisor.js"), "--once"], {
+      encoding: "utf-8",
+      timeout: 120_000,
+      cwd: ROOT,
+      env: { ...process.env, COFFEE_DATABASE_URL: `sqlite:///${TEST_DB}` },
+    });
+    if (!out.includes("Python runtime processed")) {
+      throw new Error(`supervisor did not run a Python agent:\n${out.slice(-800)}`);
+    }
+  }
+  {
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(TEST_DB, { readonly: true });
+    try {
+      const leadRow = db.prepare("SELECT lead_id FROM contracts WHERE contract_id = ?").get(contract.id);
+      const account = db.prepare("SELECT account_id FROM accounts WHERE lead_id = ?").get(leadRow.lead_id);
+      if (!account) throw new Error("Agent 7 did not create an account for the delivered buyer");
+      const acts = db.prepare(
+        "SELECT COUNT(*) n FROM account_activities WHERE account_id = ? AND activity_type = 'delivery_followup'"
+      ).get(account.account_id);
+      if (acts.n !== 1) throw new Error(`delivery_followup activities: ${acts.n}`);
+      const consumed = db.prepare(
+        "SELECT consumed_by FROM events WHERE event_type = 'SHIPMENT_DELIVERED' AND entity_id = ?"
+      ).get(shipmentId);
+      if (!consumed || consumed.consumed_by !== "Agent 7") {
+        throw new Error(`SHIPMENT_DELIVERED not consumed by Agent 7: ${consumed && consumed.consumed_by}`);
+      }
+    } finally {
+      db.close();
+    }
+  }
+  pass("Python Agent 7 consumed the delivery events: account + exactly one delivery follow-up created");
+
   // ── Step 20: cross-tenant invisibility ──
   step(20, "cross-tenant: other orgs see nothing of abi's work");
   // (a) The platform admin (org-system) must get 404 on abi's shipment detail
@@ -583,6 +738,12 @@ async function main() {
   console.log("E2E JOURNEY COMPLETE — ALL STEPS PASSED");
   console.log(`Evidence: ${SHOTS}`);
   console.log("════════════════════════════════════════");
+  // Deterministic exit: after a fully successful journey, undici keep-alive
+  // sockets and the detached dev server's stdio pipes keep the event loop
+  // open, so the process would otherwise linger past its own 8-minute
+  // budget. The journey is DONE — exit explicitly; the 'exit' handler then
+  // kills the server, closes the browsers and removes the throwaway DB.
+  process.exit(0);
 }
 
 main().catch((e) => {

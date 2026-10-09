@@ -24,6 +24,9 @@ is the contract the UI is built against; if you change a component, keep it true
 | Create shipment records from signed contracts (with 18-step export checklist) | `POST /api/shipments` |
 | Record external bookings (reference, containers, dates, confirmation upload) | `POST /api/logistics/bookings` |
 | Container lifecycle (15 states, dates, per-container events) | `/api/logistics/containers` |
+| Shipment-level arrival & final delivery (guarded, confirmed, terminal) | `POST /api/logistics/shipments/[id]/arrival` |
+| CONTRACT_SIGNED → Python Agent 6 runtime (supervisor-triggered, org-scoped) | `scripts/supervisor.js` → `run_agent6.py` |
+| SHIPMENT_DELIVERED / CONTRACT_COMPLETED → Python Agent 7 runtime | `scripts/supervisor.js` → `run_agent7.py` |
 | Inland transport legs with real references | `/api/logistics/shipments/[id]/transport` |
 | Shipment timeline (stored events only + manual external updates) | `/api/logistics/shipments/[id]/events` |
 | Checklist progress with per-step human attestation (who + when) | `/api/logistics/shipments/[id]/checklist` |
@@ -108,6 +111,7 @@ that cannot be verified against an official source must not be marked verified.
 | `/api/logistics/shipments/[id]/checklist` | GET, PATCH | Human toggles (attestation: who + when) |
 | `/api/logistics/shipments/[id]/events` | GET, POST | Stored timeline · manual external updates |
 | `/api/logistics/shipments/[id]/transport` | GET, POST | Inland legs |
+| `/api/logistics/shipments/[id]/arrival` | POST | Shipment-level `arrive` / `deliver` (operator attestation): forward-state guards, all-containers-delivered requirement, 409 on duplicates, contract completion, publishes the Agent 7 handoff events |
 | `/api/logistics/dashboard` | GET | 8 real stat cards + attention roll-up (honest zeros) |
 | `/api/logistics/documents` | POST, GET | Confirmation upload (sha256-hashed, ≤10MB, PDF/PNG/JPG) · tenant-checked download |
 | `POST /api/shipments` | POST | Carrier now optional; seeds the checklist + a `shipment_created` event |
@@ -121,6 +125,38 @@ that cannot be verified against an official source must not be marked verified.
   booking reference as evidence.
 * Timeline events record `source` (operator/agent) and `created_by` for every
   human attestation (checklist toggles, manual updates, bookings).
+
+## Runtime wiring (Phase E)
+
+The events table is the single source of truth — there is no second queue. The
+Node supervisor (`scripts/supervisor.js`, `npm run supervisor`) is the production
+scheduler that now triggers the Python agent runtimes:
+
+* **CONTRACT_SIGNED** (published by Agent 5's `sign_contract`, the only signer)
+  → the supervisor spawns `run_agent6.py run --organization <owning org>`. Agent 6
+  claims the event through the org-scoped bus and creates the shipment record +
+  18-step checklist + customs checklist. Node never consumes this event type —
+  a failed Python run leaves it pending (observable in `supervisor_log`), never
+  silently done.
+* **SHIPMENT_DELIVERED + CONTRACT_COMPLETED** (published by Python
+  `Agent 6.record_delivery()` AND by the Node arrival route above) → the
+  supervisor spawns `run_agent7.py run --organization <owning org>` → Agent 7
+  creates the buyer account + exactly one delivery follow-up per shipment.
+* Retries: the Python bus owns them (`mark_failed` → pending with `retry:N` →
+  `dead_letter` after 3 attempts; recover with
+  `coffee_export/scripts/event_admin.py list --status dead_letter` /
+  `requeue <id>`). Spawn failures (missing interpreter, timeout) count into the
+  agent's `consecutive_errors` — the existing auto-restart machinery bounds the
+  loop.
+* Idempotency: redelivered CONTRACT_SIGNED never creates a second shipment
+  (org-scoped existing-shipment guard); redelivered SHIPMENT_DELIVERED never
+  duplicates the follow-up activity or `ACCOUNT_CREATED`.
+* Legal/compliance separation is preserved: delivering a shipment **never**
+  marks compliance or customs documents cleared — those stay in the
+  operator/Agent 5 flow.
+* Informational events (`AGENT_*`, `CONTRACT_DRAFTED`, `SHIPMENT_CREATED`,
+  `SHIPMENT_BOOKED`, `SHIPMENT_DEPARTED`, `ACCOUNT_CREATED`, `CUSTOMS_HOLD`) are
+  drained by the supervisor (consumed, no action) so the queue stays clean.
 
 ## Honest limitations
 
@@ -139,7 +175,17 @@ that cannot be verified against an official source must not be marked verified.
   adapter honesty, directory tenancy, bookings, containers, checklist, transport,
   isolation) + the reshaped `test_agent6.py` — both in the hermetic runner
   (`npm run test:python`).
-* JS: `tests/integration/logistics.test.ts` (21 integration tests: directory,
+* JS: `tests/integration/logistics.test.ts` (26 integration tests: directory,
   verification provenance, URL validation, no-fake-integration, booking records,
   container lifecycle, transport, manual events, dashboard zeros, tenant
-  isolation, login lockout regression).
+  isolation, login lockout regression, shipment-level arrival/final delivery —
+  guards, duplicates, partial-shipment blocking, event publication, tenant
+  isolation on the new route).
+* Runtime: `tests/integration/agent-runtime.test.ts` (the REAL production path:
+  Agent 5 sign → supervisor tick → Python Agent 6 shipment → replay idempotency →
+  cross-org rejection → Python Agent 7 account + follow-up → spawn-failure
+  observability).
+* E2E: `scripts/e2e-logistics-journey.mjs` — the 20-step journey plus the Phase E
+  checkpoints (20-arrive UI arrival, 20-deliver UI final delivery with terminal
+  confirmation + persistence after reload, 20-agent7 supervisor tick → Python
+  Agent 7).
