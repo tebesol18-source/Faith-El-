@@ -26,6 +26,7 @@ Domain organization:
                         LogisticsChecklistItem, LogisticsTransportSegment
     relationship.py   — Account, AccountActivity
     events.py         — Event
+    agent_tasks.py    — AgentTask (durable task queue, Phase 1A)
 """
 
 # Import all modules so models are registered on Base.metadata
@@ -34,6 +35,7 @@ from coffee_export.database.models.contract import (  # noqa: F401
     Contract,
     ContractLineItem,
 )
+from coffee_export.database.models.agent_tasks import AgentTask  # noqa: F401
 from coffee_export.database.models.events import Event  # noqa: F401
 from coffee_export.database.models.memory import ConversationMemory  # noqa: F401
 from coffee_export.database.models.messaging import (  # noqa: F401
@@ -145,6 +147,8 @@ __all__ = [
     "AccountActivity",
     # Event Bus
     "Event",
+    # Durable Task Queue (Phase 1A)
+    "AgentTask",
     # Memory
     "ConversationMemory",
     # AI Gateway
