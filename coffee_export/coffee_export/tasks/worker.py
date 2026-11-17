@@ -12,6 +12,12 @@ Lifecycle:
   * poll — every TASK_QUEUE_POLL_INTERVAL_SECONDS (5s) when idle.
   * claim → validate (gate 2) → run handler → complete, all fenced by
     the claim's lease token.
+  * failure classification — gate-2 rejections (unregistered type,
+    invalid JSON, validator rejection) are NON-retryable: the task
+    terminates as `failed` on its first attempt. Handler exceptions are
+    classified: NonRetryableTaskError → `failed` (terminal); any other
+    exception stays retryable (pending w/ backoff → dead when the budget
+    is exhausted) — the conservative at-least-once default.
   * heartbeat — while a handler runs, a daemon thread renews the lease
     every TASK_QUEUE_HEARTBEAT_SECONDS (100s) against the 300s TTL. If a
     renewal is fenced out (lease lost), the worker finishes the handler
@@ -44,6 +50,7 @@ from typing import Any
 from coffee_export.config import BASE_DIR, settings
 from coffee_export.tasks.durable_queue import DurableTaskQueue, create_queue_engine
 from coffee_export.tasks.registry import (
+    NonRetryableTaskError,
     PayloadValidationError,
     TaskRegistry,
     TaskSnapshot,
@@ -238,6 +245,11 @@ class TaskWorker:
         return self._claim_once(owner)
 
     # ── execution (gate 2: validate before running) ─────────────
+    # Gate-2 rejections are NON-retryable by nature: a deregistered type
+    # can never succeed on retry, a corrupt payload is permanent, and a
+    # validator rejection is deterministic. All three terminate as
+    # `failed` in one attempt — no more pointless pending → leased →
+    # pending cycling of tampered rows.
     def _execute(self, task) -> None:
         # 2a. registry still knows the type?
         try:
@@ -247,6 +259,7 @@ class TaskWorker:
                 task.task_id,
                 task.token,
                 f"task type no longer registered: {task.task_type}",
+                retryable=False,
             )
             return
 
@@ -254,14 +267,18 @@ class TaskWorker:
         try:
             payload = json.loads(task.payload_text) if task.payload_text else {}
         except (json.JSONDecodeError, TypeError) as exc:
-            self._queue.fail(task.task_id, task.token, f"payload is not valid JSON: {exc}")
+            self._queue.fail(
+                task.task_id, task.token, f"payload is not valid JSON: {exc}", retryable=False
+            )
             return
 
         # 2c. payload passes the validator?
         try:
             payload = self._registry.validate_payload(task.task_type, payload)
         except PayloadValidationError as exc:
-            self._queue.fail(task.task_id, task.token, f"payload validation failed: {exc}")
+            self._queue.fail(
+                task.task_id, task.token, f"payload validation failed: {exc}", retryable=False
+            )
             return
 
         snapshot = TaskSnapshot(
@@ -279,7 +296,16 @@ class TaskWorker:
                 result = spec.handler(payload, snapshot)
             except Exception as exc:
                 log.exception("task %s failed on attempt %d", task.task_id, task.attempts)
-                outcome = self._queue.fail(task.task_id, task.token, exc)
+                # Handler-side classification: only NonRetryableTaskError is
+                # permanent — everything else (network blips, transient DB
+                # errors, unexpected bugs) keeps the conservative
+                # at-least-once retry default.
+                outcome = self._queue.fail(
+                    task.task_id,
+                    task.token,
+                    exc,
+                    retryable=not isinstance(exc, NonRetryableTaskError),
+                )
                 if outcome is None:
                     log.warning(
                         "task %s: failure could not be recorded — lease lost; "

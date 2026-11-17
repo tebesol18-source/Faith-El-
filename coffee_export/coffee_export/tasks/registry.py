@@ -11,8 +11,16 @@ the registry does not know, so no unapproved business job can sneak in.
 Validation contract (payload is validated at BOTH gates):
   1. at enqueue time   — DurableTaskQueue.enqueue() calls validate_payload
   2. before execution  — the worker re-validates after claiming; a row
-     tampered directly in the DB (invalid JSON / failing validator) is
-     failed through the fenced path, never executed.
+     tampered directly in the DB (invalid JSON / failing validator)
+     terminates as `failed` on its FIRST attempt through the fenced
+     path — never executed, never pointlessly retried.
+
+Failure-classification contract:
+  * handlers raise NonRetryableTaskError when retrying cannot possibly
+    succeed (bad input, contract violation, unrecoverable domain error)
+    → the task goes leased → failed (terminal), bypassing the retry budget
+  * every other handler exception stays RETRYABLE — the conservative
+    at-least-once default (network blips, transient DB errors, bugs)
 
 A validator is any callable that takes the parsed payload dict and
 raises PayloadValidationError on bad input. The default (no validator
@@ -40,6 +48,18 @@ class UnknownTaskTypeError(KeyError):
 
 class PayloadValidationError(ValueError):
     """The payload does not satisfy the task type's contract."""
+
+
+class NonRetryableTaskError(Exception):
+    """Raised by a handler when retrying cannot possibly succeed.
+
+    The task transitions leased → failed (terminal), bypassing the retry
+    budget — a permanent error must not burn attempts with backoff.
+    DurableTaskQueue.fail() forces the non-retryable path for this
+    exception type even if a call site wrongly passes retryable=True
+    (defense in depth). Everything else a handler raises remains
+    retryable: the conservative at-least-once default.
+    """
 
 
 @dataclass(frozen=True)

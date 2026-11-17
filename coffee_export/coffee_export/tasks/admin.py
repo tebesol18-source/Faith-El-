@@ -1,7 +1,8 @@
 """
 Durable task queue admin CLI — Phase 1A.
 
-Read-only inspection plus ONE operator action (requeue of dead tasks).
+Read-only inspection plus ONE operator action (requeue of terminal
+failed/dead tasks).
 
     python -m coffee_export.tasks.admin stats
     python -m coffee_export.tasks.admin list [--status S] [--limit N]
@@ -11,9 +12,15 @@ Read-only inspection plus ONE operator action (requeue of dead tasks).
 Exit codes: 0 success · 1 not found / nothing to do · 2 usage error.
 
 requeue resets the retry budget by default (attempts=0, scheduled now);
---keep-attempts preserves the count so the next failure can go straight
-to dead. Only dead rows are requeueable — leased rows belong to a live
-claim (or to the reaper) and completed rows are history.
+--keep-attempts preserves the count so the next retryable failure can go
+straight to dead (a non-retryable one goes to failed either way). Only
+failed and dead rows are requeueable — the two terminal states an
+operator may legitimately want to re-run after fixing the cause.
+Leased rows belong to a live claim (or to the reaper); completed rows are
+immutable history (re-running would duplicate side effects under
+at-least-once semantics); pending rows need no operator action.
+Requeue re-validates nothing: fix the underlying cause first, or the
+task fails again on its first attempt.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from typing import Any
 
 from coffee_export.tasks.durable_queue import (
     DurableTaskQueue,
+    VALID_STATUSES,
     create_queue_engine,
 )
 from coffee_export.tasks.registry import default_registry
@@ -44,7 +52,7 @@ def _cmd_stats(queue: DurableTaskQueue) -> int:
     counts = queue.stats()
     total = sum(counts.values())
     print("agent_tasks by status")
-    for status in ("pending", "leased", "completed", "dead"):
+    for status in VALID_STATUSES:  # pending | leased | completed | failed | dead
         print(f"  {status:<10} {counts[status]:>6}")
     print(f"  {'total':<10} {total:>6}")
     return EXIT_OK
@@ -104,14 +112,14 @@ def _cmd_requeue(queue: DurableTaskQueue, task_id: str, keep_attempts: bool) -> 
     if queue.requeue(task_id, reset_attempts=not keep_attempts):
         print(f"requeued {task_id} → pending (retry budget {'kept' if keep_attempts else 'reset'})")
         return EXIT_OK
-    print(f"cannot requeue {task_id} — only dead tasks are requeueable")
+    print(f"cannot requeue {task_id} — only failed or dead tasks are requeueable")
     return EXIT_NOT_FOUND
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m coffee_export.tasks.admin",
-        description="Durable task queue admin (Phase 1A): inspect + requeue dead tasks.",
+        description="Durable task queue admin (Phase 1A): inspect + requeue terminal tasks.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -119,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats.set_defaults(func=_cmd_stats)
 
     p_list = sub.add_parser("list", help="list tasks")
-    p_list.add_argument("--status", choices=["pending", "leased", "completed", "dead"])
+    p_list.add_argument("--status", choices=list(VALID_STATUSES))
     p_list.add_argument("--limit", type=int, default=20)
     p_list.set_defaults(func=_cmd_list)
 
@@ -127,7 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_show.add_argument("task_id")
     p_show.set_defaults(func=_cmd_show)
 
-    p_requeue = sub.add_parser("requeue", help="dead → pending (operator action)")
+    p_requeue = sub.add_parser("requeue", help="failed|dead → pending (operator action)")
     p_requeue.add_argument("task_id")
     p_requeue.add_argument(
         "--keep-attempts",

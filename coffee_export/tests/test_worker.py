@@ -9,9 +9,14 @@ Proves the worker lifecycle contract on disposable DBs (tmp_path):
   * lease loss mid-run — if the reaper recovers the task while the
     handler is still running (worker too slow), the worker DISCARDS its
     result instead of overwriting the new owner's row
-  * handler failure — fenced fail with backoff; exhausted → dead
+  * handler failure — fenced fail with backoff; exhausted → dead.
+    NonRetryableTaskError from a handler → failed immediately (one
+    attempt, no retry cycling); any other exception stays retryable
   * tampered payload — a row mutated directly in the DB fails gate 2
-    and is never executed
+    and is never executed; gate-2 rejections are non-retryable, so the
+    task terminates as failed on its FIRST attempt
+  * unregistered type — gate 2a: a type the worker no longer knows can
+    never succeed on retry → failed on the first attempt
   * graceful shutdown — SIGTERM stops claiming, finishes the running
     task, exits 0 (real subprocess)
   * singleton lock — a second worker refuses to start (in-process flock
@@ -40,7 +45,11 @@ from coffee_export.tasks.durable_queue import (
     create_queue_engine,
     parse_iso,
 )
-from coffee_export.tasks.registry import PayloadValidationError, TaskRegistry
+from coffee_export.tasks.registry import (
+    NonRetryableTaskError,
+    PayloadValidationError,
+    TaskRegistry,
+)
 from coffee_export.tasks.worker import EXIT_LOCKED, EXIT_OK, TaskWorker
 
 
@@ -95,7 +104,7 @@ def _make_worker(
 def test_run_once_executes_and_completes(tmp_path: Path):
     queue, reg = _make_queue(tmp_path, "exec", lease_ttl=300, heartbeat=100)
     worker = _make_worker(tmp_path, queue, reg, heartbeat=100)
-    task_id = queue.enqueue("test.echo", {"x": 1})
+    task_id = queue.enqueue("test.echo", {"x": 1}, organization_id="org-acme")
     assert worker.run_once() is True
     row = queue.get_task(task_id)
     assert row.status == "completed"
@@ -132,7 +141,7 @@ def test_heartbeat_renews_lease_during_long_handler(tmp_path: Path):
         return {"slow": True}
 
     reg.register("test.slow", slow_handler)
-    task_id = queue.enqueue("test.slow", {})
+    task_id = queue.enqueue("test.slow", {}, organization_id="org-acme")
 
     done = threading.Event()
 
@@ -171,7 +180,7 @@ def test_lease_lost_mid_run_discards_result(tmp_path: Path):
         return {"must": "be-discarded"}
 
     reg.register("test.slow", slow_handler)
-    task_id = queue.enqueue("test.slow", {})
+    task_id = queue.enqueue("test.slow", {}, organization_id="org-acme")
 
     done = threading.Event()
 
@@ -211,7 +220,7 @@ def test_handler_failure_backoff_then_dead(tmp_path: Path):
         raise RuntimeError("kaboom")
 
     reg.register("test.flaky", flaky)
-    task_id = queue.enqueue("test.flaky", {})
+    task_id = queue.enqueue("test.flaky", {}, organization_id="org-acme")
 
     worker.run_once()
     row = queue.get_task(task_id)
@@ -230,10 +239,65 @@ def test_handler_failure_backoff_then_dead(tmp_path: Path):
     assert worker.run_once() is False  # dead is not claimable
 
 
+def test_non_retryable_exception_fails_immediately(tmp_path: Path):
+    """A handler raising NonRetryableTaskError terminates the task as
+    failed on its FIRST attempt — the handler runs exactly once, there
+    is no backoff-pending retry, and the row is not claimable again."""
+    queue, reg = _make_queue(tmp_path, "nonretry", lease_ttl=300, heartbeat=100)
+    worker = _make_worker(tmp_path, queue, reg, heartbeat=100)
+
+    calls: list[int] = []
+
+    def permanent(payload, snapshot):
+        calls.append(snapshot.attempts)
+        raise NonRetryableTaskError("bad input — can never succeed")
+
+    reg.register("test.permanent", permanent)
+    task_id = queue.enqueue("test.permanent", {}, organization_id="org-acme")
+
+    assert worker.run_once() is True
+    row = queue.get_task(task_id)
+    assert row.status == "failed"  # not pending (no backoff), not dead
+    assert row.attempts == 1  # one attempt is all it took
+    assert calls == [1]  # the handler ran exactly once
+    assert "can never succeed" in row.last_error
+    assert "NonRetryableTaskError" in row.last_error
+    assert queue.claim_next("w1") is None  # failed is not claimable
+    assert worker.run_once() is False  # queue drained
+
+
+def test_unknown_type_goes_failed(tmp_path: Path):
+    """Gate 2a: a task type the worker's registry no longer knows (e.g.
+    a deploy deregistered it between enqueue and claim) can never
+    succeed on retry → failed on the first attempt, not cycled to dead."""
+    queue, reg = _make_queue(tmp_path, "unreg", lease_ttl=300, heartbeat=100)
+    reg.register("test.later.removed", lambda p, s: {"ok": True}, validator=lambda p: None)
+    task_id = queue.enqueue("test.later.removed", {}, organization_id="org-acme")
+
+    # the worker runs against a registry that does NOT know the type
+    stale_reg = TaskRegistry()
+    worker = TaskWorker(
+        queue,
+        stale_reg,
+        poll_interval=0.05,
+        heartbeat_interval=100,
+        reaper_interval=0.2,
+        lock_path=tmp_path / "worker.lock",
+        install_signals=False,
+    )
+    assert worker.run_once() is True
+    row = queue.get_task(task_id)
+    assert row.status == "failed"  # not pending (no retry), not dead
+    assert row.attempts == 1
+    assert "no longer registered" in row.last_error
+    assert worker.run_once() is False  # failed is not claimable
+
+
 def test_tampered_payload_fails_gate_two(tmp_path: Path):
     """Payload was valid at enqueue; someone mutated the row directly.
     The worker must refuse to execute and fail the task through the
-    fenced path."""
+    fenced path. Gate-2 rejections are non-retryable: the task goes to
+    failed on its first attempt instead of cycling retries to dead."""
     queue, reg = _make_queue(tmp_path, "tamper", lease_ttl=300, heartbeat=100)
     worker = _make_worker(tmp_path, queue, reg, heartbeat=100)
 
@@ -250,7 +314,7 @@ def test_tampered_payload_fails_gate_two(tmp_path: Path):
     reg.register("test.strict", strict, validator=strict_validator)
 
     # tamper variant 1: payload is no longer valid JSON at all
-    task_id = queue.enqueue("test.strict", {"secret": 42})
+    task_id = queue.enqueue("test.strict", {"secret": 42}, organization_id="org-acme")
     with queue.engine.begin() as conn:
         conn.execute(
             text("UPDATE agent_tasks SET payload = :p WHERE task_id = :id"),
@@ -258,11 +322,12 @@ def test_tampered_payload_fails_gate_two(tmp_path: Path):
         )
     worker.run_once()
     row = queue.get_task(task_id)
-    assert row.status == "pending"
+    assert row.status == "failed"  # non-retryable: corrupt payload is permanent
     assert "not valid JSON" in row.last_error
+    assert row.attempts == 1
 
     # tamper variant 2: valid JSON, fails the validator
-    task2 = queue.enqueue("test.strict", {"secret": 42})
+    task2 = queue.enqueue("test.strict", {"secret": 42}, organization_id="org-acme")
     with queue.engine.begin() as conn:
         conn.execute(
             text("UPDATE agent_tasks SET payload = :p WHERE task_id = :id"),
@@ -270,9 +335,10 @@ def test_tampered_payload_fails_gate_two(tmp_path: Path):
         )
     worker.run_once()
     row2 = queue.get_task(task2)
-    assert row2.status == "pending"
+    assert row2.status == "failed"  # non-retryable: validator rejection is deterministic
     assert "payload validation failed" in row2.last_error
     assert "'secret' must be an int" in row2.last_error
+    assert row2.attempts == 1
 
     assert ran == []  # neither handler ever ran
 

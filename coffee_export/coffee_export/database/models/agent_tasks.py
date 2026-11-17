@@ -7,13 +7,22 @@ any business job in Phase 1A: the task registry ships empty and nothing
 in the application enqueues work. See docs/phase-1a-durable-task-queue.md
 for the full design contract.
 
-State machine (lease fencing — only the current lease_token holder may
-complete / fail / renew):
+State machine — five-state contract (lease fencing: only the current
+lease_token holder may complete / fail / renew):
 
     pending ──claim──▶ leased ──complete──▶ completed
        ▲                  │
-       │  fail (backoff)  │ fail (attempts exhausted)
-       └──────────────────┴──▶ dead  ──requeue (admin)──▶ pending
+       │ retryable fail,  │ retryable fail, attempts ≥ max_attempts
+       │ budget remains   ├──▶ dead   ──requeue (admin)──┐
+       └──────────────────┤                             ▼
+                          │ non-retryable fail     pending
+                          └──▶ failed ──requeue (admin)──┘
+
+    completed is terminal and immutable (history); failed is the
+    terminal NON-retryable failure (unregistered type, corrupt payload,
+    validator rejection, handler-raised NonRetryableTaskError); dead is
+    retryable failures with the budget exhausted. The reaper routes
+    expired leases pending/dead — never failed.
 
 Timestamps are ISO-8601 +03:00 with seconds precision (now_addis_iso) so
 they sort lexicographically — same convention as every other table.
@@ -35,9 +44,13 @@ class AgentTask(Base):
     task_id: Mapped[str] = mapped_column(Text, primary_key=True)
     task_type: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[str | None] = mapped_column(Text)  # JSON object
-    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
+    # Attribution/audit stamp — NO default: enqueue() requires an explicit
+    # org (SYSTEM_ORG for genuine system scope). A silent org-system
+    # fallback caused two tenant-misattribution incidents in this
+    # codebase's history; direct SQL inserts without an org fail NOT NULL.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # pending | leased | completed | dead
+    # pending | leased | completed | failed | dead
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
 
@@ -61,7 +74,7 @@ class AgentTask(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'leased', 'completed', 'dead')",
+            "status IN ('pending', 'leased', 'completed', 'failed', 'dead')",
             name="ck_agent_tasks_status",
         ),
         CheckConstraint("attempts >= 0", name="ck_agent_tasks_attempts"),

@@ -3,11 +3,12 @@ Durable task queue admin CLI tests — Phase 1A.
 
 Proves the operator surface against a disposable DB (injected queue —
 no subprocess, no production registry needed):
-  * stats — counts by status
-  * list — status filter, limit, output shape
+  * stats — counts by status (all five states)
+  * list — status filter (incl. failed), limit, output shape
   * show — full field dump incl. lease fields; miss → exit 1
   * requeue — dead → pending with reset budget, --keep-attempts variant,
-    and rejection for non-dead rows (exit 1)
+    the failed-task requeue leg, and rejection for non-terminal rows
+    (exit 1)
   * usage errors → exit 2
 """
 
@@ -47,7 +48,7 @@ def test_stats_empty(cli):
     queue, run = cli
     code, out = run("stats")
     assert code == EXIT_OK
-    for status in ("pending", "leased", "completed", "dead"):
+    for status in ("pending", "leased", "completed", "failed", "dead"):
         assert status in out
     assert "0" in out
 
@@ -55,10 +56,19 @@ def test_stats_empty(cli):
 def test_list_and_show(cli):
     queue, run = cli
     # one row per status, created via priorities so claims are deterministic
-    t_pending = queue.enqueue("test.echo", {"role": "pending"})  # stays pending
-    t_leased = queue.enqueue("test.echo", {"role": "leased"}, priority=1)  # claimed first
-    t_done = queue.enqueue("test.echo", {"role": "done"}, priority=2)  # claimed second
-    t_dead = queue.enqueue("test.echo", {"role": "dead"}, priority=3, max_attempts=1)
+    t_pending = queue.enqueue("test.echo", {"role": "pending"}, organization_id="org-acme")
+    t_leased = queue.enqueue(
+        "test.echo", {"role": "leased"}, organization_id="org-acme", priority=1
+    )
+    t_done = queue.enqueue(
+        "test.echo", {"role": "done"}, organization_id="org-acme", priority=2
+    )
+    t_dead = queue.enqueue(
+        "test.echo", {"role": "dead"}, organization_id="org-acme", priority=3, max_attempts=1
+    )
+    t_failed = queue.enqueue(
+        "test.echo", {"role": "failed"}, organization_id="org-acme", priority=4, max_attempts=3
+    )
 
     claimed_leased = queue.claim_next("w-lease")
     assert claimed_leased.task_id == t_leased
@@ -68,12 +78,21 @@ def test_list_and_show(cli):
     claimed_dead = queue.claim_next("w-dead")
     assert claimed_dead.task_id == t_dead
     assert queue.fail(t_dead, claimed_dead.token, "fatal") == "dead"
+    claimed_failed = queue.claim_next("w-fail")
+    assert claimed_failed.task_id == t_failed
+    assert queue.fail(t_failed, claimed_failed.token, "permanent", retryable=False) == "failed"
 
-    assert queue.stats() == {"pending": 1, "leased": 1, "completed": 1, "dead": 1}
+    assert queue.stats() == {
+        "pending": 1,
+        "leased": 1,
+        "completed": 1,
+        "failed": 1,
+        "dead": 1,
+    }
 
     code, out = run("list")
     assert code == EXIT_OK
-    for expect in (t_pending, t_leased, t_done, t_dead):
+    for expect in (t_pending, t_leased, t_done, t_dead, t_failed):
         assert expect[:12] in out
     assert "test.echo" in out
 
@@ -81,6 +100,12 @@ def test_list_and_show(cli):
     assert code == EXIT_OK
     assert t_leased[:12] in out
     assert t_pending[:12] not in out  # filter actually filters
+
+    code, out = run("list", "--status", "failed")
+    assert code == EXIT_OK
+    assert t_failed[:12] in out
+    assert t_dead[:12] not in out  # failed filter excludes dead
+    assert t_pending[:12] not in out
 
     code, out = run("show", t_leased)
     assert code == EXIT_OK
@@ -110,7 +135,7 @@ def test_list_and_show(cli):
 def test_requeue_flow(cli):
     queue, run = cli
     # drive a task to dead
-    task_id = queue.enqueue("test.echo", {}, max_attempts=1)
+    task_id = queue.enqueue("test.echo", {}, organization_id="org-acme", max_attempts=1)
     c = queue.claim_next("w1")
     assert c.task_id == task_id
     queue.fail(task_id, c.token, "fatal")
@@ -130,11 +155,23 @@ def test_requeue_flow(cli):
     row = queue.get_task(task_id)
     assert row.status == "pending" and row.attempts == 1
 
-    # non-dead rows are refused
-    pending_id = queue.enqueue("test.echo", {})
+    # the failed-task requeue leg: failed is the other requeueable terminal
+    failed_id = queue.enqueue(
+        "test.echo", {}, organization_id="org-acme", priority=1, max_attempts=3
+    )
+    cf = queue.claim_next("w1")
+    assert cf.task_id == failed_id
+    assert queue.fail(failed_id, cf.token, "permanent", retryable=False) == "failed"
+    code, out = run("requeue", failed_id)
+    assert code == EXIT_OK
+    row = queue.get_task(failed_id)
+    assert row.status == "pending" and row.attempts == 0  # fresh budget
+
+    # non-terminal rows are refused — with the terminal-states message
+    pending_id = queue.enqueue("test.echo", {}, organization_id="org-acme")
     code, out = run("requeue", pending_id)
     assert code == EXIT_NOT_FOUND
-    assert "only dead tasks" in out
+    assert "only failed or dead tasks" in out
 
 
 def test_usage_errors(cli):

@@ -7,6 +7,10 @@ worker depends on — see docs/phase-1a-durable-task-queue.md):
   enqueue(task_type, payload)   INSERT pending row. The task_type MUST be
                                  registered and the payload MUST pass the
                                  registry validator (gate 1).
+                                 organization_id is REQUIRED — the silent
+                                 org-system default was removed (tenant-
+                                 misattribution incidents); genuine system
+                                 tasks pass SYSTEM_ORG explicitly.
   claim_next(owner)             pending → leased, atomically. A fresh UUID4
                                  lease_token is minted per claim; attempts
                                  is incremented; started_ts is set once.
@@ -15,17 +19,40 @@ worker depends on — see docs/phase-1a-durable-task-queue.md):
   complete(task_id, token, ...) leased → completed — fenced: if the lease
                                  was lost (rowcount 0) the caller MUST
                                  discard its result and never retry blindly.
-  fail(task_id, token, error)   leased → pending with exponential backoff
-                                 (BASE * 2^(attempts-1)), or leased → dead
-                                 when attempts >= max_attempts — fenced.
+  fail(task_id, token, error,
+       retryable=True)          leased → pending with exponential backoff
+                                 (BASE * 2^(attempts-1)), → dead when
+                                 attempts >= max_attempts, or → failed
+                                 immediately when retryable=False — fenced.
+                                 Non-retryable takes precedence over an
+                                 exhausted budget: a task that can never
+                                 succeed must not consume retries.
   reap_expired()                reaper: every leased row whose
                                  lease_expires_ts has passed is turned into
                                  a backoff-pending retry (or dead when
                                  exhausted) — this is the crash-recovery
                                  path for a worker that died mid-task.
-                                 Idempotent under concurrent reapers.
-  requeue(task_id)              operator action (admin CLI): dead → pending
-                                 with a fresh retry budget.
+                                 Idempotent under concurrent reapers. The
+                                 reaper NEVER produces failed — an expired
+                                 lease is retryable by nature (the worker
+                                 died, not the task).
+  requeue(task_id)              operator action (admin CLI): failed|dead →
+                                 pending with a fresh retry budget. Terminal
+                                 states only — completed is immutable
+                                 history; pending/leased belong to the
+                                 claim path.
+
+Five-state contract:
+
+    pending ──claim──▶ leased ──complete──▶ completed  [terminal]
+       ▲                  │
+       │ retryable fail,  │ retryable fail, attempts ≥ max_attempts
+       │ budget remains   ├──▶ dead      [terminal]
+       └──────────────────┤
+                          │ non-retryable fail
+                          └──▶ failed    [terminal]
+
+    operator requeue: failed | dead ──▶ pending
 
 Dialect handling:
   * SQLite   — the queue uses its OWN engine whose transactions all start
@@ -58,13 +85,20 @@ from sqlalchemy.engine import Row
 from coffee_export.config import settings
 from coffee_export.database.base import ADDIS_TZ, now_addis_iso
 from coffee_export.database.models.agent_tasks import AgentTask
-from coffee_export.tasks.registry import TaskRegistry
+from coffee_export.tasks.registry import NonRetryableTaskError, TaskRegistry
 from coffee_export.utils.logging import get_logger
 
 log = get_logger(__name__)
 
-VALID_STATUSES = ("pending", "leased", "completed", "dead")
+VALID_STATUSES = ("pending", "leased", "completed", "failed", "dead")
 MAX_ERROR_LENGTH = 2000
+
+# Explicit organization scope for genuine system-level tasks. enqueue()
+# requires organization_id — callers that mean "system" must pass this
+# constant deliberately; no code path can silently stamp org-system
+# (incident history: leads/import and the messaging bridge both had
+# tenant-misattribution bugs caused by silent org-system fallbacks).
+SYSTEM_ORG = "org-system"
 
 
 def addis_iso_after(seconds: float, base: datetime | None = None) -> str:
@@ -245,7 +279,7 @@ class DurableTaskQueue:
         task_type: str,
         payload: dict | None = None,
         *,
-        organization_id: str = "org-system",
+        organization_id: str,
         priority: int | None = None,
         max_attempts: int | None = None,
         scheduled_ts: str | None = None,
@@ -253,7 +287,18 @@ class DurableTaskQueue:
     ) -> str:
         """Insert a pending task. Registry-validated (gate 1): unknown
         task types and invalid payloads raise before anything is written.
+
+        organization_id is REQUIRED (no silent org-system default — the
+        attribution/audit stamp must be a deliberate choice; pass
+        SYSTEM_ORG explicitly for genuine system-scope tasks). Empty or
+        non-string values raise ValueError.
         Returns the new task_id."""
+        if not organization_id or not isinstance(organization_id, str):
+            raise ValueError(
+                "organization_id is required and must be a non-empty string "
+                f"(got {organization_id!r}) — pass SYSTEM_ORG explicitly for "
+                "system-scope tasks"
+            )
         validated = self._registry.validate_payload(task_type, payload)
         now = now_addis_iso()
         if scheduled_ts is None:
@@ -390,10 +435,25 @@ class DurableTaskQueue:
         log.info(f"completed task {task_id}")
         return True
 
-    def fail(self, task_id: str, token: str, error: str | Exception) -> str | None:
-        """leased → pending with exponential backoff, or → dead when
-        attempts >= max_attempts. Returns "retry" | "dead", or None if the
-        lease was lost (fenced out — another claim owns the task)."""
+    def fail(
+        self, task_id: str, token: str, error: str | Exception, *, retryable: bool = True
+    ) -> str | None:
+        """leased → failed (non-retryable), → pending with exponential
+        backoff, or → dead when attempts >= max_attempts. Returns
+        "failed" | "retry" | "dead", or None if the lease was lost
+        (fenced out — another claim owns the task).
+
+        Decision order (non-retryable wins regardless of remaining budget
+        — a task that can never succeed must not consume retries):
+          1. retryable=False            → failed (terminal, one attempt)
+          2. retryable, budget remains  → pending + backoff BASE*2^(attempts-1)
+          3. retryable, budget exhausted → dead (terminal)
+
+        Defense in depth: an `error` that is a NonRetryableTaskError
+        instance forces the failed path even if a call site wrongly
+        passed retryable=True."""
+        if isinstance(error, NonRetryableTaskError):
+            retryable = False  # exception type overrides the call-site flag
         if isinstance(error, Exception):
             error = f"{type(error).__name__}: {error}"
         error = str(error)[:MAX_ERROR_LENGTH]
@@ -412,8 +472,18 @@ class DurableTaskQueue:
                 )
                 return None
             attempts, max_attempts = current
-            dead = attempts >= max_attempts
-            if dead:
+            if not retryable:
+                values = dict(
+                    status="failed",
+                    # scheduled_ts keeps its old value — failed rows are not runnable
+                    lease_token=None,
+                    lease_owner=None,
+                    lease_expires_ts=None,
+                    last_error=error,
+                    updated_ts=now,
+                )
+                outcome = "failed"
+            elif attempts >= max_attempts:
                 values = dict(
                     status="dead",
                     # scheduled_ts keeps its old value — dead rows are not runnable
@@ -423,6 +493,7 @@ class DurableTaskQueue:
                     last_error=error,
                     updated_ts=now,
                 )
+                outcome = "dead"
             else:
                 backoff = self._backoff_base * (2 ** max(attempts - 1, 0))
                 values = dict(
@@ -434,6 +505,7 @@ class DurableTaskQueue:
                     last_error=error,
                     updated_ts=now,
                 )
+                outcome = "retry"
             fenced = conn.execute(
                 update(AgentTask)
                 .where(
@@ -448,7 +520,6 @@ class DurableTaskQueue:
                 # the SELECT above and this UPDATE.
                 log.warning(f"fail fenced out for {task_id} — lease lost mid-fail")
                 return None
-        outcome = "dead" if dead else "retry"
         log.warning(f"task {task_id} failed (attempt {attempts}/{max_attempts}) → {outcome}")
         return outcome
 
@@ -480,7 +551,12 @@ class DurableTaskQueue:
         """Every leased row whose lease_expires_ts has passed → pending
         with backoff (retry budget preserved), or → dead when exhausted.
         Idempotent: a row already recovered by a concurrent reaper simply
-        no longer matches the fenced UPDATE below."""
+        no longer matches the fenced UPDATE below.
+
+        The reaper NEVER produces `failed`: an expired lease is retryable
+        by nature (the worker died, not the task), so recovery always
+        routes through the retry/recovery path (pending w/ backoff, or
+        dead when the budget is gone)."""
         now = now_addis_iso()
         requeued = 0
         dead = 0
@@ -532,13 +608,25 @@ class DurableTaskQueue:
 
     # ── operator actions ───────────────────────────────────────
     def requeue(self, task_id: str, *, reset_attempts: bool = True) -> bool:
-        """dead → pending (admin CLI). Gives a fresh retry budget by
-        default; scheduled immediately. Only dead rows are requeueable."""
+        """failed|dead → pending (admin CLI). Gives a fresh retry budget
+        by default; scheduled immediately.
+
+        Terminal-state policy: `failed` and `dead` are the two
+        operator-requeueable terminal states (an operator may fix the
+        cause and re-run either). `completed` is immutable history —
+        re-running it would duplicate side effects under at-least-once
+        semantics; `pending`/`leased` are invalid targets (a leased row
+        belongs to a live claim or to the reaper). Requeue re-validates
+        nothing: if the underlying cause is still present the task fails
+        again on its first attempt — fix the cause first."""
         now = now_addis_iso()
         with self._engine.begin() as conn:
             requeued = conn.execute(
                 update(AgentTask)
-                .where(AgentTask.task_id == task_id, AgentTask.status == "dead")
+                .where(
+                    AgentTask.task_id == task_id,
+                    AgentTask.status.in_(("failed", "dead")),
+                )
                 .values(
                     status="pending",
                     attempts=0 if reset_attempts else AgentTask.attempts,
@@ -551,9 +639,9 @@ class DurableTaskQueue:
                 )
             )
             if requeued.rowcount != 1:
-                log.warning(f"requeue rejected for {task_id} — not a dead task")
+                log.warning(f"requeue rejected for {task_id} — not a failed/dead task")
                 return False
-        log.info(f"requeued dead task {task_id} → pending")
+        log.info(f"requeued terminal task {task_id} → pending")
         return True
 
     # ── read-only helpers (CLI / tests) ─────────────────────────

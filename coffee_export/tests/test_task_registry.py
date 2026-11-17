@@ -8,6 +8,8 @@ Proves the registration and dual-gate validation contract:
     silently swapped)
   * default validation: payload must be a JSON object
   * custom validators run at both gates (enqueue + before execution)
+  * NonRetryableTaskError — the handler-side permanent-failure marker
+    that drives leased → failed (terminal)
   * the production default_registry ships EMPTY
 
 Every test uses its own registry instance (no shared state); nothing
@@ -21,6 +23,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from coffee_export.tasks.registry import (
+    NonRetryableTaskError,
     PayloadValidationError,
     TaskRegistry,
     TaskSnapshot,
@@ -100,6 +103,23 @@ def test_default_registry_ships_empty() -> None:
     """Phase 1A contract: no business task type is registered in
     production — in particular none of the 8 recurring jobs."""
     assert default_registry.known_types() == ()
+
+
+def test_non_retryable_error_contract() -> None:
+    """NonRetryableTaskError is the handler-side permanent-failure marker:
+    importable, a plain Exception subclass (distinct from the gate
+    exceptions UnknownTaskTypeError/PayloadValidationError, so a handler
+    can raise it without colliding with gate classification), and
+    raisable from a handler signature."""
+    assert issubclass(NonRetryableTaskError, Exception)
+    assert not issubclass(NonRetryableTaskError, UnknownTaskTypeError)
+    assert not issubclass(NonRetryableTaskError, PayloadValidationError)
+
+    def permanent_handler(payload, snapshot):
+        raise NonRetryableTaskError("cannot ever succeed")
+
+    with pytest.raises(NonRetryableTaskError, match="cannot ever succeed"):
+        permanent_handler({"x": 1}, None)
 
 
 def test_task_snapshot_is_readonly_view() -> None:
