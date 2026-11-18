@@ -583,8 +583,9 @@ recompute (contradicting AND agreeing rows tested).
 
 The first rebuild (§13.5) was itself lost when its session-scoped
 workspace was recycled (§0.1) and was rebuilt a second time from the §13
-record on `trycomp-selective-integration` (base `491ecf61`, Phase 0
-restoration commit `0fa2940`). Same file set, same migration id
+record on `trycomp-selective-integration` (base `491ecf61` → Phase 0
+restoration `0fa2940` → Phase 1 **`fdee0ef`**, this commit's parent
+chain). Same file set, same migration id
 `f2a3b4c5d6e7`, same test counts (21 + 4 + 5). All §13.5 rebuild design
 decisions were carried over verbatim (injectable engine, shared module
 `recompute_fact`, immediate locking on human rows, newest-human-wins,
