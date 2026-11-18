@@ -1,7 +1,7 @@
 """
 SQLAlchemy ORM models for the coffee export system.
 
-All 33 models across 8 domains. Importing this package registers every
+All 49 models across 9 domains. Importing this package registers every
 model on Base.metadata, which Alembic uses for autogenerate.
 
 Usage:
@@ -27,24 +27,18 @@ Domain organization:
     relationship.py   — Account, AccountActivity
     events.py         — Event
     agent_tasks.py    — AgentTask (durable task queue, Phase 1A)
+    research.py       — ResearchEvidence, ResearchFact (TryComp Phase 1)
 """
 
 # Import all modules so models are registered on Base.metadata
+from coffee_export.database.models.agent_tasks import AgentTask  # noqa: F401
+from coffee_export.database.models.ai import AICallLog, PromptTemplate  # noqa: F401
 from coffee_export.database.models.contract import (  # noqa: F401
     ComplianceDocument,
     Contract,
     ContractLineItem,
 )
-from coffee_export.database.models.agent_tasks import AgentTask  # noqa: F401
 from coffee_export.database.models.events import Event  # noqa: F401
-from coffee_export.database.models.memory import ConversationMemory  # noqa: F401
-from coffee_export.database.models.messaging import (  # noqa: F401
-    BuyerMask,
-    ExporterInbox,
-    InboxMessage,
-    MessageThread,
-)
-from coffee_export.database.models.ai import AICallLog, PromptTemplate  # noqa: F401
 from coffee_export.database.models.infrastructure import (  # noqa: F401
     Agent,
     AuditLog,
@@ -78,6 +72,13 @@ from coffee_export.database.models.logistics_resources import (  # noqa: F401
     LogisticsProvider,
     LogisticsTransportSegment,
 )
+from coffee_export.database.models.memory import ConversationMemory  # noqa: F401
+from coffee_export.database.models.messaging import (  # noqa: F401
+    BuyerMask,
+    ExporterInbox,
+    InboxMessage,
+    MessageThread,
+)
 from coffee_export.database.models.outreach import (  # noqa: F401
     OutreachTouch,
     QualificationAnswer,
@@ -86,6 +87,10 @@ from coffee_export.database.models.outreach import (  # noqa: F401
 from coffee_export.database.models.relationship import (  # noqa: F401
     Account,
     AccountActivity,
+)
+from coffee_export.database.models.research import (  # noqa: F401
+    ResearchEvidence,
+    ResearchFact,
 )
 from coffee_export.database.models.sample import (  # noqa: F401
     CuppingScore,
@@ -149,6 +154,9 @@ __all__ = [
     "Event",
     # Durable Task Queue (Phase 1A)
     "AgentTask",
+    # Research foundation (TryComp Phase 1)
+    "ResearchEvidence",
+    "ResearchFact",
     # Memory
     "ConversationMemory",
     # AI Gateway

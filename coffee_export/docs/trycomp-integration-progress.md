@@ -4,9 +4,9 @@ This is the permanent project memory for the selective TryComp AI integration in
 Faith-El Export. Every implementation phase updates this file. A new coding session
 must be able to continue from this document alone.
 
-- **Integration branch:** `trycomp-selective-integration` (REBUILT 2026-11-18 from the recovered project memory — see §0)
-- **Last updated:** Phase 1 (evidence ledger + persistent facts) REBUILT — 2026-11-18
-- **Current phase:** 1 complete (rebuilt); next action in §12
+- **Integration branch:** `trycomp-selective-integration` (REBUILT TWICE — the first rebuild was lost to a SECOND workspace recycling hours after its completion report; see §0.1)
+- **Last updated:** Phase 1 (evidence ledger + persistent facts) second rebuild — 2026-11-18
+- **Current phase:** 1 complete (second rebuild, in the persistent workspace); next action in §12
 
 ---
 
@@ -21,17 +21,47 @@ document (recovered) and the Phase 0 deliverables in the operator's
 download folder (baseline audit, design-decision report, Phase 1A
 reports).
 
-| Item | Original (LOST) | Rebuilt / verified (current) |
-| --- | --- | --- |
-| Five-state correction | `7bea4f52` (local only, never pushed) | `491ecf614271743a62f3f8bfcba927341045fdb9` — rebuilt from the approved plan, parent `54b76e5d` verified exact, contract spot-checked (five-state CHECK, `NonRetryableTaskError`, explicit org), and **pushed** to `origin/phase-1a-five-state-contract` on 2026-11-18 |
-| Phase 0 doc commit | `bffb554` | restored by this commit from the recovered document |
-| Phase 1 (evidence + facts) | complete, 145 tests, migration `f2a3b4c5d6e7` | **REBUILT 2026-11-18** to the §13 semantics on this branch — same migration id, same test counts (§13.5) |
+| Item | Original (LOST) | First rebuild (LOST AGAIN) | Second rebuild (current) |
+| --- | --- | --- | --- |
+| Five-state correction | `7bea4f52` (local only, never pushed) | `491ecf614271743a62f3f8bfcba927341045fdb9` — verified, pushed | unchanged — still secured on `origin/phase-1a-five-state-contract` (re-verified via `git ls-remote` at the second rebuild) |
+| Phase 0 doc commit | `bffb554` | `7e370f8` | `0fa2940` (restored verbatim from the recovered document) |
+| Phase 1 (evidence + facts) | complete, 145 tests, migration `f2a3b4c5d6e7` | `1babbc4` — complete, 30-test battery + 145 full suite (§13.5) | rebuilt again to the same §13 semantics — same migration id, same test counts (§13.6) |
 
 Rebuild protocol: this branch (`trycomp-selective-integration`) is cut
-from the verified base `491ecf61`. Phase 0 is restored first (this
-commit); Phase 1 is then rebuilt to the semantics recorded in §13 before
-Phase 2 starts. Nothing else changes: the rejected list (§3) and the
-standing security decisions (§4) remain binding.
+from the verified base `491ecf61`. Phase 0 is restored first; Phase 1 is
+then rebuilt to the semantics recorded in §13 before Phase 2 starts.
+Nothing else changes: the rejected list (§3) and the standing security
+decisions (§4) remain binding.
+
+### 0.1 Second loss and second rebuild (2026-11-18, later the same day)
+
+The first rebuild (§13.5) was done in an isolated clone that lived under
+the session-scoped storage (`/tmp/my-project/workspace/faithel-trycomp`)
+and was destroyed when that sandbox was recycled — hours after its
+completion report was written. Verified before rebuilding again: the
+clone directory exists but is empty; no `trycomp-selective-integration`
+branch, no dangling commits and no `research/` source files in any
+workspace or object store on this machine; the remote still shows only
+the six known branches (five-state checkpoint intact at `491ecf6`).
+Survivors: this document, the Phase 1 completion report and the Phase 0
+deliverables in the operator's download folder.
+
+Second-rebuild changes (everything else identical to the §13 spec):
+
+1. **Location** — the clone now lives in the storage that demonstrably
+   survives recycling (`/home/z/my-project/workspace/faithel-trycomp`,
+   next to `faithel-1a-clean` and `Faith-El-`, which survived every
+   previous recycling). The two pre-existing workspaces remain
+   untouched.
+2. **Backup** — a `git bundle` of the branch is exported to the
+   operator's download folder after every commit, so the work survives
+   ANY future workspace loss and the owner can push it at any time
+   (`git fetch <bundle> trycomp-selective-integration`), independent of
+   a live session.
+3. Same migration id `f2a3b4c5d6e7`, same file set, same test counts
+   (§13.6). Design notes for the second rebuild are recorded in §13.6
+   because the first rebuild's code is as unrecoverable as the
+   original's.
 
 ---
 
@@ -267,14 +297,14 @@ Status: `[ ]` pending, `[x]` complete (with commit SHA).
       (§5.4); baseline tests recorded (§5.3 — re-verified on the rebuilt base
       2026-11-18: 120 passed, 1 pre-existing warning); capability/agent/
       pipeline mapping (§3/§6/§7); this document.
-- [x] **Phase 1 — Evidence & facts foundation** (REBUILT 2026-11-18 on this
-      branch after the original was lost — §0/§13.5; original §13 record was
-      the rebuild spec): `research_evidence` + `research_facts`
+- [x] **Phase 1 — Evidence & facts foundation** (original LOST; first
+      rebuild `1babbc4` LOST AGAIN — §0.1; SECOND REBUILD 2026-11-18 on
+      this branch, same §13 semantics): `research_evidence` + `research_facts`
       models, additive migration f2a3b4c5d6e7 (parent d9e0f1a2b3c4), the
       `coffee_export/research` service layer (conflict retention,
       corroboration via independent sources, human-verified locking, source
       suppression), 30 Phase 1 tests + full-suite regression 145 passed.
-      Record: §13 + §13.5.
+      Record: §13 + §13.5 + §13.6.
 - [ ] **Phase 2 — Research engine**: `research_sessions` (plan/steps/status,
       budgets, usage), `research_tool_calls` log, tool registry + first tools
       (bounded robots-aware fetch, identity resolution, evidence recording,
@@ -308,8 +338,9 @@ Phase 0 (original commit bffb554, LOST — restored on the rebuilt base
 2026-11-18): `coffee_export/docs/trycomp-integration-progress.md`
 (new). No application code changed in Phase 0.
 
-Phase 1 (original commit LOST; REBUILT 2026-11-18 on this branch — same
-file set, same migration id, per the §13 spec):
+Phase 1 (original commit LOST; first rebuild `1babbc4` LOST AGAIN;
+SECOND REBUILD 2026-11-18 on this branch — same file set, same migration
+id, per the §13 spec):
 - NEW `coffee_export/coffee_export/database/models/research.py`
 - NEW `coffee_export/alembic/versions/f2a3b4c5d6e7_research_evidence_facts.py`
 - NEW `coffee_export/coffee_export/research/` (`__init__.py`, `common.py`,
@@ -317,10 +348,12 @@ file set, same migration id, per the §13 spec):
 - NEW `coffee_export/tests/test_evidence_foundation.py`,
   `coffee_export/tests/test_research_foundation_migration.py`
 - MOD `coffee_export/coffee_export/database/models/__init__.py` (register the
-  two models)
+  two models; import block sorted — the file carried pre-existing I001
+  lint debt at `491ecf6`)
 - MOD `coffee_export/tests/test_agent_task_migration.py` (new head
-  f2a3b4c5d6e7; deployment path expects three new tables)
-- MOD this file (§8, §9, §11–§13)
+  f2a3b4c5d6e7; deployment path expects three new tables; also
+  reformatted — the file carried pre-existing black drift at `491ecf6`)
+- MOD this file (§0, §0.1, §8, §9, §11, §13.6)
 
 ## 10. Provider requirements
 
@@ -359,6 +392,10 @@ file set, same migration id, per the §13 spec):
 9. The research service commits per operation (StateManager style) and is not
    yet called from any agent or task handler — Phase 3 wires it into durable
    research execution.
+10. Suppressing or outdating the human attestation behind a locked fact does
+    NOT unlock it — human decisions can only be superseded by a NEWER human
+    attestation (by design; AI paths must never be able to dissolve a human
+    correction by hiding its evidence row).
 
 ## 12. Exact next action
 
@@ -541,3 +578,65 @@ sources; rows never deleted; sanctioned transitions only; suppression
 reversible + org-scoped; outdated inert; human locks immune to AI
 recompute (contradicting AND agreeing rows tested).
 
+
+### 13.6 Second rebuild record (2026-11-18, this branch)
+
+The first rebuild (§13.5) was itself lost when its session-scoped
+workspace was recycled (§0.1) and was rebuilt a second time from the §13
+record on `trycomp-selective-integration` (base `491ecf61`, Phase 0
+restoration commit `0fa2940`). Same file set, same migration id
+`f2a3b4c5d6e7`, same test counts (21 + 4 + 5). All §13.5 rebuild design
+decisions were carried over verbatim (injectable engine, shared module
+`recompute_fact`, immediate locking on human rows, newest-human-wins,
+`human_action=True` only from the human path, DB-enforced honesty
+CHECKs, flush-before-recompute).
+
+Second-rebuild design decisions (recorded because the first rebuild's
+code is unrecoverable — semantics follow §13.1 exactly, naming may
+differ):
+
+- `source_identity` = the cited source URL. The URL IS the source
+  document: the same URL observed twice never corroborates, even via
+  different source_types (a website fetch and a search result that cite
+  the same page are ONE source).
+- conflict generalization: when live evidence holds ≥2 distinct values,
+  ALL live rows become disputed (the fact is contested as a whole), the
+  display form is the FIRST observation's, and the fact's status drops
+  to observed until the conflict is resolved by suppression, outdating,
+  or a human decision. A majority cannot outvote silently.
+- `source_count` = live rows supporting the current display value;
+  frozen while a fact is human_verified (AI recompute is skipped
+  entirely — not even updated_ts moves).
+- `status='human_verified'` IS the lock (no separate flag column); the
+  model exposes it as one concept and the tests pin the freeze three
+  ways (contradicting row, agreeing row, superseding attestation).
+- suppressing/outdating a human attestation does NOT unlock its fact
+  (§11.10) — only a newer human attestation can change a locked fact.
+
+Pre-existing lint debt found at `491ecf6` and cleaned in the two files
+Phase 1 already touches (nothing else was reformatted):
+`database/models/__init__.py` had an unsorted import block (I001) and
+`tests/test_agent_task_migration.py` had black drift.
+
+Verification results (actual commands, actual results — matching §13.3
+and §13.5 exactly):
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Phase 1 battery | `pytest tests/test_evidence_foundation.py tests/test_research_foundation_migration.py tests/test_agent_task_migration.py -q` | **30 passed** (21 + 4 + 5) |
+| Full Python suite | fresh copy of operational DB → `COFFEE_DATABASE_URL=sqlite:////tmp/phase1b/ph1-final.db pytest tests/ -q` | **145 passed, 1 warning** (pre-existing starlette/httpx) |
+| Manual up/down demo | fresh /tmp/updown.db: head → d9e0f1a2b3c4 → b9d0e1f2a4b5 → head | 68 → 66 (only the research tables dropped, agent_tasks kept) → 65 → 68 tables at every step |
+| Operational DB | sha256 before/after every run | `ce14d7b0…` unchanged; no `M` entry in git status |
+| Migration graph | `alembic heads` / `alembic history` | exactly one head f2a3b4c5d6e7; linear 19-revision chain from 47eb259e4dd2 |
+| Lint/format | `ruff check` + `black --check` on research/ + models + the three test files | clean (both tools; pre-existing debt in the two MOD files cleaned, see above) |
+| Working tree | `git status --porcelain` | only the intended Phase 1 files; no package.json/JS noise; no secrets |
+
+Security & semantics re-verified after the second rebuild: every query
+in `research/` filters organization_id (6 query sites, all org-scoped);
+constructors raise on empty org; zero org-system fallbacks; zero raw
+SQL (expression API with bound parameters only); llm_inference excluded
+from independent sources; rows never deleted; sanctioned transitions
+only; suppression reversible + org-scoped; outdated inert; human locks
+immune to AI recompute (contradicting AND agreeing rows tested); the
+org-scoped UNIQUE key is enforced at the DB level and tested via the
+SQLite autoindex contract (§13.2 #3 lesson).
