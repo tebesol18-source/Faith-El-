@@ -362,6 +362,65 @@ def _close_followup(payload: dict, org: str, engine: Engine, *, done: bool) -> s
 
 
 # ──────────────────────────────────────────────────────────────
+# Session creation with planning (Phase 4 §12.1)
+# ──────────────────────────────────────────────────────────────
+
+
+def create_session_with_planning(
+    engine: Engine,
+    organization_id: str,
+    objective: str,
+    *,
+    created_by: str,
+    budgets: Any = None,
+    gateway: Any = None,
+    tool_registry: Any = None,
+    clock: Any = None,
+):
+    """Agent-facing session creation with LLM-assisted planning (Phase 4 §12.1).
+
+    The Agent-2 entry point of the Buyer Radar: plan the objective
+    (LLM-assisted when a gateway is provided and a provider answers
+    with a strictly-valid plan; deterministic template otherwise —
+    plan_objective_ai), create (or org-scoped-reuse) the session with
+    the WINNING plan, and account the model call against the session
+    through engine.record_model_call (budget accounting — never a side
+    channel; the gateway also logs it to ai_call_logs like every agent
+    call).
+
+    Returns (session, created, PlanOutcome). The PlanOutcome is honest
+    audit data (source/provider/model/cost/parse_error) — persist it in
+    the caller's audit trail if needed; the session itself carries the
+    plan and usage.
+
+    Note: recording the planning call auto-starts a pending session
+    (Phase 2 record_model_call semantics) — the wall-clock budget
+    window opens at planning time. With the default unlimited
+    max_wall_seconds this is immaterial; tight wall budgets should be
+    paired with prompt dispatch.
+    """
+    from coffee_export.research.planning import plan_objective_ai
+    from coffee_export.research.sessions import ResearchSessions
+
+    outcome = plan_objective_ai(objective, gateway)
+    sessions = ResearchSessions(organization_id, engine)
+    row, created = sessions.create_session(
+        objective,
+        created_by=created_by,
+        plan=outcome.steps,
+        budgets=budgets,
+        on_duplicate="reuse",
+    )
+    if outcome.source == "llm" and created:
+        from coffee_export.research.engine import ResearchEngine
+
+        research = ResearchEngine(organization_id, engine, registry=tool_registry, clock=clock)
+        research.record_model_call(row.session_id, cost_usd=outcome.cost_usd)
+        row = sessions.get_session(row.session_id)  # refreshed usage counters
+    return row, created, outcome
+
+
+# ──────────────────────────────────────────────────────────────
 # Registration
 # ──────────────────────────────────────────────────────────────
 
@@ -529,6 +588,7 @@ __all__ = [
     "RESEARCH_TASK_TYPES",
     "RUN_SESSION_FIELDS",
     "REVALIDATE_FIELDS",
+    "create_session_with_planning",
     "dispatch_due_followups",
     "make_revalidate_handler",
     "make_run_session_handler",
