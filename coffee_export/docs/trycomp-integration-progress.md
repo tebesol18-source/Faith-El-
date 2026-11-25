@@ -4,9 +4,9 @@ This is the permanent project memory for the selective TryComp AI integration in
 Faith-El Export. Every implementation phase updates this file. A new coding session
 must be able to continue from this document alone.
 
-- **Integration branch:** `trycomp-selective-integration` (REBUILT TWICE — the first rebuild was lost to a SECOND workspace recycling hours after its completion report; see §0.1)
-- **Last updated:** Phase 1 (evidence ledger + persistent facts) second rebuild — 2026-11-18
-- **Current phase:** 1 complete (second rebuild, in the persistent workspace); next action in §12
+- **Integration branch:** `trycomp-selective-integration` (workspace lost a THIRD time on 2026-11-25, AFTER the Phase 2 commit — restored loss-free from the exported bundle; see §0.2)
+- **Last updated:** Phase 2 (research engine) completion record + third-loss restore — 2026-11-25
+- **Current phase:** 2 complete (commit `e65c287`, restored and re-verified 2026-11-25: 72-test research battery, 213-test full suite); next action in §12
 
 ---
 
@@ -62,6 +62,32 @@ Second-rebuild changes (everything else identical to the §13 spec):
    (§13.6). Design notes for the second rebuild are recorded in §13.6
    because the first rebuild's code is as unrecoverable as the
    original's.
+
+### 0.2 Third loss and bundle restore (2026-11-25)
+
+The persistent workspace directory itself
+(`/home/z/my-project/workspace/faithel-trycomp`) was lost to a sandbox
+recycling AFTER the Phase 2 commit (`e65c287`, committed 2026-11-25
+08:25 UTC) — but the §0.1 backup protocol held: the post-commit bundle
+export (`trycomp-selective-integration-phase2.bundle`, written minutes
+after the commit) survived in the operator's download folder. The
+branch was restored the same day with zero loss:
+
+1. fresh clone from the bundle → `/home/z/my-project/workspace/
+   faithel-trycomp` (branch `trycomp-selective-integration`, HEAD
+   `e65c287`, working tree clean, remote re-pointed at the GitHub
+   origin — bundle clones carry no origin URL);
+2. full re-verification on the restored tree: research battery
+   **72 passed**, full suite **213 passed, 1 warning** (pre-existing
+   starlette/httpx) on a throwaway copy of the operational DB, and the
+   operational DB itself byte-identical (`ce14d7b0…`) before and after;
+3. protocol gap found during the restore and fixed by the docs commit
+   that follows: the Phase 2 commit had NOT updated this document
+   (§8/§9/§11/§12/§14 now carry the Phase 2 record).
+
+Lesson absorbed: the bundle export is now the LAST step of every phase
+commit, immediately after `git commit` and before any verification run
+that could itself be interrupted.
 
 ---
 
@@ -214,6 +240,7 @@ paid provider dependencies by default; unverifiable buyer claims.
 4. `ai_call_logs.organization_id` exists at DB level (migration
    `a1b2c3d4e5f7`) but is unmapped in the ORM (models/ai.py:16). To be mapped
    when research budget accounting lands (Phase 2) — schema-neutral ORM change.
+   **[CLOSED by Phase 2 — mapped at `e65c287`; see §14.]**
 5. Old workspace `/home/z/my-project/workspace/Faith-El-` (104 modified /
    13 deleted files at `54b76e5`) — left untouched by protocol; it contains no
    commits newer than this chain.
@@ -305,11 +332,16 @@ Status: `[ ]` pending, `[x]` complete (with commit SHA).
       corroboration via independent sources, human-verified locking, source
       suppression), 30 Phase 1 tests + full-suite regression 145 passed.
       Record: §13 + §13.5 + §13.6.
-- [ ] **Phase 2 — Research engine**: `research_sessions` (plan/steps/status,
-      budgets, usage), `research_tool_calls` log, tool registry + first tools
-      (bounded robots-aware fetch, identity resolution, evidence recording,
-      duplicate detection), provider manifest with capability detection,
-      research-history search/dedup, ORM mapping of `ai_call_logs.organization_id`.
+- [x] **Phase 2 — Research engine** (commit `e65c287`, 2026-11-25; the
+      workspace was lost after the commit and restored from the bundle the
+      same day — §0.2; re-verified 72 + 213 passed): `research_sessions`
+      (plan/status, budgets, usage counters, sanctioned transitions,
+      duplicate-research reuse), `research_tool_calls` log, tool registry +
+      first tools (bounded robots-aware fetch, identity resolution, evidence
+      recording, duplicate detection, capability-gated web_search), provider
+      manifest with honest runtime capability detection, budget enforcement
+      with stop-on-exhaustion, ORM mapping of `ai_call_logs.organization_id`
+      (closes §5.5 #4). Record: §14.
 - [ ] **Phase 3 — Durable research execution**: register `research.*` task types
       in `default_registry` (validators, idempotent org-scoped handlers,
       retryable/non-retryable classification), `research_followups` table +
@@ -355,6 +387,34 @@ id, per the §13 spec):
   reformatted — the file carried pre-existing black drift at `491ecf6`)
 - MOD this file (§0, §0.1, §8, §9, §11, §13.6)
 
+Phase 2 (commit `e65c287`, 2026-11-25 — workspace lost after the commit,
+restored from the bundle, §0.2):
+- NEW `coffee_export/alembic/versions/a3b4c5d6e7f8_research_engine_sessions_tool_calls.py`
+- MOD `coffee_export/coffee_export/database/models/__init__.py` (register
+  ResearchSession + ResearchToolCall)
+- MOD `coffee_export/coffee_export/database/models/ai.py` (map the existing
+  `ai_call_logs.organization_id` column — schema-neutral, §5.5 #4)
+- MOD `coffee_export/coffee_export/database/models/research.py` (+ the two
+  Phase 2 models, same conventions as the Phase 1 tables)
+- MOD `coffee_export/coffee_export/research/__init__.py` (exports)
+- MOD `coffee_export/coffee_export/research/common.py` (session/tool-call
+  vocabulary, transitions, IDs, normalize_objective)
+- NEW `coffee_export/coffee_export/research/budget.py`, `engine.py`,
+  `planning.py`, `providers.py`, `sessions.py`
+- NEW `coffee_export/coffee_export/research/tools/` (`__init__.py`,
+  `base.py`, `dedupe.py`, `evidence_record.py`, `fetch.py`, `identity.py`,
+  `registry.py`, `web_search.py`)
+- MOD `coffee_export/tests/test_agent_task_migration.py` (new head
+  a3b4c5d6e7f8; deployment path expects two more tables)
+- NEW `coffee_export/tests/test_provider_manifest.py`,
+  `coffee_export/tests/test_research_engine_migration.py`
+- MOD `coffee_export/tests/test_research_foundation_migration.py`
+  (new head a3b4c5d6e7f8; table-count assertions extended)
+- NEW `coffee_export/tests/test_research_sessions.py`,
+  `coffee_export/tests/test_research_tools.py`
+- MOD this file (§0.2, §5.5 #4, §8, §9, §11, §12, §14 — in the docs commit
+  that follows the restore; see §0.2 #3)
+
 ## 10. Provider requirements
 
 - AI chat: existing `AIGateway` env keys (`GLM_API_KEY` preferred; also
@@ -396,28 +456,48 @@ id, per the §13 spec):
     NOT unlock it — human decisions can only be superseded by a NEWER human
     attestation (by design; AI paths must never be able to dissolve a human
     correction by hiding its evidence row).
+11. The engine runs tools strictly in-process: nothing yet drives a
+    session's stored plan to completion autonomously — Phase 3 registers
+    the durable `research.*` handlers (§12).
+12. Planning is the deterministic template only (planning.py); LLM-assisted
+    planning through AIGateway is a Phase 3 upgrade on the same stored-JSON
+    plan contract (§3 A).
+13. `web_search` is the honest capability-gated slot: with no search
+    adapter (Phase 4) it always reports capability_unavailable — never a
+    cached or fabricated result.
+14. The wall-clock budget is measured from `started_ts` with second-
+    granularity ISO timestamps; sub-second jitter is invisible (documented,
+    test-verified with the injectable clock).
 
 ## 12. Exact next action
 
-Implement **Phase 2 (Research engine)** on top of f2a3b4c5d6e7:
+Implement **Phase 3 (Durable research execution)** on top of a3b4c5d6e7f8
+(completed code and semantics: §14):
 
-1. Data model: `research_sessions` (objective, plan JSON, status, budgets +
-   usage counters) and `research_tool_calls` (tool, input, output, cost,
-   duration, session ref) — new additive Alembic revision chained on
-   f2a3b4c5d6e7; map `ai_call_logs.organization_id` in the ORM (DB column
-   already exists).
-2. Provider manifest (`coffee_export/research/providers.py`): runtime
-   detection of AI providers via the existing AIGateway env keys and of
-   research/search providers (none configured by default → honest
-   `capability_unavailable`; never fake results).
-3. Tool registry (`coffee_export/coffee_export/research/tools/`): typed
-   input/output schemas, org scope, bounded robots-aware fetch, identity
-   resolution, duplicate detection — each with tests.
-4. Budget enforcement: per-session limits (tool calls, model calls, wall
-   clock, estimated cost); stop or request intervention on exhaustion;
-   never fabricate cost measurements.
-5. Research history + search: duplicate-research detection before starting
-   new sessions (org-scoped reuse).
+1. Register `research.*` task types in `default_registry` — the first real
+   business registrations (§5.5 #6). `research.run_session` (payload:
+   `session_id`): validator rejects unknown fields; the handler is
+   idempotent (a finished session → task completed with the current state,
+   never re-executed), org-scoped (ResearchEngine bound to
+   snapshot.organization_id), and classifies failures honestly:
+   ResearchNotFoundError → NonRetryableTaskError (task `failed`, one
+   attempt); BudgetExhaustedError → task completes with the session left in
+   budget_exhausted (the human resume path is the only continuation);
+   everything else stays retryable (worker default).
+2. `research_followups` (§3 D): org-scoped table (organization_id NOT NULL
+   no default; status CHECKs; due-time index), additive migration chained
+   on a3b4c5d6e7f8; a followup service (schedule / cancel / list /
+   claim-due) and a dispatcher that enqueues due followups as `research.*`
+   tasks — driven from the worker loop and the admin CLI, NOT from
+   APScheduler (jobs.py stays untouched).
+3. Recovery-after-restart tests: a task interrupted mid-run (killed worker,
+   expired lease) is reaped and re-run without double-executing the session;
+   followups scheduled before a restart still dispatch after it.
+4. Monitoring hooks: a worker-level hook interface (on task claimed /
+   completed / failed — callable, default no-op) + an admin CLI `research`
+   subcommand (sessions by status, budget_exhausted awaiting human action,
+   tool-call volume). No second monitoring system (§3 J dashboards stay
+   Phase 7).
 
 ---
 
@@ -641,3 +721,90 @@ only; suppression reversible + org-scoped; outdated inert; human locks
 immune to AI recompute (contradicting AND agreeing rows tested); the
 org-scoped UNIQUE key is enforced at the DB level and tested via the
 SQLite autoindex contract (§13.2 #3 lesson).
+
+---
+
+## 14. Phase 2 record — research engine (commit `e65c287`, 2026-11-25)
+
+This record was written AFTER the restore (§0.2): the implementation
+session's workspace was lost, so the record is derived from the
+commit's own tree (every claim re-verified by re-running the suites on
+the restored clone) plus the commit message. The §13-style conventions
+apply: this section is the rebuild specification should the tree be
+lost again.
+
+### 14.1 What was built
+
+| Layer | Files | Semantics |
+| --- | --- | --- |
+| Data model | models/research.py (+ResearchSession, +ResearchToolCall), models/ai.py, models/__init__.py | session lifecycle fields (objective, objective_key, plan JSON, budgets JSON, usage counters, sanctioned status), append-only tool-call log (honest status set, reported cost only, measured duration); `ai_call_logs.organization_id` finally mapped in the ORM (schema-neutral — column existed since a1b2c3d4e5f7) |
+| Migration | alembic a3b4c5d6e7f8 (parent f2a3b4c5d6e7) | two additive org-scoped tables; organization_id NOT NULL with NO default on both; status CHECKs; org_status + org_key indexes on sessions, org+session+created_ts index on tool calls; server_defaults only for status/usage/UNLIMITED_BUDGETS/duration (canonical canonical_json form); downgrade drops exactly the two tables |
+| Budgets | research/budget.py | BudgetSpec (4 optional axes: max_tool_calls, max_model_calls, max_wall_seconds, max_cost_usd; None = unlimited), check_budget with post-action projections, BudgetExhaustedError(reason) — stop-on-exhaustion; cost only ever sums REPORTED costs (None never trips a cost budget and is never treated as zero) |
+| Provider manifest | research/providers.py | runtime capability detection: ai_chat via the SAME env keys AIGateway reads (GLM preferred; never instantiates the gateway, never probes); web_search slot for the Phase 4 adapters (none configured by default); env var NAMES only, never values; mock excluded from production capability; manifest never mutates os.environ |
+| Sessions | research/sessions.py | create with org-scoped duplicate-research reuse (LIVE = pending/running, same objective_key), on_duplicate='error' variant; sanctioned transitions per common.SESSION_TRANSITIONS; start/complete/fail/cancel; mark_budget_exhausted; resume_session (human path: NEW budgets, wall window restarts, usage preserved); org-scoped reads + history search (case-insensitive substring on objective_key — deterministic, no AI ranking) |
+| Engine | research/engine.py | run_tool: session gate (auto-start pending; refuse finished; exhausted raises), budget PRE-check (refusal → budget_exhausted audit row, NOT usage, session stops), tool invocation OUTSIDE any DB transaction, audit row + usage in ONE commit; record_model_call (recorded first, exhaustion marked after — the NEXT action is refused); list_tool_calls; injectable clock + registry + manifest |
+| Planning | research/planning.py | deterministic 5-phase template (resolve_identity → collect_evidence → record_evidence → dedupe_check → summarize) mapped onto registered tool names; the plan is DATA (canonical JSON on the row), never blindly executed |
+| Tools | research/tools/ (base, registry, fetch, identity, dedupe, evidence_record, web_search) | typed schemas validated before AND after execution (unknown fields rejected); registry converts ToolCapabilityUnavailableError → honest capability_unavailable result; web_fetch = the ONLY new HTTP egress (http/https only, RFC 9309 robots with conservative unreachable-robots = disallow, 5s/10s timeouts, 512 KiB cap REFUSED not truncated, ≤3 redirects, content-type allowlist); resolve_identity + detect_duplicates deterministic and org-scoped (no AI, no network; strong signal = domain or name+country, name-only = weak, never alone a duplicate); record_evidence goes through the Phase 1 EvidenceLedger (never a direct row write); web_search capability-gated — reports capability_unavailable until the Phase 4 adapter exists, even with a chat key set |
+| Tests | test_research_sessions.py (28), test_research_tools.py (26), test_provider_manifest.py (10), test_research_engine_migration.py (4), MOD test_research_foundation_migration.py, MOD test_agent_task_migration.py | 68 new tests; full suite 213 passed |
+
+### 14.2 Design decisions (test-pinned)
+
+- The engine is the ONE in-process path from session to tool invocation;
+  Phase 3 task handlers call exactly this facade so in-process and
+  durable semantics stay identical (stated in engine.py's docstring).
+- A budget refusal is recorded as an audit row (status
+  budget_exhausted) and NOT counted as usage — a refused call never
+  consumed anything.
+- Tool execution happens outside DB transactions (bounded HTTP can hold
+  seconds; no write lock held); the audit row + usage update is one
+  atomic commit afterwards.
+- Unknown-cost honesty: usage_cost_usd stays NULL until a provider
+  reports a cost; check_budget treats a cost limit with no reported
+  costs as not-yet-evaluable (§14.1 budgets).
+- Wall-clock is derived from started_ts per active run (reset on
+  resume — each run gets a fresh window); an injectable epoch clock
+  keeps tests deterministic.
+- Tool inputs/outputs are validated against declared schemas on BOTH
+  sides; an output contract violation becomes an honest error row
+  rather than a contract-breaking result.
+- Duplicate-research detection is deliberately shallow
+  (normalize_objective: lowercase + whitespace collapse) — semantic
+  similarity would be an AI judgement, not a deterministic key.
+- No FK from research_tool_calls to research_sessions (same Phase 1
+  decision): the org-scoped service layer is the integrity gate
+  (ResearchNotFoundError for missing AND other-tenant alike — no
+  existence oracle).
+
+### 14.3 Verification (re-run on the restored tree, 2026-11-25)
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Research battery | `pytest tests/test_provider_manifest.py tests/test_research_engine_migration.py tests/test_research_foundation_migration.py tests/test_research_sessions.py tests/test_research_tools.py -q` | **72 passed** (10 + 4 + 4 + 28 + 26) |
+| Full Python suite | fresh copy of operational DB → `COFFEE_DATABASE_URL=sqlite:////tmp/... pytest tests/ -q` | **213 passed, 1 warning** (pre-existing starlette/httpx) |
+| Operational DB | sha256 before/after the runs | `ce14d7b0…` byte-identical; no `M` entry in git status |
+| Migration graph | (from the Phase 2 commit message + test_research_engine_migration) | single head a3b4c5d6e7f8; additive; deployment-path test updated |
+
+The original Phase 2 session's verification claims (from the commit
+message): 68 new tests, full suite 213 passed, operational DB
+byte-identical — all re-confirmed on the restored tree above.
+
+### 14.4 Security review (re-derived from the restored tree)
+
+- Org scoping: every query in research/ filters organization_id;
+  cross-tenant reads raise ResearchNotFoundError identically to
+  missing (no existence oracle); constructors take explicit org.
+- Egress: web_fetch is the only new HTTP surface, bounds enforced
+  (timeouts, byte cap, redirects, schemes, content types, robots).
+  Unreachable robots.txt is treated as disallow-all (permission that
+  cannot be verified is not granted). Refusals are auditable
+  blocked_policy rows, never silent.
+- Capability honesty: nothing fakes a provider, a cost, or a search
+  result; capability_unavailable is a first-class outcome. A GLM chat
+  key never implies search access.
+- Secrets: the manifest records env var NAMES only (test-pinned with a
+  sentinel value); no tool logs payload secrets; error strings are
+  bounded.
+- Immutability: research_tool_calls is append-only; rows are never
+  deleted or mutated (the engine only INSERTs).
+- jobs.py / task_queue.py / APScheduler boundary untouched at this
+  commit (0 lines changed — Phase 2 stays engine-level).
