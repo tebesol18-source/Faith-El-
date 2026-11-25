@@ -47,23 +47,32 @@ PLAN_PHASES: tuple[str, ...] = (
 )
 
 #: Tool names an LLM-planned step may reference (the Phase 2 registry
-#: tool set — validated again at parse time, so a hallucinated tool
-#: name can never enter a stored plan).
+#: tool set + the Phase 4 discovery tools — validated again at parse
+#: time against the LIVE registry, so a hallucinated tool name can
+#: never enter a stored plan).
 PLAN_ALLOWED_TOOLS: tuple[str, ...] = (
     "web_fetch",
     "resolve_identity",
     "detect_duplicates",
     "record_evidence",
     "web_search",
+    "search_buyers",
+    "classify_buyer",
+    "find_decision_makers",
 )
 
-#: phase derivation for LLM-planned steps (tool → plan phase).
+#: phase derivation for LLM-planned steps (tool → plan phase). The
+#: deterministic template never emits 'discover_buyers' — it is the
+#: LLM-plan phase for the Phase 4 discovery chain.
 _TOOL_PHASE: dict[str | None, str] = {
     "web_fetch": "collect_evidence",
     "web_search": "collect_evidence",
     "resolve_identity": "resolve_identity",
     "detect_duplicates": "dedupe_check",
     "record_evidence": "record_evidence",
+    "search_buyers": "discover_buyers",
+    "classify_buyer": "discover_buyers",
+    "find_decision_makers": "discover_buyers",
     None: "summarize",
 }
 

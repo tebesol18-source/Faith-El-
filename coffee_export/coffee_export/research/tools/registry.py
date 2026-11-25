@@ -96,8 +96,15 @@ class ToolRegistry:
 
 
 def default_registry() -> ToolRegistry:
-    """The Phase 2 tool set, freshly instantiated (tools are stateless)."""
+    """The Phase 2 tool set + the Phase 4 discovery tools, freshly
+    instantiated (tools are stateless; search transport is the bounded
+    production default)."""
     from coffee_export.research.tools.dedupe import DetectDuplicateTool
+    from coffee_export.research.tools.discovery import (
+        ClassifyBuyerTool,
+        FindDecisionMakersTool,
+        SearchBuyersTool,
+    )
     from coffee_export.research.tools.evidence_record import RecordEvidenceTool
     from coffee_export.research.tools.fetch import BoundedFetchTool
     from coffee_export.research.tools.identity import ResolveIdentityTool
@@ -109,4 +116,7 @@ def default_registry() -> ToolRegistry:
     registry.register(DetectDuplicateTool())
     registry.register(RecordEvidenceTool())
     registry.register(WebSearchTool())
+    registry.register(SearchBuyersTool())
+    registry.register(ClassifyBuyerTool())
+    registry.register(FindDecisionMakersTool())
     return registry

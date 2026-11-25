@@ -22,9 +22,13 @@ Honesty contract (§10):
 
   * A missing provider is reported as capability_unavailable — never
     faked, never silently skipped.
-  * Values NEVER leave this module: the manifest records env var NAMES
-    only. A capability snapshot contains no secrets, so it is safe to log
-    and to store. This is test-pinned with a sentinel value.
+  * Snapshots contain env var NAMES only: a capability snapshot has
+    no secrets, so it is safe to log and to store. This is test-pinned
+    with a sentinel value. The one sanctioned value accessor is
+    `credential()` (Phase 4): the EXECUTION SITE of a capability —
+    and only that — reads the raw key from the same mapping the
+    capability was detected from. Values must never be logged or
+    stored by any caller.
   * The `mock` provider is excluded on purpose: it exists to keep tests
     deterministic (§5.3), and counting a test double as a production
     capability would be dishonest.
@@ -170,6 +174,24 @@ class ProviderManifest:
             if capability.configured:
                 return capability
         return None
+
+    # ── execution-site key access (Phase 4) ──────────────────────
+
+    def credential(self, env_var: str) -> str:
+        """The raw value of env_var, for the EXECUTION SITE only.
+
+        The manifest detected a capability through an env mapping
+        (os.environ by default, injectable for tests). The adapter that
+        actually exercises the capability (search_adapters.run_web_search)
+        must use the SAME source — otherwise a test-injected manifest and
+        a production manifest would disagree about which key to use.
+        This accessor hands the value to the execution site without
+        exposing it in any snapshot, capability or repr.
+
+        Contract: callers must never log, store or echo the returned
+        value. The sentinel test pins that no snapshot leaks it.
+        """
+        return str(self._env.get(env_var, "") or "")
 
     # ── snapshot ────────────────────────────────────────────────────
 

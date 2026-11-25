@@ -540,7 +540,11 @@ def test_web_search_unconfigured_never_fakes() -> None:
     assert "never faked" in result.output["reason"]
 
 
-def test_web_search_configured_but_no_adapter_is_honest() -> None:
+def test_web_search_configured_without_transport_is_honest_error() -> None:
+    # Phase 4 ships the adapters: a configured provider now attempts a
+    # REAL bounded call. In the offline sandbox that call fails and the
+    # tool must return an honest error row — never a faked empty success
+    # and never a crash past the registry.
     tool = WebSearchTool()
     registry = ToolRegistry()
     registry.register(tool)
@@ -550,5 +554,6 @@ def test_web_search_configured_but_no_adapter_is_honest() -> None:
         manifest=ProviderManifest(env={"TAVILY_API_KEY": "some-key"}),
     )
     result, _ = registry.invoke("web_search", {"query": "coffee buyers"}, ctx)
-    assert result.status == "capability_unavailable"  # still no faked results
-    assert "Phase 4" in result.output["reason"]
+    assert result.status == "error"  # offline sandbox: transport failure
+    assert result.output is None  # no faked results ever
+    assert "some-key" not in (result.error_message or "")  # key never leaks
