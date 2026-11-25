@@ -39,6 +39,10 @@ from coffee_export.research.tools.identity import (
     normalize_company_name,
     normalize_contact_name,
 )
+from coffee_export.research.tools.qualification import (
+    MatchInventoryTool,
+    QualifyBuyerTool,
+)
 from coffee_export.research.tools.registry import ToolRegistry, default_registry
 from coffee_export.research.tools.web_search import WebSearchTool
 
@@ -47,6 +51,8 @@ __all__ = [
     "ClassifyBuyerTool",
     "DetectDuplicateTool",
     "FindDecisionMakersTool",
+    "MatchInventoryTool",
+    "QualifyBuyerTool",
     "RecordEvidenceTool",
     "ResearchTool",
     "ResolveIdentityTool",

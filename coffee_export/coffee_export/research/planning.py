@@ -60,6 +60,8 @@ PLAN_ALLOWED_TOOLS: tuple[str, ...] = (
     "classify_buyer",
     "find_decision_makers",
     "verify_contact",
+    "qualify_buyer",
+    "match_inventory",
 )
 
 #: phase derivation for LLM-planned steps (tool → plan phase). The
@@ -76,6 +78,8 @@ _TOOL_PHASE: dict[str | None, str] = {
     "classify_buyer": "discover_buyers",
     "find_decision_makers": "discover_buyers",
     "verify_contact": "verify_contacts",
+    "qualify_buyer": "qualify",
+    "match_inventory": "match",
     None: "summarize",
 }
 

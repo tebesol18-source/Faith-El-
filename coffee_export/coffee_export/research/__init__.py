@@ -67,6 +67,11 @@ from coffee_export.research.providers import (
     ProviderManifest,
     capability_unavailable_payload,
 )
+from coffee_export.research.qualification import (
+    DEFAULT_MIN_VOLUME_MT,
+    QUALIFICATION_WEIGHTS,
+    QualificationService,
+)
 from coffee_export.research.sessions import (
     DuplicateResearchError,
     ResearchSessions,
@@ -132,7 +137,12 @@ __all__ = [
     "ClassifyBuyerTool",
     "ContactChannelCheck",
     "ContactVerificationService",
+    "DEFAULT_MIN_VOLUME_MT",
+    "QUALIFICATION_WEIGHTS",
     "FindDecisionMakersTool",
+    "MatchInventoryTool",
+    "QualificationService",
+    "QualifyBuyerTool",
     "SearchBuyersTool",
     "VerifyContactTool",
     # Phase 2 — planning

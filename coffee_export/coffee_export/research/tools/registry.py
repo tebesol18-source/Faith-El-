@@ -109,6 +109,10 @@ def default_registry() -> ToolRegistry:
     from coffee_export.research.tools.evidence_record import RecordEvidenceTool
     from coffee_export.research.tools.fetch import BoundedFetchTool
     from coffee_export.research.tools.identity import ResolveIdentityTool
+    from coffee_export.research.tools.qualification import (
+        MatchInventoryTool,
+        QualifyBuyerTool,
+    )
     from coffee_export.research.tools.web_search import WebSearchTool
 
     registry = ToolRegistry()
@@ -121,4 +125,6 @@ def default_registry() -> ToolRegistry:
     registry.register(ClassifyBuyerTool())
     registry.register(FindDecisionMakersTool())
     registry.register(VerifyContactTool())
+    registry.register(QualifyBuyerTool())
+    registry.register(MatchInventoryTool())
     return registry
