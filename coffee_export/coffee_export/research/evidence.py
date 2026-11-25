@@ -184,6 +184,56 @@ class EvidenceLedger(_OrgScopedService):
             session.commit()
             return row
 
+    def sweep_expired(
+        self,
+        now_iso: str | None = None,
+        *,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+    ) -> list[str]:
+        """Mark live evidence whose expires_ts has passed as outdated.
+
+        The Phase 3 revalidation sweep (closes the §11.5 gap): every live
+        (non-suppressed, non-outdated) row of THIS org with
+        expires_ts <= now is marked outdated through mark_outdated, so
+        each affected fact is honestly recomputed in the same operation.
+        Returns the swept evidence_ids in observation order.
+
+        Idempotent by construction: already-outdated rows are not
+        re-selected, so a second sweep returns []. Human-locked facts are
+        untouched by the recompute (the lock is absolute — outdating the
+        underlying human attestation never unlocks the fact, §11.10).
+        An optional (subject_type, subject_id) pair narrows the sweep.
+        """
+        now = now_iso or now_addis_iso()
+        with self._session_factory() as session:
+            stmt = select(ResearchEvidence.evidence_id).where(
+                ResearchEvidence.organization_id == self.organization_id,
+                ResearchEvidence.expires_ts.is_not(None),
+                ResearchEvidence.expires_ts <= now,
+                ResearchEvidence.status.in_(("observed", "corroborated")),
+                ResearchEvidence.suppressed == 0,
+            )
+            if subject_type is not None:
+                stmt = stmt.where(ResearchEvidence.subject_type == subject_type)
+            if subject_id is not None:
+                stmt = stmt.where(ResearchEvidence.subject_id == subject_id)
+            ids = [
+                row[0]
+                for row in session.execute(
+                    stmt.order_by(ResearchEvidence.created_ts, ResearchEvidence.evidence_id)
+                ).all()
+            ]
+        for evidence_id in ids:
+            self.mark_outdated(evidence_id)  # one commit each (StateManager style)
+        if ids:
+            log.info(
+                "revalidation sweep (org %s): %d evidence rows marked outdated",
+                self.organization_id,
+                len(ids),
+            )
+        return ids
+
     # ── internals ───────────────────────────────────────────────────
 
     def _require_row(self, session, evidence_id: str) -> ResearchEvidence:

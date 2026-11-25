@@ -1,9 +1,9 @@
 """
-Research models — Evidence Ledger, Persistent Facts and the Research Engine
-(TryComp Phase 1 + Phase 2).
+Research models — Evidence Ledger, Persistent Facts, the Research Engine
+and Persistent Follow-ups (TryComp Phase 1 + 2 + 3).
 
-Four org-scoped tables backing the research services in coffee_export/research/
-(docs/trycomp-integration-progress.md §3 B/C/G/H/I):
+Five org-scoped tables backing the research services in coffee_export/research/
+(docs/trycomp-integration-progress.md §3 B/C/D/G/H/I):
 
   * research_evidence — the append-only Evidence Ledger. One row per
     immutable observation about a polymorphic subject. Rows are never
@@ -26,6 +26,12 @@ Four org-scoped tables backing the research services in coffee_export/research/
     invocation (and every budget refusal) is recorded with input, output,
     honest status, reported cost (never invented) and measured duration
     (Phase 2 §12.1). Rows are never deleted.
+  * research_followups — persistent scheduled follow-up work (Phase 3
+    §3 D): one row per scheduled future action (revalidate expired
+    evidence, resume/re-run a session). The dispatcher (tasks/
+    research_tasks.py) scans DUE rows and enqueues them as durable
+    `research.*` tasks attributed with the row's own organization_id;
+    the handler marks the row done/failed when the task terminates.
 
 Conventions shared with every other table: ISO-8601 +03:00 timestamps with
 seconds precision (now_addis_iso, lexicographically sortable) and
@@ -336,3 +342,74 @@ class ResearchToolCall(Base):
 
     def __repr__(self) -> str:
         return f"<ResearchToolCall {self.call_id}: {self.tool} → {self.status}>"
+
+
+class ResearchFollowup(Base):
+    """One scheduled piece of future research work (TryComp Phase 3, §3 D).
+
+    A followup is DATA, not a running timer: `due_ts` is when the work
+    may run, `status` tracks the dispatch lifecycle (scheduled →
+    enqueued → done | failed; scheduled → cancelled pre-dispatch). The
+    followup_type maps 1:1 onto a registered research task type minus
+    the `research.` prefix ("run_session" | "revalidate_evidence") —
+    the DB CHECK enumerates the admissible values so a typo cannot
+    silently produce un-dispatchable rows.
+
+    `payload` is canonical JSON merged into the enqueued task's payload
+    (the dispatcher injects the followup_id so the handler can close
+    the loop). `task_id` is set at dispatch to the created agent_tasks
+    row — the audit link between followup and durable task.
+
+    Lifecycle is owned by ResearchFollowups (research/followups.py);
+    dispatch by tasks/research_tasks.py. No FK by design (same decision
+    as the other research tables): org-scoped service enforcement.
+    """
+
+    __tablename__ = "research_followups"
+
+    followup_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    # Attribution/audit stamp — NO default (same pattern as every
+    # research table; the dispatcher stamps the row's OWN org onto the
+    # task — never a silent fallback).
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # 'run_session' | 'revalidate_evidence' (maps to research.<type>).
+    followup_type: Mapped[str] = mapped_column(Text, nullable=False)
+    # Optional references — subject of the followup work.
+    session_id: Mapped[str | None] = mapped_column(Text)
+    subject_type: Mapped[str | None] = mapped_column(Text)
+    subject_id: Mapped[str | None] = mapped_column(Text)
+
+    # When the followup may run (ISO +03:00, lexicographically sortable).
+    due_ts: Mapped[str] = mapped_column(Text, nullable=False)
+    # scheduled | enqueued | done | failed | cancelled
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="scheduled")
+
+    # Canonical JSON merged into the enqueued task payload.
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    # Set at dispatch — the created agent_tasks.task_id (audit link).
+    task_id: Mapped[str | None] = mapped_column(Text)
+
+    created_by: Mapped[str] = mapped_column(Text, nullable=False)
+    created_ts: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_ts: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('scheduled', 'enqueued', 'done', 'failed', 'cancelled')",
+            name="ck_research_followups_status",
+        ),
+        CheckConstraint(
+            "followup_type IN ('run_session', 'revalidate_evidence')",
+            name="ck_research_followups_type",
+        ),
+        Index("ix_research_followups_org_status", "organization_id", "status"),
+        # The dispatcher hot path: due rows across orgs in due order.
+        Index("ix_research_followups_due", "status", "due_ts"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ResearchFollowup {self.followup_id}: {self.followup_type} "
+            f"{self.status} due {self.due_ts}>"
+        )

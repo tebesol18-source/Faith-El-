@@ -186,6 +186,13 @@ class Settings:
     TASK_WORKER_LOCK_FILE: str = field(
         default_factory=lambda: os.getenv("TASK_WORKER_LOCK_FILE", "data/worker.lock")
     )
+    # Research followup dispatch cadence (Phase 3): reconcile + dispatch
+    # DUE research_followups this often. 0 is not special — the pass
+    # always runs at least this far apart; disable it by building the
+    # worker without a followup_engine.
+    TASK_WORKER_FOLLOWUP_INTERVAL_SECONDS: int = field(
+        default_factory=lambda: _get_int("TASK_WORKER_FOLLOWUP_INTERVAL_SECONDS", 60)
+    )
 
     # ── Dashboard ──
     DASHBOARD_PORT: int = field(default_factory=lambda: _get_int("DASHBOARD_PORT", 8501))

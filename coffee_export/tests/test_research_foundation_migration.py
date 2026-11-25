@@ -1,6 +1,7 @@
 """
 Research foundation migration tests — TryComp Phase 1 (f2a3b4c5d6e7),
-updated for the Phase 2 chain (a3b4c5d6e7f8 on top).
+updated for the Phase 2 chain (a3b4c5d6e7f8 on top) and the Phase 3
+chain (b4c5d6e7f8a9 on top of that).
 
 Proves, on disposable DBs only (never the committed operational DB):
 
@@ -18,15 +19,15 @@ Proves, on disposable DBs only (never the committed operational DB):
     the named constraint in the CREATE TABLE SQL — so nobody "fixes" it
     backwards later (original-implementation incident #3).
   * the deployment path — upgrading a THROWAWAY COPY of the committed
-    operational DB from b9d0e1f2a4b5 to head (four revisions) adds
-    exactly five tables (agent_tasks + the two research tables + the
-    two research-engine tables) and leaves every pre-existing table and
-    row count untouched
-  * downgrade scope — head → d9e0f1a2b3c4 drops ONLY the research and
-    research-engine tables (agent_tasks survives); the version pointer
-    moves correctly
-  * migration graph — exactly one head (a3b4c5d6e7f8) and a linear
-    20-revision chain from the initial schema
+    operational DB from b9d0e1f2a4b5 to head (five revisions) adds
+    exactly six tables (agent_tasks + the two research tables + the
+    two research-engine tables + the followups table) and leaves every
+    pre-existing table and row count untouched
+  * downgrade scope — head → d9e0f1a2b3c4 drops ONLY the research,
+    research-engine and followup tables (agent_tasks survives); the
+    version pointer moves correctly
+  * migration graph — exactly one head (b4c5d6e7f8a9) and a linear
+    21-revision chain from the initial schema
 
 Uses the project venv python (same pattern as
 test_agent_task_migration) with COFFEE_DATABASE_URL pointing at the
@@ -49,7 +50,8 @@ REPO_ROOT = REPO_COFFEE.parent  # workspace root
 VENV_PY = REPO_ROOT / ".venv" / "bin" / "python"
 REAL_DB = REPO_ROOT / "state" / "coffee_export.db"
 
-NEW_HEAD = "a3b4c5d6e7f8"  # research engine: sessions + tool calls (TryComp Phase 2)
+NEW_HEAD = "b4c5d6e7f8a9"  # research followups (TryComp Phase 3)
+PHASE2_HEAD = "a3b4c5d6e7f8"  # research engine: sessions + tool calls
 PHASE1_HEAD = "f2a3b4c5d6e7"  # this suite's own revision (research evidence + facts)
 FIVE_STATE_HEAD = "d9e0f1a2b3c4"  # parent — agent_tasks five-state contract
 OPS_BASE = "b9d0e1f2a4b5"  # where the committed operational DB sits
@@ -229,8 +231,8 @@ def test_fresh_install_shape_and_constraints(scratch) -> None:
 
 def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> None:
     """The exact deployment step: upgrade a throwaway COPY of the committed
-    operational DB (at b9d0e1f2a4b5) to head — four revisions. Must add
-    exactly five tables and touch zero existing rows."""
+    operational DB (at b9d0e1f2a4b5) to head — five revisions. Must add
+    exactly six tables and touch zero existing rows."""
     db, alembic = scratch
     db.write_bytes(REAL_DB.read_bytes())  # COPY — the committed DB is only read
     before_tables = _table_names(db)
@@ -243,6 +245,7 @@ def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> N
             "agent_tasks",
             "research_evidence",
             "research_facts",
+            "research_followups",
             "research_sessions",
             "research_tool_calls",
         }
@@ -256,6 +259,7 @@ def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> N
         "agent_tasks",
         "research_evidence",
         "research_facts",
+        "research_followups",
         "research_sessions",
         "research_tool_calls",
     }
@@ -271,11 +275,12 @@ def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> N
 
 
 def test_downgrade_drops_only_research_tables(scratch) -> None:
-    """head → d9e0f1a2b3c4 drops ONLY the research and research-engine
-    tables; agent_tasks (created by the two earlier revisions) survives."""
+    """head → d9e0f1a2b3c4 drops ONLY the research, research-engine and
+    followup tables; agent_tasks (created by the two earlier revisions)
+    survives."""
     db, alembic = scratch
     alembic("upgrade", "head")
-    assert len(_table_names(db)) == 70
+    assert len(_table_names(db)) == 71
 
     alembic("downgrade", FIVE_STATE_HEAD)
 
@@ -283,6 +288,7 @@ def test_downgrade_drops_only_research_tables(scratch) -> None:
     assert _version(db) == FIVE_STATE_HEAD
     assert "research_evidence" not in tables
     assert "research_facts" not in tables
+    assert "research_followups" not in tables
     assert "research_sessions" not in tables
     assert "research_tool_calls" not in tables
     assert "agent_tasks" in tables
@@ -290,13 +296,14 @@ def test_downgrade_drops_only_research_tables(scratch) -> None:
 
     alembic("upgrade", "head")  # re-upgrade works
     assert _version(db) == NEW_HEAD
-    assert len(_table_names(db)) == 70
+    assert len(_table_names(db)) == 71
 
 
 def test_single_head_linear_chain(scratch) -> None:
-    """Exactly one head; the chain is linear (20 revisions from the initial
+    """Exactly one head; the chain is linear (21 revisions from the initial
     schema) with the Phase 1 revision linking directly on the five-state
-    head and the Phase 2 engine revision on the Phase 1 head.
+    head, the Phase 2 engine revision on the Phase 1 head, and the Phase 3
+    followups revision on the Phase 2 head.
 
     NOTE: `alembic history` renders lines as "<parent> -> <rev> (head),
     title" — assert the head marker and revision PRESENCE, never the
@@ -305,12 +312,13 @@ def test_single_head_linear_chain(scratch) -> None:
     """
     _, alembic = scratch
     heads = alembic("heads")
-    assert "a3b4c5d6e7f8" in heads
+    assert "b4c5d6e7f8a9" in heads
     assert heads.count("(head)") == 1
 
     history = alembic("history")
     assert "d9e0f1a2b3c4 -> f2a3b4c5d6e7" in history  # Phase 1 parent link
     assert "f2a3b4c5d6e7 -> a3b4c5d6e7f8" in history  # Phase 2 parent link
+    assert "a3b4c5d6e7f8 -> b4c5d6e7f8a9" in history  # Phase 3 parent link
     lines = [ln for ln in history.splitlines() if ln.strip()]
-    assert len(lines) == 20  # linear chain, one line per revision
+    assert len(lines) == 21  # linear chain, one line per revision
     assert "47eb259e4dd2" in history  # initial schema is the chain tail

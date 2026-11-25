@@ -24,6 +24,18 @@ Lifecycle:
     but DISCARDS the result — it never overwrites the new owner's row.
   * reaper — a reap_expired() pass every TASK_QUEUE_REAPER_INTERVAL_SECONDS
     (60s), recovering tasks from workers that died mid-task.
+  * followup pass (Phase 3) — every TASK_WORKER_FOLLOWUP_INTERVAL_SECONDS
+    (60s), when the worker was built with a followup_engine:
+    reconcile_followups (converge followup rows to their task's terminal
+    state — the crash/restart recovery path) then dispatch_due_followups
+    (enqueue DUE research followups as research.* tasks). Both calls are
+    _guarded: a followup-pass failure is logged and never kills the
+    worker. Without a followup_engine the pass is disabled — the Phase
+    1A behavior is unchanged.
+  * hooks (Phase 3) — a WorkerHooks instance receives on_claimed /
+    on_completed / on_failed events (observability; a raising hook is
+    caught and logged, never fatal). The default no-op hooks keep the
+    loop identical when nothing is wired.
   * graceful shutdown — SIGTERM/SIGINT stop claiming; a running task is
     finished first; exit 0. A hard kill leaves the lease to expire and
     the reaper to recover — safe by design.
@@ -62,6 +74,38 @@ log = get_logger(__name__)
 
 EXIT_OK = 0
 EXIT_LOCKED = 3  # another worker holds the singleton lock
+
+
+class WorkerHooks:
+    """Observability hooks for the worker loop (Phase 3, §12.4).
+
+    Subclasses (or monkeypatched instances) receive task events as they
+    happen: claimed, completed, terminally failed. Hooks are pure
+    observers — they must never write to the DB or mutate task state,
+    and a raising hook is caught and logged so observability can never
+    take the worker down. Lease-lost outcomes are deliberately silent
+    here (they are logged; the task belongs to another claim).
+
+    Wire metrics/alerting by subclassing and passing ``hooks=`` to
+    TaskWorker; the default no-op instance changes nothing.
+    """
+
+    def on_claimed(self, task_id: str, task_type: str, organization_id: str, attempts: int) -> None:
+        """A task was claimed (before validation/execution)."""
+
+    def on_completed(self, task_id: str, task_type: str, organization_id: str, result: Any) -> None:
+        """A task completed successfully (result = the handler's return)."""
+
+    def on_failed(
+        self,
+        task_id: str,
+        task_type: str,
+        organization_id: str,
+        error: str,
+        *,
+        status: str,
+    ) -> None:
+        """A task terminally failed — status is 'failed' or 'dead'."""
 
 
 def _resolve_lock_path() -> Path:
@@ -125,6 +169,9 @@ class TaskWorker:
         lock_path: Path | str | None = None,
         owner: str | None = None,
         install_signals: bool = True,
+        hooks: WorkerHooks | None = None,
+        followup_engine: Any | None = None,
+        followup_interval: float | None = None,
     ):
         self._queue = queue
         self._registry = registry
@@ -144,6 +191,15 @@ class TaskWorker:
         self._lock_path = _resolve_lock_path() if lock_path is None else Path(lock_path)
         self._owner = owner
         self._install_signals = install_signals
+        self._hooks = hooks if hooks is not None else WorkerHooks()
+        # Phase 3: research followup dispatch (None → pass disabled —
+        # the Phase 1A behavior is unchanged for callers that opt out).
+        self._followup_engine = followup_engine
+        self._followup_interval = (
+            settings.TASK_WORKER_FOLLOWUP_INTERVAL_SECONDS
+            if followup_interval is None
+            else followup_interval
+        )
         self._stop = threading.Event()
         self._lock_fd: int | None = None
         self._lease_ttl = settings.TASK_QUEUE_LEASE_TTL_SECONDS
@@ -202,12 +258,16 @@ class TaskWorker:
             self._lease_ttl,
         )
         next_reap = time.monotonic()
+        next_followup = time.monotonic()
         try:
             while not self._stop.is_set():
                 now = time.monotonic()
                 if now >= next_reap:
                     self._guarded(self._reap_pass)
                     next_reap = now + self._reaper
+                if self._followup_engine is not None and now >= next_followup:
+                    self._guarded(self._followup_pass)
+                    next_followup = now + self._followup_interval
                 if self._stop.is_set():
                     break
                 claimed = self._guarded(lambda: self._claim_once(owner))
@@ -231,6 +291,18 @@ class TaskWorker:
         summary = self._queue.reap_expired()
         return summary["examined"] > 0
 
+    def _followup_pass(self) -> bool:
+        """Reconcile + dispatch research followups (Phase 3). Lazy import:
+        the research bridge is only pulled into workers that opted in."""
+        from coffee_export.tasks.research_tasks import (
+            dispatch_due_followups,
+            reconcile_followups,
+        )
+
+        reconcile_followups(self._queue, self._followup_engine)
+        summary = dispatch_due_followups(self._queue, self._followup_engine)
+        return summary["enqueued"] > 0 or summary["failed"] > 0
+
     def _claim_once(self, owner: str) -> bool:
         task = self._queue.claim_next(owner)
         if task is None:
@@ -244,6 +316,20 @@ class TaskWorker:
         owner = owner or self._owner or f"worker-{socket.gethostname()}-{os.getpid()}"
         return self._claim_once(owner)
 
+    def run_followup_pass(self) -> bool:
+        """One reconcile+dispatch pass (Phase 3) — the test/CLI analogue
+        of run_once for the followup loop."""
+        if self._followup_engine is None:
+            return False
+        return self._followup_pass()
+
+    # ── hook plumbing (observability, never fatal) ───────────────
+    def _safe_hook(self, event: str, *args, **kwargs) -> None:
+        try:
+            getattr(self._hooks, event)(*args, **kwargs)
+        except Exception:  # noqa: BLE001 — a hook bug must never kill the worker
+            log.exception("worker hook %s raised (ignored)", event)
+
     # ── execution (gate 2: validate before running) ─────────────
     # Gate-2 rejections are NON-retryable by nature: a deregistered type
     # can never succeed on retry, a corrupt payload is permanent, and a
@@ -251,13 +337,15 @@ class TaskWorker:
     # `failed` in one attempt — no more pointless pending → leased →
     # pending cycling of tampered rows.
     def _execute(self, task) -> None:
+        self._safe_hook(
+            "on_claimed", task.task_id, task.task_type, task.organization_id, task.attempts
+        )
         # 2a. registry still knows the type?
         try:
             spec = self._registry.require(task.task_type)
         except UnknownTaskTypeError:
-            self._queue.fail(
-                task.task_id,
-                task.token,
+            self._fail_with_hook(
+                task,
                 f"task type no longer registered: {task.task_type}",
                 retryable=False,
             )
@@ -267,18 +355,14 @@ class TaskWorker:
         try:
             payload = json.loads(task.payload_text) if task.payload_text else {}
         except (json.JSONDecodeError, TypeError) as exc:
-            self._queue.fail(
-                task.task_id, task.token, f"payload is not valid JSON: {exc}", retryable=False
-            )
+            self._fail_with_hook(task, f"payload is not valid JSON: {exc}", retryable=False)
             return
 
         # 2c. payload passes the validator?
         try:
             payload = self._registry.validate_payload(task.task_type, payload)
         except PayloadValidationError as exc:
-            self._queue.fail(
-                task.task_id, task.token, f"payload validation failed: {exc}", retryable=False
-            )
+            self._fail_with_hook(task, f"payload validation failed: {exc}", retryable=False)
             return
 
         snapshot = TaskSnapshot(
@@ -300,12 +384,8 @@ class TaskWorker:
                 # permanent — everything else (network blips, transient DB
                 # errors, unexpected bugs) keeps the conservative
                 # at-least-once retry default.
-                outcome = self._queue.fail(
-                    task.task_id,
-                    task.token,
-                    exc,
-                    retryable=not isinstance(exc, NonRetryableTaskError),
-                )
+                retryable = not isinstance(exc, NonRetryableTaskError)
+                outcome = self._fail_with_hook(task, exc, retryable=retryable)
                 if outcome is None:
                     log.warning(
                         "task %s: failure could not be recorded — lease lost; "
@@ -323,8 +403,34 @@ class TaskWorker:
             if not self._queue.complete(task.task_id, task.token, result):
                 # complete() already logged the fencing loss.
                 return
+            self._safe_hook(
+                "on_completed", task.task_id, task.task_type, task.organization_id, result
+            )
         finally:
             heartbeat.stop()
+
+    def _fail_with_hook(self, task, error, *, retryable: bool):
+        """Fail a task through the queue and fire the on_failed hook when
+        the failure is TERMINAL (failed/dead — queue.fail returns the
+        outcome string). A retry outcome fires nothing (the task will run
+        again); a fenced-out failure (None) fires nothing either — the
+        task belongs to another claim."""
+        outcome = self._queue.fail(
+            task.task_id,
+            task.token,
+            error,
+            retryable=retryable,
+        )
+        if outcome in ("failed", "dead"):
+            self._safe_hook(
+                "on_failed",
+                task.task_id,
+                task.task_type,
+                task.organization_id,
+                str(error)[:2000],
+                status=outcome,
+            )
+        return outcome
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -339,9 +445,16 @@ def main(argv: list[str] | None = None) -> int:
 
     setup_logging()  # console (stdout, for supervisor capture) + rotating file
 
+    # Phase 3: the FIRST real business task registrations — the research
+    # task types + the followup dispatch loop. The worker's queue engine
+    # is forwarded so research writes share the queue's SQLite BEGIN
+    # IMMEDIATE engine (one engine, no cross-engine lock contention).
+    from coffee_export.tasks.research_tasks import register_research_tasks
+
     engine = create_queue_engine()
+    register_research_tasks(default_registry, engine=engine)
     queue = DurableTaskQueue(default_registry, engine)
-    worker = TaskWorker(queue, default_registry)
+    worker = TaskWorker(queue, default_registry, followup_engine=engine)
     return worker.run()
 
 

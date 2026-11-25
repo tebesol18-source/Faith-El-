@@ -5,8 +5,8 @@ Faith-El Export. Every implementation phase updates this file. A new coding sess
 must be able to continue from this document alone.
 
 - **Integration branch:** `trycomp-selective-integration` (workspace lost a THIRD time on 2026-11-25, AFTER the Phase 2 commit — restored loss-free from the exported bundle; see §0.2)
-- **Last updated:** Phase 2 (research engine) completion record + third-loss restore — 2026-11-25
-- **Current phase:** 2 complete (commit `e65c287`, restored and re-verified 2026-11-25: 72-test research battery, 213-test full suite); next action in §12
+- **Last updated:** Phase 3 (durable research execution) — 2026-11-25
+- **Current phase:** 3 complete (250-test full suite on the working tree; commit follows); next action in §12
 
 ---
 
@@ -342,10 +342,16 @@ Status: `[ ]` pending, `[x]` complete (with commit SHA).
       manifest with honest runtime capability detection, budget enforcement
       with stop-on-exhaustion, ORM mapping of `ai_call_logs.organization_id`
       (closes §5.5 #4). Record: §14.
-- [ ] **Phase 3 — Durable research execution**: register `research.*` task types
-      in `default_registry` (validators, idempotent org-scoped handlers,
-      retryable/non-retryable classification), `research_followups` table +
-      scheduling, recovery-after-restart tests, monitoring hooks.
+- [x] **Phase 3 — Durable research execution** (2026-11-25, on top of
+      `596692c`): `research.run_session` + `research.revalidate_evidence`
+      registered in `default_registry` (the first real business types —
+      §5.5 #6 closed) with tight validators, idempotent org-scoped
+      handlers and honest failure classification; `research_followups`
+      table (migration `b4c5d6e7f8a9`) + service + queue-side dispatcher
+      (reconcile + dispatch-due) wired into the worker loop and the
+      admin CLI; worker monitoring hooks (WorkerHooks) + admin `research`
+      / `followups` subcommands; the §11.5 revalidation sweep landed as
+      durable work. Record: §15.
 - [ ] **Phase 4 — Buyer discovery & enrichment**: company discovery tooling on
       configured providers (honest `capability_unavailable` otherwise), identity
       resolution/dedupe, coffee-sector classification, decision-maker discovery
@@ -415,6 +421,34 @@ restored from the bundle, §0.2):
 - MOD this file (§0.2, §5.5 #4, §8, §9, §11, §12, §14 — in the docs commit
   that follows the restore; see §0.2 #3)
 
+Phase 3 (2026-11-25, on top of `596692c`):
+- NEW `coffee_export/alembic/versions/b4c5d6e7f8a9_research_followups.py`
+- NEW `coffee_export/coffee_export/research/followups.py`
+- NEW `coffee_export/coffee_export/tasks/research_tasks.py`
+- MOD `coffee_export/coffee_export/database/models/research.py`
+  (+ResearchFollowup), `database/models/__init__.py` (register)
+- MOD `coffee_export/coffee_export/research/common.py` (followup
+  vocabulary: RESEARCH_TASK_TYPES, FOLLOWUP_STATUSES,
+  FOLLOWUP_TRANSITIONS, new_followup_id)
+- MOD `coffee_export/coffee_export/research/evidence.py`
+  (+sweep_expired — the revalidation sweep)
+- MOD `coffee_export/coffee_export/research/__init__.py` (exports)
+- MOD `coffee_export/coffee_export/tasks/worker.py` (WorkerHooks,
+  followup pass, hooks wired into _execute, research registration in
+  main())
+- MOD `coffee_export/coffee_export/tasks/admin.py` (research +
+  followups subcommands; pre-existing I001 import debt cleaned)
+- MOD `coffee_export/coffee_export/config.py`
+  (TASK_WORKER_FOLLOWUP_INTERVAL_SECONDS, default 60)
+- NEW `coffee_export/tests/test_research_tasks.py` (22),
+  `coffee_export/tests/test_research_followups.py` (11),
+  `coffee_export/tests/test_research_followups_migration.py` (4)
+- MOD `coffee_export/tests/test_agent_task_migration.py`,
+  `coffee_export/tests/test_research_foundation_migration.py`,
+  `coffee_export/tests/test_research_engine_migration.py`
+  (NEW_HEAD b4c5d6e7f8a9; five revisions; six tables; 21-revision chain)
+- MOD this file (§8, §9, §11, §12, §15)
+
 ## 10. Provider requirements
 
 - AI chat: existing `AIGateway` env keys (`GLM_API_KEY` preferred; also
@@ -438,10 +472,13 @@ restored from the bundle, §0.2):
    capability is implemented but marked awaiting configuration (mock-tested).
 3. SQLite single-writer; single-worker queue; at-least-once execution
    (handlers must be idempotent) — unchanged platform constraints.
-4. Pre-existing conditions in §5.5 remain open by policy.
-5. `expires_ts` is recorded on evidence but nothing yet sweeps stale evidence
-   to 'outdated' — staleness is currently only explicit (mark_outdated). A
-   revalidation sweep is a Phase 3 follow-up-job candidate.
+4. Pre-existing conditions in §5.5 remain open by policy (item 4 closed by
+   Phase 2; item 6 closed by Phase 3).
+5. [UPDATED Phase 3] The revalidation sweep EXISTS as durable work
+   (`research.revalidate_evidence`, org-wide or subject-filtered), but
+   nothing yet schedules revalidation followups automatically when
+   evidence with `expires_ts` is recorded — that wiring is Phase 4+
+   business logic. Staleness is otherwise still explicit.
 6. Fact recompute loads all rows for one fact_key per call — fine at expected
    volumes; no pagination.
 7. On dispute the retained display form is the FIRST observation's; when
@@ -449,18 +486,17 @@ restored from the bundle, §0.2):
    (documented behavior, test-verified).
 8. human_locked facts freeze `source_count` (recompute skipped entirely) —
    by design; the evidence rows are still visible via list_evidence.
-9. The research service commits per operation (StateManager style) and is not
-   yet called from any agent or task handler — Phase 3 wires it into durable
-   research execution.
+9. [UPDATED Phase 3] The research services are now called by the durable
+   `research.*` handlers (the engine facade is the one execution path); no
+   AGENT calls them yet — Phase 4+ wires buyer-discovery agents.
 10. Suppressing or outdating the human attestation behind a locked fact does
     NOT unlock it — human decisions can only be superseded by a NEWER human
     attestation (by design; AI paths must never be able to dissolve a human
     correction by hiding its evidence row).
-11. The engine runs tools strictly in-process: nothing yet drives a
-    session's stored plan to completion autonomously — Phase 3 registers
-    the durable `research.*` handlers (§12).
+11. [CLOSED by Phase 3 — the durable `research.*` handlers are registered and
+    drive stored plans through the budget-enforced engine.]
 12. Planning is the deterministic template only (planning.py); LLM-assisted
-    planning through AIGateway is a Phase 3 upgrade on the same stored-JSON
+    planning through AIGateway is the Phase 4 upgrade on the same stored-JSON
     plan contract (§3 A).
 13. `web_search` is the honest capability-gated slot: with no search
     adapter (Phase 4) it always reports capability_unavailable — never a
@@ -468,36 +504,40 @@ restored from the bundle, §0.2):
 14. The wall-clock budget is measured from `started_ts` with second-
     granularity ISO timestamps; sub-second jitter is invisible (documented,
     test-verified with the injectable clock).
+15. Plan steps without explicit tool `input` objects are honestly skipped by
+    `research.run_session` (the Phase 2 template carries no inputs) — real
+    tool inputs arrive with Phase 4 LLM-assisted planning; steps with inputs
+    execute end-to-end today.
+16. The followup dispatcher is the one sanctioned cross-org reader of
+    research_followups (queue-bridge trust level, dispatch data only); every
+    other research read stays org-scoped.
 
 ## 12. Exact next action
 
-Implement **Phase 3 (Durable research execution)** on top of a3b4c5d6e7f8
-(completed code and semantics: §14):
+Implement **Phase 4 (Buyer discovery & enrichment)** on top of the
+Phase 3 head (b4c5d6e7f8a9; completed code and semantics: §14 + §15):
 
-1. Register `research.*` task types in `default_registry` — the first real
-   business registrations (§5.5 #6). `research.run_session` (payload:
-   `session_id`): validator rejects unknown fields; the handler is
-   idempotent (a finished session → task completed with the current state,
-   never re-executed), org-scoped (ResearchEngine bound to
-   snapshot.organization_id), and classifies failures honestly:
-   ResearchNotFoundError → NonRetryableTaskError (task `failed`, one
-   attempt); BudgetExhaustedError → task completes with the session left in
-   budget_exhausted (the human resume path is the only continuation);
-   everything else stays retryable (worker default).
-2. `research_followups` (§3 D): org-scoped table (organization_id NOT NULL
-   no default; status CHECKs; due-time index), additive migration chained
-   on a3b4c5d6e7f8; a followup service (schedule / cancel / list /
-   claim-due) and a dispatcher that enqueues due followups as `research.*`
-   tasks — driven from the worker loop and the admin CLI, NOT from
-   APScheduler (jobs.py stays untouched).
-3. Recovery-after-restart tests: a task interrupted mid-run (killed worker,
-   expired lease) is reaped and re-run without double-executing the session;
-   followups scheduled before a restart still dispatch after it.
-4. Monitoring hooks: a worker-level hook interface (on task claimed /
-   completed / failed — callable, default no-op) + an admin CLI `research`
-   subcommand (sessions by status, budget_exhausted awaiting human action,
-   tool-call volume). No second monitoring system (§3 J dashboards stay
-   Phase 7).
+1. LLM-assisted planning through the existing AIGateway on the SAME
+   stored-JSON plan contract (§3 A / §11.12): when a chat provider is
+   configured, generate plan steps WITH tool inputs; deterministic
+   template stays the fallback. Model calls go through
+   engine.record_model_call (budget accounting) — never a side channel.
+2. Buyer discovery tooling on configured providers (honest
+   capability_unavailable otherwise — never faked): the web_search
+   adapter behind the existing capability-gated slot; company
+   discovery → identity resolution (tools/identity.py) → dedupe
+   (tools/dedupe.py) → coffee-sector classification → decision-maker
+   discovery with honest verification status.
+3. Contact verification rules: no invented emails — every contact
+   claim must cite evidence (Phase 1 ledger) before it can be used by
+   outreach (§4.5 dual gate unchanged).
+4. Wire the revalidation-followup scheduling (§11.5): when evidence
+   with expires_ts is recorded, schedule the
+   `research.revalidate_evidence` followup at the expiry time.
+5. Agent integration: Agent 2 (company research / decision-maker
+   discovery) becomes the first agent to create research sessions and
+   enqueue `research.run_session` tasks — through the queue, never
+   the event loop (§7).
 
 ---
 
@@ -808,3 +848,87 @@ byte-identical — all re-confirmed on the restored tree above.
   deleted or mutated (the engine only INSERTs).
 - jobs.py / task_queue.py / APScheduler boundary untouched at this
   commit (0 lines changed — Phase 2 stays engine-level).
+
+---
+
+## 15. Phase 3 record — durable research execution (2026-11-25)
+
+### 15.1 What was built
+
+| Layer | Files | Semantics |
+| --- | --- | --- | ---
+| Task types | tasks/research_tasks.py | `research.run_session` (session_id payload) + `research.revalidate_evidence` (optional subject pair) — the FIRST business registrations in default_registry (§5.5 #6); tight validators (unknown fields rejected, subject pair together, non-empty strings); handler factories with injectable engine/tool-registry/clock (production main() forwards the queue engine so research writes share the queue's BEGIN IMMEDIATE engine) |
+| run_session semantics | (same file) | idempotent short-circuits for finished + budget_exhausted sessions (NEVER re-executed); missing/other-tenant session → NonRetryableTaskError (task failed, ONE attempt); corrupt plan → NonRetryableTaskError; BudgetExhaustedError mid-plan → task COMPLETES with the honest budget_stopped outcome (session stays budget_exhausted — human resume path only); steps with explicit inputs run through the Phase 2 engine facade; steps without inputs honestly skipped; step-progress idempotency under at-least-once: a step counts as executed iff a tool-call row exists for (tool, canonical input) — the append-only log IS the progress ledger; followup closure via payload followup_id |
+| Revalidation sweep | research/evidence.py (+sweep_expired) | marks expired live evidence outdated via mark_outdated (each with honest fact recompute); org-scoped, optional subject filter, idempotent (second sweep = 0); human-verified facts stay locked (§11.10) |
+| Followups model + migration | models/research.py (+ResearchFollowup), alembic b4c5d6e7f8a9 (parent a3b4c5d6e7f8) | org NOT NULL no default; status CHECK (scheduled|enqueued|done|failed|cancelled); followup_type CHECK (run_session|revalidate_evidence — enumerated, typos cannot produce un-dispatchable rows); due-index + org_status index; additive; downgrade drops exactly the one table |
+| Followups service | research/followups.py | schedule (validated type/due/actor/subject-pair, canonical payload), org-scoped get/list (no existence oracle), sanctioned transitions per FOLLOWUP_TRANSITIONS (cancel is pre-dispatch only), mark_enqueued/mark_done/mark_failed |
+| Dispatcher + reconcile | tasks/research_tasks.py | dispatch_due_followups: bounded batch (≤50/pass), cross-org DUE scan (the one sanctioned cross-org reader — queue-bridge trust level, dispatch data only), enqueues with the row's OWN org, injects followup_id into the task payload, unregistered-type rows marked failed honestly; reconcile_followups: enqueued rows converge to their task's terminal state, in-flight (pending/leased) left alone, taskless rows fail loudly |
+| Worker integration | tasks/worker.py | followup pass every TASK_WORKER_FOLLOWUP_INTERVAL_SECONDS (default 60; disabled without followup_engine — Phase 1A behavior unchanged for opt-outs); _guarded (a pass failure never kills the worker); WorkerHooks (on_claimed/on_completed/on_failed, terminal-only for failures, hook exceptions swallowed+logged); main() registers the research types and passes the queue engine |
+| Admin CLI | tasks/admin.py | `research [--org]` (org detail vs counts-only rollup — the queue-stats trust level), `followups dispatch` (manual idempotent trigger of the worker pass), `followups list --org` (org-scoped only); pre-existing I001 import debt cleaned |
+| Config | config.py | TASK_WORKER_FOLLOWUP_INTERVAL_SECONDS (env-overridable, default 60) |
+| Tests | test_research_tasks.py (22), test_research_followups.py (11), test_research_followups_migration.py (4) + 3 migration suites updated | 37 new tests; validators, idempotency (incl. crash-recovery never-double-execute), org isolation, budget-stop classification through a REAL worker, hooks (incl. raising hook never kills), dispatcher/reconcile semantics, restart recovery, full worker loop (schedule → dispatch → execute → followup done) |
+
+### 15.2 Design decisions (test-pinned)
+
+- The durable handlers call exactly the Phase 2 ResearchEngine facade —
+  one execution path, identical semantics in-process and durable
+  (engine.py's stated contract).
+- A budget stop is a SESSION outcome, not a task failure: the task
+  completes honestly so the followup closes and the queue is not
+  polluted with retryable budget fights; only the human resume path
+  continues an exhausted session.
+- Step-progress idempotency is derived from the append-only tool-call
+  log (no separate progress column to drift): a re-run resumes at the
+  first unrecorded step; an interrupted handler never double-records
+  (test: simulated DB hiccup on complete_session → re-run → 0 duplicate
+  rows, usage counted once).
+- Followup rows are DATA: due_ts + payload; dispatch is a bounded
+  queue-bridge scan (the ONLY cross-org research read, documented at
+  the model and the dispatcher); the worker loop owns the cadence —
+  jobs.py / APScheduler untouched (0 lines changed).
+- Hook contract: pure observers, terminal-failure events only, never
+  fatal — observability can never take the worker down (test-pinned
+  with a raising hook).
+- Admin trust split: `research` without --org shows COUNTS ONLY (the
+  `stats` precedent); `followups list` requires --org (no cross-org
+  research-row listing); dispatch is the manual idempotent operator
+  trigger of the worker pass.
+- Supervisor/JS surface: untouched — the Python worker is the durable
+  execution entry point; no new API route, no supervisor change
+  (supervisor integration is a Phase 7+ deployment concern).
+
+### 15.3 Verification (actual commands, actual results)
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Task-type battery | `pytest tests/test_research_tasks.py -q` | **22 passed** |
+| Followups battery | `pytest tests/test_research_followups.py -q` | **11 passed** |
+| Followups migration | `pytest tests/test_research_followups_migration.py -q` | **4 passed** (fresh shape + CHECKs + defaults + downgrade + head/parent + deployment path on an operational-DB copy) |
+| Updated migration suites | `pytest tests/test_research_foundation_migration.py tests/test_research_engine_migration.py tests/test_agent_task_migration.py -q` | **13 passed** (five revisions, six tables, 21-revision linear chain, single head b4c5d6e7f8a9) |
+| Queue regression | `pytest tests/test_task_admin.py tests/test_worker.py tests/test_task_registry.py tests/test_durable_queue.py -q` | **54 passed** (worker hooks + followup pass are additive; Phase 1A semantics intact) |
+| Full suite | fresh copy of operational DB → `COFFEE_DATABASE_URL=sqlite:////tmp/p3-full.db pytest tests/ -q` | **250 passed, 1 warning** (pre-existing starlette/httpx; 213 + 37 new) |
+| Operational DB | sha256 before/after every run | `ce14d7b0…` byte-identical; no `M` entry in git status |
+| Lint/format | `ruff check` + `black --check` on every touched file (research/, tasks/, models, config, all six test files) | clean (pre-existing I001 in admin.py cleaned in-file, per §13.6 convention) |
+| Working tree | `git status --porcelain` | exactly the §9 Phase 3 file set; no package.json/JS noise; no secrets |
+
+### 15.4 Security review
+
+- Org scoping: every research read/write stays org-scoped; the handlers
+  bind ResearchEngine/EvidenceLedger/ResearchFollowups to
+  snapshot.organization_id; cross-tenant session ids fail as
+  NonRetryableTaskError (task failed in one attempt — no existence
+  oracle, no retry storm).
+- The one cross-org read (dispatch due-scan) reads dispatch data only
+  (followup_id/org/type/payload) and stamps each task with the row's
+  OWN org — explicit attribution, never a silent fallback; documented
+  at the model, the service and the dispatcher.
+- Budget honesty: unchanged Phase 2 rules — a budget stop is honest
+  and terminal for the run; the task never retries to fight it.
+- Idempotency: at-least-once double-execution is prevented by the
+  tool-call-log progress rule (no duplicate evidence/audit rows, no
+  double usage counting).
+- Egress: no new network surface (web_fetch bounds unchanged; the
+  sweep and dispatcher touch only the DB and the queue).
+- Secrets: none in code; env var names only; logs carry ids/statuses.
+- Boundary: jobs.py / task_queue.py / APScheduler / supervisor / API
+  routes — 0 lines changed (verified in the diff).

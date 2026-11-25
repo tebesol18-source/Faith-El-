@@ -113,6 +113,44 @@ TOOL_CALL_STATUSES: tuple[str, ...] = (
 )
 
 
+# ──────────────────────────────────────────────────────────────
+# Durable research execution (Phase 3)
+# ──────────────────────────────────────────────────────────────
+
+#: The registered durable task types (tasks/research_tasks.py registers
+#: exactly these in default_registry — the first real business types).
+#: A followup row's followup_type is one of these minus the prefix.
+RESEARCH_TASK_TYPES: tuple[str, ...] = (
+    "research.run_session",
+    "research.revalidate_evidence",
+)
+
+#: Sanctioned followup statuses (Phase 3, §3 D):
+#:   scheduled — waiting for its due_ts (cancel is still possible)
+#:   enqueued  — the dispatcher created the durable task (task_id set)
+#:   done      — the task completed; the handler closed the loop
+#:   failed    — the task terminally failed (dead / failed / bad type)
+#:   cancelled — operator decision, pre-dispatch only
+FOLLOWUP_STATUSES: tuple[str, ...] = (
+    "scheduled",
+    "enqueued",
+    "done",
+    "failed",
+    "cancelled",
+)
+
+#: The sanctioned followup transition map. `enqueued` rows converge to
+#: done/failed either directly in the handler (happy path) or through
+#: reconcile_followups after a crash/restart (recovery path).
+FOLLOWUP_TRANSITIONS: dict[str, frozenset[str]] = {
+    "scheduled": frozenset({"enqueued", "cancelled", "failed"}),
+    "enqueued": frozenset({"done", "failed"}),
+    "done": frozenset(),
+    "failed": frozenset(),
+    "cancelled": frozenset(),
+}
+
+
 class ResearchNotFoundError(Exception):
     """Raised when an evidence row or fact does not exist FOR THIS ORG.
 
@@ -190,6 +228,10 @@ def new_session_id() -> str:
 
 def new_tool_call_id() -> str:
     return f"rtcl-{uuid.uuid4().hex}"
+
+
+def new_followup_id() -> str:
+    return f"rfu-{uuid.uuid4().hex}"
 
 
 def normalize_objective(objective: str) -> str:

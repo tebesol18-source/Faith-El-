@@ -1,13 +1,17 @@
 """
-Durable task queue admin CLI — Phase 1A.
+Durable task queue admin CLI — Phase 1A + Phase 3 research surface.
 
 Read-only inspection plus ONE operator action (requeue of terminal
-failed/dead tasks).
+failed/dead tasks), and (Phase 3) research monitoring + followup
+dispatch:
 
     python -m coffee_export.tasks.admin stats
     python -m coffee_export.tasks.admin list [--status S] [--limit N]
     python -m coffee_export.tasks.admin show <task_id>
     python -m coffee_export.tasks.admin requeue <task_id> [--keep-attempts]
+    python -m coffee_export.tasks.admin research [--org ORG] [--limit N]
+    python -m coffee_export.tasks.admin followups dispatch [--limit N]
+    python -m coffee_export.tasks.admin followups list --org ORG [--status S] [--limit N]
 
 Exit codes: 0 success · 1 not found / nothing to do · 2 usage error.
 
@@ -21,6 +25,18 @@ immutable history (re-running would duplicate side effects under
 at-least-once semantics); pending rows need no operator action.
 Requeue re-validates nothing: fix the underlying cause first, or the
 task fails again on its first attempt.
+
+research: with --org, org-scoped session rows + followup rows + tool-call
+totals (the tenant's own view). WITHOUT --org: counts-only rollups across
+orgs (the same trust level as `stats` — aggregate numbers, no tenant
+content). budget_exhausted sessions are surfaced explicitly: they await
+the human resume path.
+
+followups dispatch: the manual operator trigger of the worker's Phase 3
+followup pass (reconcile, then enqueue DUE research followups as
+research.* tasks). Idempotent — safe to run any time; the worker loop
+runs the same pass every TASK_WORKER_FOLLOWUP_INTERVAL_SECONDS.
+followups list REQUIRES --org (no cross-org research-row listing).
 """
 
 from __future__ import annotations
@@ -30,8 +46,8 @@ import sys
 from typing import Any
 
 from coffee_export.tasks.durable_queue import (
-    DurableTaskQueue,
     VALID_STATUSES,
+    DurableTaskQueue,
     create_queue_engine,
 )
 from coffee_export.tasks.registry import default_registry
@@ -116,6 +132,168 @@ def _cmd_requeue(queue: DurableTaskQueue, task_id: str, keep_attempts: bool) -> 
     return EXIT_NOT_FOUND
 
 
+# ── Phase 3: research monitoring + followup dispatch ─────────────
+
+
+def _cmd_research(engine, org: str | None, limit: int) -> int:
+    """Research monitoring: org-scoped detail or cross-org counts-only."""
+    from sqlalchemy import func, select
+
+    from coffee_export.database.models.research import (
+        ResearchFollowup,
+        ResearchSession,
+        ResearchToolCall,
+    )
+    from coffee_export.research.common import (
+        FOLLOWUP_STATUSES,
+        SESSION_STATUSES,
+    )
+
+    with engine.connect() as conn:
+        if org:
+            sessions = list(
+                conn.execute(
+                    select(
+                        ResearchSession.session_id,
+                        ResearchSession.status,
+                        ResearchSession.objective,
+                        ResearchSession.usage_tool_calls,
+                        ResearchSession.usage_model_calls,
+                        ResearchSession.usage_cost_usd,
+                    )
+                    .where(ResearchSession.organization_id == org)
+                    .order_by(ResearchSession.created_ts.desc())
+                    .limit(limit)
+                ).all()
+            )
+            followups = list(
+                conn.execute(
+                    select(
+                        ResearchFollowup.followup_id,
+                        ResearchFollowup.followup_type,
+                        ResearchFollowup.status,
+                        ResearchFollowup.due_ts,
+                    )
+                    .where(ResearchFollowup.organization_id == org)
+                    .order_by(ResearchFollowup.due_ts)
+                    .limit(limit)
+                ).all()
+            )
+            tool_calls = conn.execute(
+                select(func.count())
+                .select_from(ResearchToolCall)
+                .where(ResearchToolCall.organization_id == org)
+            ).scalar_one()
+            exhausted = list(
+                conn.execute(
+                    select(ResearchSession.session_id)
+                    .where(
+                        ResearchSession.organization_id == org,
+                        ResearchSession.status == "budget_exhausted",
+                    )
+                    .limit(limit)
+                ).scalars()
+            )
+        else:
+            sessions = []
+            followups = []
+            tool_calls = conn.execute(
+                select(func.count()).select_from(ResearchToolCall)
+            ).scalar_one()
+            exhausted = []
+        session_stmt = select(ResearchSession.status, func.count()).group_by(ResearchSession.status)
+        followup_stmt = select(ResearchFollowup.status, func.count()).group_by(
+            ResearchFollowup.status
+        )
+        if org:
+            session_stmt = session_stmt.where(ResearchSession.organization_id == org)
+            followup_stmt = followup_stmt.where(ResearchFollowup.organization_id == org)
+        session_counts = dict(conn.execute(session_stmt.order_by(ResearchSession.status)).all())
+        followup_counts = dict(conn.execute(followup_stmt.order_by(ResearchFollowup.status)).all())
+
+    scope = f"org {org!r}" if org else "ALL ORGS (counts only)"
+    print(f"research sessions by status — {scope}")
+    for status in SESSION_STATUSES:
+        if status in session_counts:
+            print(f"  {status:<18} {session_counts[status]:>6}")
+    if exhausted:
+        print(f"  budget_exhausted sessions awaiting human resume: {len(exhausted)}")
+        for sid in exhausted:
+            print(f"    {sid}")
+    print("research followups by status")
+    for status in FOLLOWUP_STATUSES:
+        if status in followup_counts:
+            print(f"  {status:<12} {followup_counts[status]:>6}")
+    print(f"  {'total':<12} {sum(followup_counts.values()):>6}")
+    print(f"tool calls recorded: {tool_calls}")
+
+    if org:
+        print()
+        print(f"recent sessions (org {org!r}, newest first, ≤ {limit})")
+        if not sessions:
+            print("  (none)")
+        for sid, status, objective, tc, mc, cost in sessions:
+            cost_s = "—" if cost is None else f"${cost:.4f}"
+            print(
+                f"  {sid}  {status:<17} tools={tc:<4} models={mc:<3} "
+                f"cost={cost_s}  {objective[:60]}"
+            )
+        print(f"followups (org {org!r}, due-soonest first, ≤ {limit})")
+        if not followups:
+            print("  (none)")
+        for fid, ftype, status, due in followups:
+            print(f"  {fid}  {ftype:<22} {status:<10} due {due}")
+    return EXIT_OK
+
+
+def _cmd_followups_dispatch(queue: DurableTaskQueue, engine, limit: int) -> int:
+    """Manual trigger of the worker's Phase 3 followup pass."""
+    from coffee_export.tasks.research_tasks import (
+        dispatch_due_followups,
+        reconcile_followups,
+    )
+
+    rec = reconcile_followups(queue, engine)
+    disp = dispatch_due_followups(queue, engine, limit=limit)
+    print(
+        "followup dispatch pass complete: "
+        f"reconciled {rec['done']} done / {rec['failed']} failed "
+        f"(examined {rec['examined']}), "
+        f"enqueued {disp['enqueued']}, failed {disp['failed']} "
+        f"(due {disp['due']})"
+    )
+    if disp["enqueued"] == 0 and disp["failed"] == 0:
+        return EXIT_NOT_FOUND  # nothing was due
+    return EXIT_OK
+
+
+def _cmd_followups_list(engine, org: str, status: str | None, limit: int) -> int:
+    from coffee_export.research.followups import ResearchFollowups
+
+    service = ResearchFollowups(org, engine)
+    rows = service.list_followups(status=status, limit=limit)
+    if not rows:
+        print(f"no followups for org {org!r}" + (f" with status {status!r}" if status else ""))
+        return EXIT_NOT_FOUND
+    header = (
+        f"{'followup_id':<38} {'type':<22} {'status':<11} "
+        f"{'due_ts':<26} {'task_id':<38} subject"
+    )
+    print(header)
+    print("-" * len(header))
+    for r in rows:
+        subject = r.subject_type or ""
+        if r.subject_type and r.subject_id:
+            subject = f"{r.subject_type}:{r.subject_id}"
+        elif r.session_id:
+            subject = f"session:{r.session_id}"
+        print(
+            f"{r.followup_id:<38} {r.followup_type:<22} {r.status:<11} "
+            f"{_fmt_ts(r.due_ts, 25):<26} {(r.task_id or '—'):<38} {subject[:40]}"
+        )
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m coffee_export.tasks.admin",
@@ -143,10 +321,48 @@ def build_parser() -> argparse.ArgumentParser:
         help="preserve the attempt count instead of resetting the retry budget",
     )
     p_requeue.set_defaults(func=_cmd_requeue)
+
+    p_research = sub.add_parser(
+        "research",
+        help="research session/followup monitoring (Phase 3)",
+    )
+    p_research.add_argument("--org", help="org scope for detail view (omit for counts-only rollup)")
+    p_research.add_argument("--limit", type=int, default=20)
+    p_research.set_defaults(func=_cmd_research)
+
+    p_followups = sub.add_parser("followups", help="research followup operations (Phase 3)")
+    followups_sub = p_followups.add_subparsers(dest="followups_command", required=True)
+
+    p_dispatch = followups_sub.add_parser(
+        "dispatch",
+        help="reconcile + enqueue DUE research followups now (idempotent)",
+    )
+    p_dispatch.add_argument("--limit", type=int, default=50)
+    p_dispatch.set_defaults(func=_cmd_followups_dispatch)
+
+    p_flist = followups_sub.add_parser("list", help="list followup rows for one org")
+    p_flist.add_argument("--org", required=True)
+    p_flist.add_argument(
+        "--status",
+        choices=[
+            "scheduled",
+            "enqueued",
+            "done",
+            "failed",
+            "cancelled",
+        ],
+    )
+    p_flist.add_argument("--limit", type=int, default=20)
+    p_flist.set_defaults(func=_cmd_followups_list)
     return parser
 
 
-def main(argv: list[str] | None = None, *, queue: DurableTaskQueue | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    queue: DurableTaskQueue | None = None,
+    engine=None,
+) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if queue is None:
@@ -154,7 +370,16 @@ def main(argv: list[str] | None = None, *, queue: DurableTaskQueue | None = None
         from coffee_export.utils.logging import setup_logging
 
         setup_logging(level=30, enable_file=False)  # WARNING
-        queue = DurableTaskQueue(default_registry, create_queue_engine())
+        # Phase 3: register the research task types so `followups dispatch`
+        # can enqueue them (gate 1 needs the registry populated).
+        import contextlib
+
+        from coffee_export.tasks.research_tasks import register_research_tasks
+
+        with contextlib.suppress(ValueError):  # already registered (tests)
+            register_research_tasks(default_registry)
+        engine = create_queue_engine()
+        queue = DurableTaskQueue(default_registry, engine)
     if args.command == "stats":
         return args.func(queue)
     if args.command == "list":
@@ -163,6 +388,12 @@ def main(argv: list[str] | None = None, *, queue: DurableTaskQueue | None = None
         return args.func(queue, args.task_id)
     if args.command == "requeue":
         return args.func(queue, args.task_id, args.keep_attempts)
+    if args.command == "research":
+        return args.func(engine, args.org, args.limit)
+    if args.command == "followups":
+        if args.followups_command == "dispatch":
+            return args.func(queue, engine, args.limit)
+        return args.func(engine, args.org, args.status, args.limit)
     parser.error(f"unknown command {args.command!r}")
     return EXIT_USAGE  # unreachable
 

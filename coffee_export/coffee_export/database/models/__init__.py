@@ -28,7 +28,8 @@ Domain organization:
     events.py         — Event
     agent_tasks.py    — AgentTask (durable task queue, Phase 1A)
     research.py       — ResearchEvidence, ResearchFact, ResearchSession,
-                        ResearchToolCall (TryComp Phase 1/2)
+                        ResearchToolCall, ResearchFollowup (TryComp
+                        Phase 1/2/3)
 """
 
 # Import all modules so models are registered on Base.metadata
@@ -92,6 +93,7 @@ from coffee_export.database.models.relationship import (  # noqa: F401
 from coffee_export.database.models.research import (  # noqa: F401
     ResearchEvidence,
     ResearchFact,
+    ResearchFollowup,
     ResearchSession,
     ResearchToolCall,
 )
@@ -163,6 +165,8 @@ __all__ = [
     # Research engine (TryComp Phase 2)
     "ResearchSession",
     "ResearchToolCall",
+    # Research follow-ups (TryComp Phase 3)
+    "ResearchFollowup",
     # Memory
     "ConversationMemory",
     # AI Gateway

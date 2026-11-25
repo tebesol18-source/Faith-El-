@@ -1,14 +1,15 @@
 """
-Research package — Evidence Ledger, Persistent Facts and the Research
-Engine (TryComp Phase 1 + Phase 2).
+Research package — Evidence Ledger, Persistent Facts, the Research
+Engine and Persistent Follow-ups (TryComp Phase 1 + 2 + 3).
 
 Faith-El-native implementation of the approved TryComp capabilities,
 per docs/trycomp-integration-progress.md §3:
 
   * Phase 1 — B (Evidence Ledger) and C (Persistent Facts):
     EvidenceLedger (append-only observations with honest source
-    attribution), FactStore (current-state layer with human-verified
-    locking), org-scoped on research_evidence/research_facts.
+    attribution, Phase 3: + the revalidation sweep sweep_expired),
+    FactStore (current-state layer with human-verified locking),
+    org-scoped on research_evidence/research_facts.
   * Phase 2 — F (tool registry + first tools), G (provider manifest),
     H (budgets & usage controls), I (research history & search):
     ResearchSessions (session lifecycle, duplicate-research reuse,
@@ -17,9 +18,11 @@ per docs/trycomp-integration-progress.md §3:
     fabricated costs), ProviderManifest (runtime capability detection —
     never faked), ToolRegistry with web_fetch / resolve_identity /
     detect_duplicates / record_evidence / web_search.
-
-Nothing in the application calls these services yet — Phase 3 wires
-them into durable research execution (§12 next action).
+  * Phase 3 — D (Persistent Follow-ups) + E (Durable Task Execution):
+    ResearchFollowups (schedule/cancel/lifecycle on research_followups)
+    + the research.* task types, dispatcher and reconcile pass in
+    coffee_export/tasks/research_tasks.py (registered in
+    default_registry by the worker/CLI — the first real business types).
 """
 
 from coffee_export.research.budget import (
@@ -31,8 +34,11 @@ from coffee_export.research.budget import (
 from coffee_export.research.common import (
     EVIDENCE_STATUSES,
     FACT_STATUSES,
+    FOLLOWUP_STATUSES,
+    FOLLOWUP_TRANSITIONS,
     INDEPENDENT_SOURCE_TYPES,
     LIVE_SESSION_STATUSES,
+    RESEARCH_TASK_TYPES,
     SESSION_STATUSES,
     SESSION_TRANSITIONS,
     SOURCE_TYPES,
@@ -46,6 +52,7 @@ from coffee_export.research.common import (
 from coffee_export.research.engine import ResearchEngine, ToolCallOutcome
 from coffee_export.research.evidence import EvidenceLedger
 from coffee_export.research.facts import FactStore, recompute_fact
+from coffee_export.research.followups import FOLLOWUP_TYPES, ResearchFollowups
 from coffee_export.research.planning import plan_objective, plan_to_json
 from coffee_export.research.providers import (
     MANIFEST_ENV_VAR_NAMES,
@@ -70,11 +77,15 @@ from coffee_export.research.tools import (
 )
 
 __all__ = [
-    # vocabulary (Phase 1 + 2)
+    # vocabulary (Phase 1 + 2 + 3)
     "EVIDENCE_STATUSES",
     "FACT_STATUSES",
+    "FOLLOWUP_STATUSES",
+    "FOLLOWUP_TRANSITIONS",
+    "FOLLOWUP_TYPES",
     "INDEPENDENT_SOURCE_TYPES",
     "LIVE_SESSION_STATUSES",
+    "RESEARCH_TASK_TYPES",
     "SESSION_STATUSES",
     "SESSION_TRANSITIONS",
     "SOURCE_TYPES",
@@ -106,6 +117,8 @@ __all__ = [
     # Phase 2 — planning
     "plan_objective",
     "plan_to_json",
+    # Phase 3 — persistent follow-ups (D)
+    "ResearchFollowups",
     # Phase 2 — tools (F)
     "BoundedFetchTool",
     "DetectDuplicateTool",

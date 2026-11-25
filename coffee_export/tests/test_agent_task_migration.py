@@ -15,12 +15,13 @@ Proves, on disposable DBs only (never the committed operational DB):
   * downgrade remap — failed rows are remapped to dead on downgrade so
     the 4-state CHECK stays satisfiable
   * the deployment path — upgrading a THROWAWAY COPY of the committed
-    operational DB from b9d0e1f2a4b5 to head (four revisions:
-    c8d9e0f1a2b3 + d9e0f1a2b3c4 + f2a3b4c5d6e7 + a3b4c5d6e7f8) adds
-    exactly five tables (agent_tasks + the two research tables + the
-    two research-engine tables) and leaves all 65 pre-existing tables
-    and their row counts byte-identical (additive, no data touched)
-  * reversibility — `downgrade b9d0e1f2a4b5` drops only the five new
+    operational DB from b9d0e1f2a4b5 to head (five revisions:
+    c8d9e0f1a2b3 + d9e0f1a2b3c4 + f2a3b4c5d6e7 + a3b4c5d6e7f8 +
+    b4c5d6e7f8a9) adds exactly six tables (agent_tasks + the two research
+    tables + the two research-engine tables + the followups table) and
+    leaves all 65 pre-existing tables and their row counts byte-identical
+    (additive, no data touched)
+  * reversibility — `downgrade b9d0e1f2a4b5` drops only the six new
     tables and returns the version pointer; a re-upgrade works
 
 Uses the project venv python (same pattern as
@@ -45,7 +46,7 @@ VENV_PY = REPO_ROOT / ".venv" / "bin" / "python"
 REAL_DB = REPO_ROOT / "state" / "coffee_export.db"
 
 OLD_HEAD = "c8d9e0f1a2b3"  # 4-state revision (pushed, immutable)
-NEW_HEAD = "a3b4c5d6e7f8"  # research engine: sessions + tool calls (TryComp Phase 2)
+NEW_HEAD = "b4c5d6e7f8a9"  # research followups (TryComp Phase 3)
 PARENT = "b9d0e1f2a4b5"
 
 TS = "2026-01-01T00:00:00+03:00"
@@ -299,9 +300,10 @@ def test_upgrade_downgrade_reupgrade_roundtrip(scratch) -> None:
 
 def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> None:
     """The exact deployment step: upgrade a throwaway COPY of the committed
-    operational DB (already at b9d0e1f2a4b5) to the new head — now FOUR
-    revisions (c8d9e0f1a2b3 + d9e0f1a2b3c4 + f2a3b4c5d6e7 + a3b4c5d6e7f8).
-    Must add exactly five tables and touch zero existing rows."""
+    operational DB (already at b9d0e1f2a4b5) to the new head — now FIVE
+    revisions (c8d9e0f1a2b3 + d9e0f1a2b3c4 + f2a3b4c5d6e7 + a3b4c5d6e7f8
+    + b4c5d6e7f8a9).
+    Must add exactly six tables and touch zero existing rows."""
     db, alembic = scratch
     db.write_bytes(REAL_DB.read_bytes())  # COPY — the committed DB is only read
     before_tables = _table_names(db)
@@ -319,6 +321,7 @@ def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> N
         "agent_tasks",
         "research_evidence",
         "research_facts",
+        "research_followups",
         "research_sessions",
         "research_tool_calls",
     }
