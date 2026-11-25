@@ -4,9 +4,9 @@ This is the permanent project memory for the selective TryComp AI integration in
 Faith-El Export. Every implementation phase updates this file. A new coding session
 must be able to continue from this document alone.
 
-- **Integration branch:** `trycomp-selective-integration` (workspace lost a THIRD time on 2026-11-25, AFTER the Phase 2 commit — restored loss-free from the exported bundle; see §0.2)
-- **Last updated:** Phase 5 (qualification & matching) — 2026-11-25
-- **Current phase:** 5 complete (Phase 4 commits `4e4285f`/`3586bc3`/`1059685`/`beb6c04`, Phase 5 commit `7af0def`); next action in §12
+- **Integration branch:** `trycomp-selective-integration` (workspace lost a THIRD time on 2026-11-25, AFTER the Phase 2 commit — restored loss-free from the exported bundle; see §0.2; a FOURTH loss on 2026-11-25 was restored the same way from the phase5 bundle — §0.3)
+- **Last updated:** Phase 7 (monitoring & UX) — 2026-11-25
+- **Current phase:** 7 complete (Phase 6 commit `5e7ae11`, Phase 7 commit `d85c928`); next action in §12 (Phase 8 — end-to-end validation & stabilization)
 
 ---
 
@@ -88,6 +88,21 @@ branch was restored the same day with zero loss:
 Lesson absorbed: the bundle export is now the LAST step of every phase
 commit, immediately after `git commit` and before any verification run
 that could itself be interrupted.
+
+### 0.3 Fourth loss and bundle restore (2026-11-25, later the same day)
+
+The persistent workspace was lost a FOURTH time (after the Phase 5 docs
+commit `7cfc449`, before Phase 6 started). The §0.1 protocol held again:
+the phase5 bundle (`trycomp-selective-integration-phase5.bundle`) restored
+the branch with zero loss (HEAD `7cfc449`, clean tree, operational DB
+sha256 `ce14d7b0…` byte-identical). The Python venv was rebuilt at the
+REPO ROOT (`workspace/faithel-trycomp/.venv` — the migration tests spawn
+`REPO_ROOT/.venv/bin/python` subprocesses) and the full suite was
+re-verified on the restored tree BEFORE Phase 6 started: **355 passed,
+1 warning** — the exact Phase 5 baseline. Phase 6 (`5e7ae11`) and Phase 7
+(`d85c928`) were then implemented on the restored branch, each committed
+with an immediate bundle export (phase6/phase7 bundles in the download
+folder).
 
 ---
 
@@ -375,12 +390,27 @@ Status: `[ ]` pending, `[x]` complete (with commit SHA).
       lots with criterion-by-criterion explanations and
       missing-information detection; qualify_buyer + match_inventory
       research tools. Record: §17.
-- [ ] **Phase 6 — Outreach & relationship integration**: evidence-based drafts
-      through Agent 3 + existing approval queue, duplicate-send prevention,
-      reply tracking, follow-ups, CRM pipeline integration.
-- [ ] **Phase 7 — Monitoring & UX**: dashboard views for research status,
-      evidence quality, budgets, follow-ups, queue health (existing design
-      system; no unrelated redesign).
+- [x] **Phase 6 — Outreach & relationship integration** (commit `5e7ae11`,
+      2026-11-25): OutreachService — evidence-based drafts into the
+      EXISTING pending_agent_actions approval queue (the supervisor's
+      exact send_email payload contract; never sends — §4.5 dual gate
+      unchanged), §12.2 duplicate-send prevention mirroring the Node
+      guard, §12.1 contact-gated channels (the §12.3 gate is binding),
+      deterministic draft composition (only satisfied dimensions enter
+      the body; missing information goes to the human approver),
+      outreach milestones → Phase 3 followups, qualification scorecards
+      as evidence rows (§12.4) with the Agent 3 QUAL-pass transition
+      citing the evidence_id; draft_outreach research tool; explicit
+      tenant org on every agent entry point. Record: §18.
+- [x] **Phase 7 — Monitoring & UX** (commit `d85c928`, 2026-11-25):
+      ResearchHealthService — ONE read-only, org-scoped health snapshot
+      (sessions, evidence quality incl. corroboration rate + expiry
+      backlog, facts, budgets & usage with reported-cost honesty,
+      followups incl. overdue, research.* queue health, the Phase 6
+      outreach approval queue) feeding the EXISTING Streamlit dashboard
+      (new 'Research Monitor' page, existing design system) and the
+      queue admin CLI (`health --org`); list_research_orgs org picker
+      (ids only). Record: §19.
 - [ ] **Phase 8 — End-to-end validation & stabilization**: full regression,
       business-workflow scenario on synthetic data, final technical/business/
       security reports + deployment runbook; clean tree.
@@ -490,6 +520,27 @@ Phase 5 (commit 7af0def):
   (qualify/match planner phases)
 - NEW tests: `test_qualification_matching.py` (21)
 
+Phase 6 (commit 5e7ae11):
+- NEW `coffee_export/coffee_export/research/outreach.py`,
+  `research/tools/outreach.py`
+- MOD `research/__init__.py`, `research/tools/__init__.py`,
+  `research/tools/registry.py` (exports/registration),
+  `research/planning.py` (draft_outreach in PLAN_ALLOWED_TOOLS,
+  'outreach' phase)
+- MOD `agents/agent3_outreach.py` (submit_research_outreach,
+  schedule_outreach_followup, research_engine threading through
+  record_buyer_reply → QUAL-pass scorecard citation;
+  _require_tenant_org refusal)
+- NEW tests: `test_research_outreach.py` (33)
+
+Phase 7 (commit d85c928):
+- NEW `coffee_export/coffee_export/research/monitoring.py`,
+  `coffee_export/coffee_export/dashboard/pages/research_monitoring.py`
+- MOD `coffee_export/coffee_export/dashboard/app.py` (nav + routing),
+  `research/__init__.py` (exports), `tasks/admin.py`
+  (health subcommand)
+- NEW tests: `test_research_monitoring.py` (10)
+
 ## 10. Provider requirements
 
 - AI chat: existing `AIGateway` env keys (`GLM_API_KEY` preferred; also
@@ -569,11 +620,44 @@ Phase 5 (commit 7af0def):
 21. Decision-maker candidates from search hits win dedupe over
     text-extracted ones (URL attribution preferred) — a text-only
     duplicate of a URL-backed candidate is dropped, documented behavior.
+22. [Phase 6] Research outreach drafts target ENRICHED leads ONLY: the
+    supervisor's approved-send path advances exactly
+    ENRICHED→IN_SEQUENCE, and IN_SEQUENCE continuation belongs to the
+    Agent 3 sequence machinery (untouched — two writers to the same
+    sequence would drift).
+23. [Phase 6] Research drafts are ENGLISH-ONLY in Phase 6 (the lead's
+    outreach_language is recorded in the payload but not applied);
+    language adaptation stays on the Node template path.
+24. [Phase 6] A machine-recorded qualification scorecard is stored as
+    source_type 'llm_inference' BY CONVENTION — derived analysis, never
+    an independent source, never verification; the operator path
+    (actor given) is the true human attestation and locks.
+25. [Phase 6] The Node supervisor's own pending_agent_actions INSERT
+    relies on the column's org-system DEFAULT (pre-existing condition,
+    recorded here, NOT silently fixed — out of this integration's
+    scope); Python Phase 6 inserts always stamp the real org.
+26. [Phase 7] Monitoring is snapshot-pull (service calls), not
+    push/streaming; the dashboard re-queries on page render. Streamlit
+    page rendering itself is not unit-tested (module surface only) —
+    the service and CLI behind it are.
 
 ## 12. Exact next action
 
-Implement **Phase 6 (Outreach & relationship integration)** on top of
-the Phase 5 head (`7af0def`; completed code and semantics: §14–§17):
+Phase 6 and Phase 7 are COMPLETE (§18, §19). Implement **Phase 8 —
+End-to-end validation & stabilization** on top of the Phase 7 head
+(`d85c928`):
+
+1. Full regression across every battery (P1–P7) on a fresh operational
+   DB copy; the deployment path (b9d0e1f2a4b5 → head) upgraded and
+   re-verified end to end.
+2. One business-workflow scenario on synthetic data: lead → research
+   session (durable) → evidence → qualification scorecard → outreach
+   draft (approval queue) → milestone followup → monitoring snapshot —
+   the full Buyer Opportunity Radar chain in one honest trace.
+3. Final technical/business/security reports + deployment runbook;
+   clean tree; final bundle export.
+
+(The historical Phase 6 §12 directive is retained below verbatim.)
 
 1. Evidence-based drafts through Agent 3 + the EXISTING approval
    queue: research outputs (scorecard, matches, decision-maker
@@ -1062,3 +1146,84 @@ byte-identical — all re-confirmed on the restored tree above.
 | Full research regression (P1–P5) | `pytest tests/test_provider_manifest.py tests/test_research_*.py tests/test_contact_verification.py tests/test_qualification_matching.py tests/test_agent2_research.py -q` | **202 passed** |
 | Operational DB | sha256 before/after every run | `ce14d7b0…` byte-identical |
 | Lint/format | ruff + black on every touched file | clean |
+
+## 18. Phase 6 record — outreach & relationship integration (commit `5e7ae11`, 2026-11-25)
+
+### 18.1 What was built
+
+| Layer | Files | Semantics |
+| --- | --- | --- |
+| Outreach service | research/outreach.py | OutreachService (org-scoped, injectable engine): draft_outreach composes the Phase 5 scorecard + inventory matches + §12.3 contact-gated email into ONE pending_agent_actions row — agent_id 'Agent 3', action_type 'send_email', the EXACT executeApprovedEmail payload contract (lead_id/company/step/language/email_subject/email_body/email_to/email_from) + a reasoning block for the human approver; NEVER sends (no gateway/send surface exists in the module at all — §4.5 dual gate unchanged) |
+| Duplicate prevention (§12.2) | research/outreach.py | check_duplicate mirrors the supervisor guard exactly (pending/approved/executed block — regardless of which path drafted; rejected/execution_failed honestly do NOT block); org-scoped read; the guard runs BEFORE any draft work |
+| Contact gate (§12.1) | research/outreach.py | the verified primary lead_contacts email is NECESSARY but NOT sufficient: it must ALSO pass the §12.3 ContactVerificationService gate (non-llm_inference evidence rows, value-matched); refusals carry the honest gate reason |
+| Draft honesty | research/outreach.py | deterministic composition (no LLM, no invention): only SATISFIED scorecard dimensions enter the buyer-facing body ('your importing program' / 'your sourcing volume' lines appear only when evidenced); matched lots bounded to 3 with region/process/cupping from read-only lot rows; missing information goes to payload.reasoning (the approver), never the body |
+| Milestones (§12.3) | research/outreach.py | record_outreach_milestone: no_reply → run_session followup (re-research objective), sample_feedback_due → revalidate_evidence followup (subject-scoped); the Phase 3 dispatcher owns the cadence from there |
+| CRM pipeline (§12.4) | research/outreach.py | record_qualification_scorecard: machine path source_type 'llm_inference' (derived analysis, never corroborates — the fact stays observed), operator path source_type 'human' (locks; newer human attestation supersedes, the superseded row retained as disputed); fact_key qualification_scorecard |
+| Research tool | research/tools/outreach.py | draft_outreach (registry-composable, ToolContext org, engine required, created_by 'research:<session>'); honest refusals are ok-with-reason results, input errors are error rows; PLAN_ALLOWED_TOOLS + 'outreach' planner phase |
+| Agent 3 integration | agents/agent3_outreach.py | submit_research_outreach / schedule_outreach_followup (explicit tenant org — an org-system agent REFUSES, §4.1; injectable engine, production default = the queue engine); record_buyer_reply accepts research_engine and on the QUAL pass records the scorecard + cites the evidence_id in the transition notes AND the LEAD_QUALIFIED event payload (org-system agents or unwired engines honestly skip — the commercial gate NEVER depends on research availability) |
+
+Zero migrations, zero new tables, zero Node changes.
+
+### 18.2 Design decisions (test-pinned)
+
+- The approval queue is the ONE human workflow surface: Python drafts
+  and Node drafts write the SAME queue with the SAME payload contract,
+  and the SAME duplicate guard protects both — no second approval
+  path, no divergence.
+- The queue insert stamps organization_id EXPLICITLY (never the
+  column's org-system default) — the pre-existing Node-side default
+  insert is recorded (§11.25), not silently fixed.
+- A draft refusal is an honest structured result (reason + gate
+  detail), never an exception and never a partial draft.
+- The QUAL-pass scorecard citation is fail-open BY DESIGN for the
+  commercial flow (research unavailable → transition proceeds, nothing
+  cited) and never fail-open for honesty (the scorecard is only ever
+  recorded through the Phase 1 EvidenceLedger with real source typing).
+- Research drafts target ENRICHED leads only (§11.22) — the exact
+  state contract of the approved-send executor.
+
+### 18.3 Verification (actual commands, actual results)
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Phase 6 battery | `pytest tests/test_research_outreach.py -q` | **33 passed** |
+| Research regression (P1–P5) | `pytest tests/test_research_planning_ai.py tests/test_qualification_matching.py tests/test_contact_verification.py tests/test_agent2_research.py tests/test_research_tools.py tests/test_provider_manifest.py tests/test_research_sessions.py tests/test_research_tasks.py tests/test_research_followups.py -q` | **171 passed** |
+| Full Python suite | fresh copy of operational DB → `COFFEE_DATABASE_URL=sqlite:////tmp/... pytest tests/ -q` | **388 passed, 1 warning** (pre-existing starlette/httpx) |
+| Operational DB | sha256 before/after every run | `ce14d7b0…` byte-identical |
+| Lint/format | ruff + black on every touched file | clean |
+| Security greps | org-system mentions (docstrings only), raw SQL (none — expression API + bound params), secrets (none), send surface (none) | pass |
+
+## 19. Phase 7 record — monitoring & UX (commit `d85c928`, 2026-11-25)
+
+### 19.1 What was built
+
+| Layer | Files | Semantics |
+| --- | --- | --- |
+| Health service | research/monitoring.py | ResearchHealthService.overview() — org-scoped, READ-ONLY, injectable now_ts: sessions (by status; budget_exhausted ids awaiting the human resume path; last completed), evidence quality (by status, suppressed, human rows, corroboration rate over live rows, expiring-soon window, expired-still-live = the sweep's honest backlog), facts (human_locked), budgets & usage (REPORTED cost sum only — None never zeroed; usage counters; tool-call log rows), followups (by status, overdue scheduled, next due), queue (research.* by status, in-flight, in-flight attempts detail), outreach (approval queue by status, awaiting-human-review, research-drafted share via bounded payload parse) |
+| Org picker | research/monitoring.py | list_research_orgs — ids ONLY, bounded, sorted (the operator picker; same trust level as the admin counts-only rollup; no tenant rows leave the DB) |
+| Dashboard | dashboard/pages/research_monitoring.py + app.py | 'Research Monitor' page on the EXISTING Streamlit app (nav + routing): org selectbox, metrics/dataframes per section, warnings that name the honest operator action (human resume, dispatch, requeue) — zero write paths, existing design system, no second monitoring system |
+| Admin CLI | tasks/admin.py | `health --org ORG [--window-days N]` — the snapshot in CLI form; org-scoped only (cross-org counts rollup stays on the existing `research` subcommand); read-only |
+
+### 19.2 Design decisions (test-pinned)
+
+- ONE snapshot shape serves both surfaces (dashboard renders the same
+  dict the CLI prints) — no dual drift.
+- Honest zeros everywhere: empty databases report zero, unreported
+  costs report 'not reported', and nothing is inferred.
+- The service never mutates: monitoring cannot change the thing it
+  monitors (read-only by construction — no write methods exist).
+- The expiring-soon boundary is inclusive and exact (test-pinned at
+  the second).
+- Streamlit rendering is not unit-tested (module surface test only);
+  the service and CLI behind it carry the test weight — the honest
+  boundary for UI code in this stack.
+
+### 19.3 Verification (actual commands, actual results)
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Phase 7 battery | `pytest tests/test_research_monitoring.py -q` | **10 passed** |
+| Full Python suite | fresh copy of operational DB → `COFFEE_DATABASE_URL=sqlite:////tmp/... pytest tests/ -q` | **398 passed, 1 warning** (388 + 10) |
+| Operational DB | sha256 before/after every run | `ce14d7b0…` byte-identical |
+| Lint/format | ruff + black on every touched file | clean |
+| Import smoke | dashboard app + page module + CLI parser + research exports | OK |
