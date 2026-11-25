@@ -59,11 +59,13 @@ PLAN_ALLOWED_TOOLS: tuple[str, ...] = (
     "search_buyers",
     "classify_buyer",
     "find_decision_makers",
+    "verify_contact",
 )
 
 #: phase derivation for LLM-planned steps (tool → plan phase). The
-#: deterministic template never emits 'discover_buyers' — it is the
-#: LLM-plan phase for the Phase 4 discovery chain.
+#: deterministic template never emits 'discover_buyers'/'verify_contacts'
+#: — they are the LLM-plan phases for the Phase 4 discovery chain and
+#: the §12.3 contact-verification gate.
 _TOOL_PHASE: dict[str | None, str] = {
     "web_fetch": "collect_evidence",
     "web_search": "collect_evidence",
@@ -73,6 +75,7 @@ _TOOL_PHASE: dict[str | None, str] = {
     "search_buyers": "discover_buyers",
     "classify_buyer": "discover_buyers",
     "find_decision_makers": "discover_buyers",
+    "verify_contact": "verify_contacts",
     None: "summarize",
 }
 

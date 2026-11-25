@@ -7,7 +7,8 @@ identity resolution (resolve_identity), duplicate detection
 (detect_duplicates), evidence recording (record_evidence) and the
 capability-gated search slot (web_search). Phase 4 §12.2 adds the
 buyer-discovery chain — search_buyers, classify_buyer,
-find_decision_makers (tools/discovery.py) — and the real search
+find_decision_makers (tools/discovery.py) — the §12.3 contact-channel
+verification gate (tools/contact_verify.py) and the real search
 adapters behind web_search (search_adapters.py). See each module
 docstring; registry.py holds the contracts.
 """
@@ -22,6 +23,7 @@ from coffee_export.research.tools.base import (
     validate_input,
     validate_output,
 )
+from coffee_export.research.tools.contact_verify import VerifyContactTool
 from coffee_export.research.tools.dedupe import DetectDuplicateTool
 from coffee_export.research.tools.discovery import (
     ClassifyBuyerTool,
@@ -55,6 +57,7 @@ __all__ = [
     "ToolNotFoundError",
     "ToolRegistry",
     "ToolResult",
+    "VerifyContactTool",
     "WebSearchTool",
     "company_identity_key",
     "default_registry",

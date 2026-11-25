@@ -49,6 +49,13 @@ from coffee_export.research.common import (
     normalize_objective,
     validate_source,
 )
+from coffee_export.research.contact_verification import (
+    CHANNEL_KINDS,
+    CONTACT_EMAIL_FACT_KEY,
+    CONTACT_PHONE_FACT_KEY,
+    ContactChannelCheck,
+    ContactVerificationService,
+)
 from coffee_export.research.engine import ResearchEngine, ToolCallOutcome
 from coffee_export.research.evidence import EvidenceLedger
 from coffee_export.research.facts import FactStore, recompute_fact
@@ -66,12 +73,16 @@ from coffee_export.research.sessions import (
 )
 from coffee_export.research.tools import (
     BoundedFetchTool,
+    ClassifyBuyerTool,
     DetectDuplicateTool,
+    FindDecisionMakersTool,
     RecordEvidenceTool,
     ResolveIdentityTool,
+    SearchBuyersTool,
     ToolContext,
     ToolRegistry,
     ToolResult,
+    VerifyContactTool,
     WebSearchTool,
     default_registry,
 )
@@ -114,6 +125,16 @@ __all__ = [
     "ResearchEngine",
     "ResearchSessions",
     "ToolCallOutcome",
+    # Phase 4 — contact verification (§12.3)
+    "CHANNEL_KINDS",
+    "CONTACT_EMAIL_FACT_KEY",
+    "CONTACT_PHONE_FACT_KEY",
+    "ClassifyBuyerTool",
+    "ContactChannelCheck",
+    "ContactVerificationService",
+    "FindDecisionMakersTool",
+    "SearchBuyersTool",
+    "VerifyContactTool",
     # Phase 2 — planning
     "plan_objective",
     "plan_to_json",
