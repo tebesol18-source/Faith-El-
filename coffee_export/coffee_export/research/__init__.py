@@ -60,6 +60,10 @@ from coffee_export.research.engine import ResearchEngine, ToolCallOutcome
 from coffee_export.research.evidence import EvidenceLedger
 from coffee_export.research.facts import FactStore, recompute_fact
 from coffee_export.research.followups import FOLLOWUP_TYPES, ResearchFollowups
+from coffee_export.research.monitoring import (
+    ResearchHealthService,
+    list_research_orgs,
+)
 from coffee_export.research.outreach import (
     MILESTONE_FOLLOWUPS,
     PENDING_ACTION_BLOCKING_STATUSES,
@@ -163,6 +167,9 @@ __all__ = [
     "SCORECARD_FACT_KEY",
     "DraftOutreachTool",
     "OutreachService",
+    # Phase 7 — monitoring & observability (§3 J)
+    "ResearchHealthService",
+    "list_research_orgs",
     # Phase 2 — tools (F)
     "BoundedFetchTool",
     "DetectDuplicateTool",

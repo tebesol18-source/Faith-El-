@@ -294,6 +294,90 @@ def _cmd_followups_list(engine, org: str, status: str | None, limit: int) -> int
     return EXIT_OK
 
 
+# ── Phase 7: research health snapshot (§3 J / §8) ─────────────────
+
+
+def _cmd_health(engine, org: str, window_days: int) -> int:
+    """The Phase 7 research health snapshot in CLI form (read-only).
+
+    One org at a time (the service is org-scoped — the counts-only
+    cross-org rollup stays on the `research` subcommand).
+    """
+    from coffee_export.research.monitoring import ResearchHealthService
+
+    service = ResearchHealthService(org, engine)
+    snap = service.overview(expiring_days=window_days)
+
+    print(f"research health — org {org!r} (generated {snap['generated_ts']})")
+    print()
+
+    sessions = snap["sessions"]
+    print("sessions")
+    for status, count in sorted(sessions["by_status"].items()):
+        print(f"  {status:<18} {count:>6}")
+    print(f"  {'total':<18} {sessions['total']:>6}")
+    if sessions["budget_exhausted_ids"]:
+        print(
+            f"  budget_exhausted awaiting human resume: " f"{len(sessions['budget_exhausted_ids'])}"
+        )
+        for sid in sessions["budget_exhausted_ids"]:
+            print(f"    {sid}")
+    last = sessions["last_completed"]
+    if last:
+        print(f"  last completed: {last['session_id']} — {last['objective'][:60]}")
+
+    evidence = snap["evidence"]
+    print("evidence quality")
+    for status, count in sorted(evidence["by_status"].items()):
+        print(f"  {status:<18} {count:>6}")
+    print(f"  {'total':<18} {evidence['total']:>6}")
+    print(f"  suppressed            {evidence['suppressed']:>6}")
+    print(f"  corroboration rate    {evidence['corroboration_rate'] * 100:>5.1f}%")
+    print(f"  expiring soon (<{window_days}d) {evidence['expiring_soon']:>4}")
+    print(f"  expired still live    {evidence['expired_still_live']:>6}")
+
+    facts = snap["facts"]
+    print("facts")
+    for status, count in sorted(facts["by_status"].items()):
+        print(f"  {status:<18} {count:>6}")
+    print(f"  {'total':<18} {facts['total']:>6} (human_locked={facts['human_locked']})")
+
+    budgets = snap["budgets"]
+    cost = budgets["reported_cost_usd"]
+    cost_s = "not reported" if cost is None else f"${cost:.4f}"
+    print("budgets & usage")
+    print(f"  tool calls (usage)    {budgets['usage_tool_calls']:>6}")
+    print(f"  model calls (usage)   {budgets['usage_model_calls']:>6}")
+    print(f"  reported cost         {cost_s:>6}")
+    print(f"  tool-call log rows    {budgets['tool_calls_logged']:>6}")
+
+    followups = snap["followups"]
+    print("followups")
+    for status, count in sorted(followups["by_status"].items()):
+        print(f"  {status:<18} {count:>6}")
+    print(f"  overdue (scheduled)   {followups['overdue_scheduled']:>6}")
+    nxt = followups["next_due"]
+    if nxt:
+        print(f"  next due: {nxt['followup_id']} at {nxt['due_ts']}")
+
+    queue = snap["queue"]
+    print("queue (research.* tasks)")
+    for status, count in sorted(queue["by_status"].items()):
+        print(f"  {status:<18} {count:>6}")
+    print(f"  in flight             {queue['in_flight']:>6}")
+    for row in queue["in_flight_detail"]:
+        print(f"    {row['task_id']}  {row['task_type']}  attempts={row['attempts']}")
+
+    outreach = snap["outreach"]
+    print("outreach approval queue (send_email)")
+    for status, count in sorted(outreach["by_status"].items()):
+        print(f"  {status:<18} {count:>6}")
+    print(f"  awaiting human review {outreach['awaiting_human_review']:>6}")
+    print(f"  research-drafted      {outreach['research_drafted_pending']:>6}")
+    print("  drafts never send autonomously — human approval required (§4.5)")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m coffee_export.tasks.admin",
@@ -354,6 +438,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_flist.add_argument("--limit", type=int, default=20)
     p_flist.set_defaults(func=_cmd_followups_list)
+
+    p_health = sub.add_parser(
+        "health",
+        help="research health snapshot for one org (Phase 7: evidence "
+        "quality, budgets, followups, queue, outreach queue)",
+    )
+    p_health.add_argument("--org", required=True, help="the org to inspect")
+    p_health.add_argument(
+        "--window-days",
+        type=int,
+        default=7,
+        help="expiring-soon window for evidence (default 7)",
+    )
+    p_health.set_defaults(func=_cmd_health)
     return parser
 
 
@@ -394,6 +492,8 @@ def main(
         if args.followups_command == "dispatch":
             return args.func(queue, engine, args.limit)
         return args.func(engine, args.org, args.status, args.limit)
+    if args.command == "health":
+        return args.func(engine, args.org, args.window_days)
     parser.error(f"unknown command {args.command!r}")
     return EXIT_USAGE  # unreachable
 

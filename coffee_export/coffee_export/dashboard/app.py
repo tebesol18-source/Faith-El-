@@ -57,6 +57,7 @@ def main() -> None:
             "🤖 Agent Controls",
             "📡 Events",
             "🤖 AI Monitor",
+            "🔬 Research Monitor",
             "💻 System Health",
         ],
         index=0,
@@ -134,6 +135,10 @@ def main() -> None:
         render()
     elif page == "🤖 AI Monitor":
         from coffee_export.dashboard.pages.ai_monitoring import render
+
+        render()
+    elif page == "🔬 Research Monitor":
+        from coffee_export.dashboard.pages.research_monitoring import render
 
         render()
     elif page == "💻 System Health":
