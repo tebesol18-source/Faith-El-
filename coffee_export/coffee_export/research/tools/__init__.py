@@ -39,6 +39,7 @@ from coffee_export.research.tools.identity import (
     normalize_company_name,
     normalize_contact_name,
 )
+from coffee_export.research.tools.outreach import DraftOutreachTool
 from coffee_export.research.tools.qualification import (
     MatchInventoryTool,
     QualifyBuyerTool,
@@ -50,6 +51,7 @@ __all__ = [
     "BoundedFetchTool",
     "ClassifyBuyerTool",
     "DetectDuplicateTool",
+    "DraftOutreachTool",
     "FindDecisionMakersTool",
     "MatchInventoryTool",
     "QualifyBuyerTool",

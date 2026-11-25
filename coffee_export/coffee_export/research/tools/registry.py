@@ -97,7 +97,8 @@ class ToolRegistry:
 
 def default_registry() -> ToolRegistry:
     """The Phase 2 tool set + the Phase 4 discovery tools (contact
-    verification included — §12.3), freshly instantiated (tools are
+    verification included — §12.3) + the Phase 5 qualification tools +
+    the Phase 6 outreach draft tool, freshly instantiated (tools are
     stateless; search transport is the bounded production default)."""
     from coffee_export.research.tools.contact_verify import VerifyContactTool
     from coffee_export.research.tools.dedupe import DetectDuplicateTool
@@ -109,6 +110,7 @@ def default_registry() -> ToolRegistry:
     from coffee_export.research.tools.evidence_record import RecordEvidenceTool
     from coffee_export.research.tools.fetch import BoundedFetchTool
     from coffee_export.research.tools.identity import ResolveIdentityTool
+    from coffee_export.research.tools.outreach import DraftOutreachTool
     from coffee_export.research.tools.qualification import (
         MatchInventoryTool,
         QualifyBuyerTool,
@@ -127,4 +129,5 @@ def default_registry() -> ToolRegistry:
     registry.register(VerifyContactTool())
     registry.register(QualifyBuyerTool())
     registry.register(MatchInventoryTool())
+    registry.register(DraftOutreachTool())
     return registry

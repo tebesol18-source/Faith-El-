@@ -362,7 +362,9 @@ class Agent3(BaseAgent):
         if step_def["channel"] == "email":
             send_result = self._send_email_via_gateway(
                 lead=lead,
-                subject=message.get("subject", f"Ethiopian coffee — {lead.get('company_name', '')}"),
+                subject=message.get(
+                    "subject", f"Ethiopian coffee — {lead.get('company_name', '')}"
+                ),
                 body_text=message.get("full_message", message.get("content_summary", "")),
             )
 
@@ -436,15 +438,14 @@ class Agent3(BaseAgent):
             )
             return result
         except Exception as exc:  # noqa: BLE001
-            log.exception(
-                f"{self.agent_id} EmailGateway send failed for lead {lead_id}: {exc}"
-            )
+            log.exception(f"{self.agent_id} EmailGateway send failed for lead {lead_id}: {exc}")
             return {"action": "send_failed", "error": str(exc)}
 
     def _get_buyer_email(self, lead_id: str) -> str | None:
         """Return the primary buyer contact email for a lead, or None."""
-        from coffee_export.database.models import LeadContact
         from sqlalchemy import select
+
+        from coffee_export.database.models import LeadContact
 
         row = self.sm.session.execute(
             select(LeadContact)
@@ -471,8 +472,9 @@ class Agent3(BaseAgent):
     def _get_operator_name_for_lead(self, lead: dict[str, Any]) -> str:
         """Return the operator's display name (used to derive masked email local part)."""
         try:
-            from coffee_export.database.models import Operator
             from sqlalchemy import select as _sel
+
+            from coffee_export.database.models import Operator
 
             row = self.sm.session.execute(
                 _sel(Operator).where(Operator.operator_id == "exporter-001")
@@ -605,6 +607,7 @@ class Agent3(BaseAgent):
         reply_type: str,
         reply_content: str,
         touch_step: int | None = None,
+        research_engine: Any = None,
     ) -> dict[str, Any]:
         """
         Record a buyer's reply and take appropriate action.
@@ -614,6 +617,13 @@ class Agent3(BaseAgent):
             reply_type: "positive" | "negative" | "neutral" | "qualification_answer"
             reply_content: The buyer's verbatim reply
             touch_step: Which step the reply is responding to (optional)
+            research_engine: optional DB engine for the Phase 6 §12.4
+                scorecard citation — when GIVEN (explicit wiring by the
+                caller) and the agent runs on a real tenant org, the
+                QUAL-pass transition records the qualification
+                scorecard as a research evidence row and cites its
+                evidence_id in the transition notes. Never the default
+                app engine: the caller owns where research writes go.
 
         Returns a dict with action taken.
         """
@@ -664,7 +674,9 @@ class Agent3(BaseAgent):
 
         if reply_type == "qualification_answer":
             # This is a Q1-Q5 answer — parse and store
-            return self._process_qualification_answer(lead_id, reply_content)
+            return self._process_qualification_answer(
+                lead_id, reply_content, research_engine=research_engine
+            )
 
         # Neutral reply — continue sequence
         return {"action": "continue_sequence", "lead_id": lead_id}
@@ -693,7 +705,13 @@ class Agent3(BaseAgent):
             "message": questions_message,
         }
 
-    def _process_qualification_answer(self, lead_id: str, answer_text: str) -> dict[str, Any]:
+    def _process_qualification_answer(
+        self,
+        lead_id: str,
+        answer_text: str,
+        *,
+        research_engine: Any = None,
+    ) -> dict[str, Any]:
         """
         Process a buyer's answer to a QUAL question.
 
@@ -725,12 +743,23 @@ class Agent3(BaseAgent):
         qual_status = self._check_qual_gate(lead_id)
 
         if qual_status["all_passed"]:
+            # Phase 6 §12.4 — the ENRICHED→QUALIFIED transition cites the
+            # research: record the qualification scorecard as an evidence
+            # row and cite its evidence_id in the transition notes. Only
+            # when the caller wired a research engine AND the agent runs
+            # on a real tenant org (org-system agents honestly skip —
+            # §4.1, no silent org-system fallback in new code).
+            notes = f"QUAL gate passed: {qual_status['summary']}"
+            scorecard_evidence_id = self._record_qualification_scorecard(lead_id, research_engine)
+            if scorecard_evidence_id:
+                notes += f" · research scorecard evidence: {scorecard_evidence_id}"
+
             # QUAL gate passed → transition to QUALIFIED
             self.sm.update_lead_state(
                 lead_id=lead_id,
                 new_state="QUALIFIED",
                 agent=self.agent_id,
-                notes=f"QUAL gate passed: {qual_status['summary']}",
+                notes=notes,
                 current_agent="Agent 4",
                 next_action_agent="Agent 4",
             )
@@ -745,6 +774,7 @@ class Agent3(BaseAgent):
                     "q3": qual_status["answers"].get("Q3", ""),
                     "q4": qual_status["answers"].get("Q4", ""),
                     "q5": qual_status["answers"].get("Q5", ""),
+                    "research_scorecard_evidence_id": scorecard_evidence_id,
                 },
                 published_by=self.agent_id,
             )
@@ -753,6 +783,7 @@ class Agent3(BaseAgent):
                 "action": "qualified",
                 "lead_id": lead_id,
                 "qual_status": qual_status,
+                "research_scorecard_evidence_id": scorecard_evidence_id,
             }
 
         return {
@@ -852,6 +883,104 @@ class Agent3(BaseAgent):
     def get_outreach_stats(self) -> dict[str, Any]:
         """Get outreach statistics via StateManager — no direct DB access."""
         return self.sm.get_outreach_stats()
+
+    # =============================================================
+    # RESEARCH INTEGRATION (TryComp Phase 6 §12)
+    # =============================================================
+
+    def _require_tenant_org(self) -> str:
+        """The explicit tenant org for research paths (§4.1: an
+        org-system agent REFUSES — no silent org-system fallback)."""
+        org = self.sm.organization_id
+        if not org or org == "org-system":
+            raise ValueError(
+                "research outreach requires an explicit tenant org — construct "
+                "Agent3(organization_id=<org>) first (no silent org-system "
+                "fallback)"
+            )
+        return org
+
+    def _record_qualification_scorecard(self, lead_id: str, research_engine: Any) -> str | None:
+        """§12.4 — record the Phase 5 scorecard as a research evidence
+        row so the QUALIFIED transition cites the research. Returns the
+        evidence_id, or None on the honest skip (no engine wired, a
+        default org-system agent, or a recording failure — the
+        transition itself NEVER depends on research availability)."""
+        if research_engine is None:
+            return None
+        org = self.sm.organization_id
+        if not org or org == "org-system":
+            return None
+        try:
+            from coffee_export.research.outreach import OutreachService
+
+            service = OutreachService(org, research_engine)
+            result = service.record_qualification_scorecard(lead_id)
+            return result["evidence_id"]
+        except Exception as exc:  # noqa: BLE001 — honest skip, never fatal
+            log.warning(
+                f"{self.agent_id} could not record the qualification "
+                f"scorecard evidence for lead {lead_id}: {exc}"
+            )
+            return None
+
+    def submit_research_outreach(
+        self,
+        lead_id: str,
+        *,
+        engine: Any = None,
+    ) -> dict[str, Any]:
+        """Phase 6 §12.1 — queue ONE research-informed outreach draft
+        for HUMAN approval (the existing pending_agent_actions queue;
+        the §4.5 dual gate stays downstream — this never sends).
+
+        Requires an explicit tenant org (org-system agents refuse);
+        `engine` is the injectable DB engine for the research + queue
+        writes (tests and durable callers inject; production defaults
+        to the queue engine). Duplicate/contact/state gates live in
+        the OutreachService — the honest audit dict comes back
+        unchanged."""
+        from coffee_export.research.outreach import OutreachService
+
+        org = self._require_tenant_org()
+        db_engine = engine
+        if db_engine is None:
+            from coffee_export.tasks.durable_queue import create_queue_engine
+
+            db_engine = create_queue_engine()
+        service = OutreachService(org, db_engine)
+        return service.draft_outreach(lead_id, created_by=f"agent:{self.agent_id}")
+
+    def schedule_outreach_followup(
+        self,
+        lead_id: str,
+        milestone: str,
+        *,
+        due_ts: str,
+        engine: Any = None,
+        extra_payload: dict | None = None,
+    ) -> Any:
+        """Phase 6 §12.3 — schedule the Phase 3 research followup for
+        an outreach milestone ('no_reply' → run_session;
+        'sample_feedback_due' → revalidate_evidence). The dispatcher
+        owns the cadence from here; the return value is the
+        ResearchFollowup row (honest ids/statuses)."""
+        from coffee_export.research.outreach import OutreachService
+
+        org = self._require_tenant_org()
+        db_engine = engine
+        if db_engine is None:
+            from coffee_export.tasks.durable_queue import create_queue_engine
+
+            db_engine = create_queue_engine()
+        service = OutreachService(org, db_engine)
+        return service.record_outreach_milestone(
+            lead_id,
+            milestone,
+            due_ts=due_ts,
+            created_by=f"agent:{self.agent_id}",
+            extra_payload=extra_payload,
+        )
 
     # =============================================================
     # CONVERSATION MEMORY (AI memory — remembers across touches)

@@ -60,6 +60,12 @@ from coffee_export.research.engine import ResearchEngine, ToolCallOutcome
 from coffee_export.research.evidence import EvidenceLedger
 from coffee_export.research.facts import FactStore, recompute_fact
 from coffee_export.research.followups import FOLLOWUP_TYPES, ResearchFollowups
+from coffee_export.research.outreach import (
+    MILESTONE_FOLLOWUPS,
+    PENDING_ACTION_BLOCKING_STATUSES,
+    SCORECARD_FACT_KEY,
+    OutreachService,
+)
 from coffee_export.research.planning import plan_objective, plan_to_json
 from coffee_export.research.providers import (
     MANIFEST_ENV_VAR_NAMES,
@@ -80,6 +86,7 @@ from coffee_export.research.tools import (
     BoundedFetchTool,
     ClassifyBuyerTool,
     DetectDuplicateTool,
+    DraftOutreachTool,
     FindDecisionMakersTool,
     RecordEvidenceTool,
     ResolveIdentityTool,
@@ -150,6 +157,12 @@ __all__ = [
     "plan_to_json",
     # Phase 3 — persistent follow-ups (D)
     "ResearchFollowups",
+    # Phase 6 — outreach & relationship integration (§12)
+    "MILESTONE_FOLLOWUPS",
+    "PENDING_ACTION_BLOCKING_STATUSES",
+    "SCORECARD_FACT_KEY",
+    "DraftOutreachTool",
+    "OutreachService",
     # Phase 2 — tools (F)
     "BoundedFetchTool",
     "DetectDuplicateTool",
