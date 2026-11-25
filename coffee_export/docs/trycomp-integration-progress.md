@@ -6,7 +6,7 @@ must be able to continue from this document alone.
 
 - **Integration branch:** `trycomp-selective-integration` (workspace lost a THIRD time on 2026-11-25, AFTER the Phase 2 commit — restored loss-free from the exported bundle; see §0.2)
 - **Last updated:** Phase 3 (durable research execution) — 2026-11-25
-- **Current phase:** 3 complete (250-test full suite on the working tree; commit follows); next action in §12
+- **Current phase:** 3 complete (commit `56e4006`, re-verified 37/37 battery on the committed tree); next action in §12
 
 ---
 
@@ -342,8 +342,9 @@ Status: `[ ]` pending, `[x]` complete (with commit SHA).
       manifest with honest runtime capability detection, budget enforcement
       with stop-on-exhaustion, ORM mapping of `ai_call_logs.organization_id`
       (closes §5.5 #4). Record: §14.
-- [x] **Phase 3 — Durable research execution** (2026-11-25, on top of
-      `596692c`): `research.run_session` + `research.revalidate_evidence`
+- [x] **Phase 3 — Durable research execution** (commit `56e4006`, 2026-11-25,
+      on top of `596692c`): `research.run_session` +
+      `research.revalidate_evidence`
       registered in `default_registry` (the first real business types —
       §5.5 #6 closed) with tight validators, idempotent org-scoped
       handlers and honest failure classification; `research_followups`
