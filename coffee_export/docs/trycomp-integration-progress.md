@@ -5,8 +5,8 @@ Faith-El Export. Every implementation phase updates this file. A new coding sess
 must be able to continue from this document alone.
 
 - **Integration branch:** `trycomp-selective-integration` (workspace lost a THIRD time on 2026-11-25, AFTER the Phase 2 commit — restored loss-free from the exported bundle; see §0.2)
-- **Last updated:** Phase 3 (durable research execution) — 2026-11-25
-- **Current phase:** 3 complete (commit `56e4006`, re-verified 37/37 battery on the committed tree); next action in §12
+- **Last updated:** Phase 5 (qualification & matching) — 2026-11-25
+- **Current phase:** 5 complete (Phase 4 commits `4e4285f`/`3586bc3`/`1059685`/`beb6c04`, Phase 5 commit `7af0def`); next action in §12
 
 ---
 
@@ -353,14 +353,28 @@ Status: `[ ]` pending, `[x]` complete (with commit SHA).
       admin CLI; worker monitoring hooks (WorkerHooks) + admin `research`
       / `followups` subcommands; the §11.5 revalidation sweep landed as
       durable work. Record: §15.
-- [ ] **Phase 4 — Buyer discovery & enrichment**: company discovery tooling on
-      configured providers (honest `capability_unavailable` otherwise), identity
-      resolution/dedupe, coffee-sector classification, decision-maker discovery
-      with honest verification status, contact verification rules (no invented
-      emails).
-- [ ] **Phase 5 — Buyer qualification & matching**: explainable qualification
-      scoring (evidence-linked), requirement extraction, exporter/inventory
-      matching with compatibility explanations + missing-information detection.
+- [x] **Phase 4 — Buyer discovery & enrichment** (four commits, 2026-11-25:
+      `4e4285f` §12.1 LLM-assisted planning + §12.4 revalidation-followup
+      wiring; `3586bc3` §12.2 search adapters + discovery chain; `1059685`
+      §12.3 contact-verification gate; `beb6c04` §12.5 Agent 2 durable
+      research scheduling): plan_objective_ai (strictly validated LLM
+      planning through AIGateway, honest deterministic fallback),
+      create_session_with_planning (Agent-2 entry point), record_evidence
+      schedules revalidate followups at expires_ts (§11.5 automated),
+      tavily/brave/serpapi adapters behind the capability gate (bounded,
+      sanitized, never faked), search_buyers / classify_buyer /
+      find_decision_makers (deterministic, explainable, no invented
+      channels), ContactVerificationService + verify_contact tool
+      (llm_inference never verifies), Agent2.schedule_research_session
+      (queue-only, explicit org, duplicate protection). Record: §16.
+- [x] **Phase 5 — Buyer qualification & matching** (commit `7af0def`,
+      2026-11-25): QualificationService — requirement extraction from
+      persistent facts (live-evidence-checked, honest misses),
+      explainable weighted qualification scoring (evidence-linked;
+      unknowns never pass), inventory matching against org-scoped active
+      lots with criterion-by-criterion explanations and
+      missing-information detection; qualify_buyer + match_inventory
+      research tools. Record: §17.
 - [ ] **Phase 6 — Outreach & relationship integration**: evidence-based drafts
       through Agent 3 + existing approval queue, duplicate-send prevention,
       reply tracking, follow-ups, CRM pipeline integration.
@@ -450,6 +464,32 @@ Phase 3 (2026-11-25, on top of `596692c`):
   (NEW_HEAD b4c5d6e7f8a9; five revisions; six tables; 21-revision chain)
 - MOD this file (§8, §9, §11, §12, §15)
 
+Phase 4 (commits 4e4285f + 3586bc3 + 1059685 + beb6c04):
+- NEW `coffee_export/coffee_export/research/search_adapters.py`,
+  `research/contact_verification.py`,
+  `research/tools/discovery.py`, `research/tools/contact_verify.py`
+- MOD `research/planning.py` (plan_objective_ai + PlanOutcome +
+  discovery/verification tools in PLAN_ALLOWED_TOOLS),
+  `research/providers.py` (credential() execution-site accessor),
+  `research/tools/web_search.py` (real adapter calls),
+  `research/tools/registry.py` + `tools/__init__.py` + `research/__init__.py`
+  (registrations/exports), `research/tools/evidence_record.py`
+  (§12.4 followup wiring), `tasks/research_tasks.py`
+  (create_session_with_planning), `agents/agent2_enrichment.py`
+  (schedule_research_session)
+- MOD tests: `test_research_tools.py` (web_search adapter reality)
+- NEW tests: `test_research_planning_ai.py` (25),
+  `test_research_discovery.py` (31), `test_contact_verification.py` (21),
+  `test_agent2_research.py` (7)
+
+Phase 5 (commit 7af0def):
+- NEW `coffee_export/coffee_export/research/qualification.py`,
+  `research/tools/qualification.py`
+- MOD `research/tools/registry.py`, `tools/__init__.py`,
+  `research/__init__.py` (registrations/exports), `research/planning.py`
+  (qualify/match planner phases)
+- NEW tests: `test_qualification_matching.py` (21)
+
 ## 10. Provider requirements
 
 - AI chat: existing `AIGateway` env keys (`GLM_API_KEY` preferred; also
@@ -496,12 +536,13 @@ Phase 3 (2026-11-25, on top of `596692c`):
     correction by hiding its evidence row).
 11. [CLOSED by Phase 3 — the durable `research.*` handlers are registered and
     drive stored plans through the budget-enforced engine.]
-12. Planning is the deterministic template only (planning.py); LLM-assisted
-    planning through AIGateway is the Phase 4 upgrade on the same stored-JSON
-    plan contract (§3 A).
-13. `web_search` is the honest capability-gated slot: with no search
-    adapter (Phase 4) it always reports capability_unavailable — never a
-    cached or fabricated result.
+12. [UPDATED Phase 4] LLM-assisted planning HAS landed (plan_objective_ai,
+    strictly validated, honest fallback — §16); the deterministic template
+    remains the floor, not the only path.
+13. [UPDATED Phase 4] `web_search` now calls REAL adapters (tavily/brave/
+    serpapi) when a provider key is configured — wire formats are
+    fixture-tested only (offline sandbox; no live provider call was ever
+    made by the suite). Unconfigured stays the honest refusal.
 14. The wall-clock budget is measured from `started_ts` with second-
     granularity ISO timestamps; sub-second jitter is invisible (documented,
     test-verified with the injectable clock).
@@ -512,33 +553,43 @@ Phase 3 (2026-11-25, on top of `596692c`):
 16. The followup dispatcher is the one sanctioned cross-org reader of
     research_followups (queue-bridge trust level, dispatch data only); every
     other research read stays org-scoped.
+17. Person/role extraction (find_decision_makers) is regex-based over a
+    fixed role vocabulary — recall is bounded by ROLE_PATTERNS (roles
+    outside the list are honest misses); no ML NLP is used, by design
+    (explainability over recall).
+18. classify_buyer's keyword table is deliberately conservative (the
+    common coffee-trade sectors); unusual sectors land in
+    insufficient_evidence rather than a nearest-guess.
+19. Qualification weights/thresholds (40/30/30; ≈1 FCL) are documented
+    defaults, injectable per call — business tuning is the operator's
+    decision, never a hidden constant opinion.
+20. The planner records its model call against a session only when the
+    session is CREATED (the reuse path stays un-accounted on the session;
+    the gateway still logs it to ai_call_logs like every call).
+21. Decision-maker candidates from search hits win dedupe over
+    text-extracted ones (URL attribution preferred) — a text-only
+    duplicate of a URL-backed candidate is dropped, documented behavior.
 
 ## 12. Exact next action
 
-Implement **Phase 4 (Buyer discovery & enrichment)** on top of the
-Phase 3 head (b4c5d6e7f8a9; completed code and semantics: §14 + §15):
+Implement **Phase 6 (Outreach & relationship integration)** on top of
+the Phase 5 head (`7af0def`; completed code and semantics: §14–§17):
 
-1. LLM-assisted planning through the existing AIGateway on the SAME
-   stored-JSON plan contract (§3 A / §11.12): when a chat provider is
-   configured, generate plan steps WITH tool inputs; deterministic
-   template stays the fallback. Model calls go through
-   engine.record_model_call (budget accounting) — never a side channel.
-2. Buyer discovery tooling on configured providers (honest
-   capability_unavailable otherwise — never faked): the web_search
-   adapter behind the existing capability-gated slot; company
-   discovery → identity resolution (tools/identity.py) → dedupe
-   (tools/dedupe.py) → coffee-sector classification → decision-maker
-   discovery with honest verification status.
-3. Contact verification rules: no invented emails — every contact
-   claim must cite evidence (Phase 1 ledger) before it can be used by
-   outreach (§4.5 dual gate unchanged).
-4. Wire the revalidation-followup scheduling (§11.5): when evidence
-   with expires_ts is recorded, schedule the
-   `research.revalidate_evidence` followup at the expiry time.
-5. Agent integration: Agent 2 (company research / decision-maker
-   discovery) becomes the first agent to create research sessions and
-   enqueue `research.run_session` tasks — through the queue, never
-   the event loop (§7).
+1. Evidence-based drafts through Agent 3 + the EXISTING approval
+   queue: research outputs (scorecard, matches, decision-maker
+   candidates) feed draft generation; every contact channel used MUST
+   pass the §12.3 ContactVerificationService gate first (it is already
+   the qualify_buyer contact dimension); the §4.5 dual gate and the
+   fail-closed bridge are unchanged — no autonomous sending.
+2. Duplicate-send prevention: a lead with a pending/in-flight approved
+   action must never receive a second draft (research-side detection
+   before draft creation).
+3. Reply tracking + follow-ups: research followups (Phase 3) may be
+   scheduled from outreach milestones (e.g. sample feedback due); the
+   dispatcher already owns the cadence.
+4. CRM pipeline integration: qualification scorecards land as evidence
+   rows (record_evidence) so ENRICHED→QUALIFIED transitions cite the
+   research; no new pipeline states (§7 mapping unchanged).
 
 ---
 
@@ -933,3 +984,81 @@ byte-identical — all re-confirmed on the restored tree above.
 - Secrets: none in code; env var names only; logs carry ids/statuses.
 - Boundary: jobs.py / task_queue.py / APScheduler / supervisor / API
   routes — 0 lines changed (verified in the diff).
+
+## 16. Phase 4 record — buyer discovery & enrichment (2026-11-25)
+
+### 16.1 What was built (four commits)
+
+| Layer | Files | Semantics |
+| --- | --- | --- |
+| LLM-assisted planning (§12.1) | research/planning.py | plan_objective_ai: AIGateway chat → STRICT validation (allowed tools only, per-tool input schemas, ≤12 steps, ≤300-char descriptions, JSON-list-only) — ANY violation falls back to the deterministic template with the honest parse_error (never a partially-trusted plan); PlanOutcome carries source/provider/model/cost/parse_error audit data; discovery/verification tools admitted to PLAN_ALLOWED_TOOLS (discover_buyers / verify_contacts phases) |
+| Agent-2 entry point (§12.1) | tasks/research_tasks.py | create_session_with_planning: plan → create-or-org-reuse the session with the winning plan → account the model call through engine.record_model_call (budget accounting, never a side channel; recording auto-starts a pending session — documented); reuse never double-accounts |
+| Revalidation wiring (§12.4) | research/tools/evidence_record.py | record_evidence with expires_ts schedules a subject-scoped revalidate_evidence followup AT the expiry time (§11.5 automated end-to-end: record → followup → dispatcher → sweep); followup_id returned honestly; scheduling failure degrades (evidence stays recorded, warning logged, no followup_id) |
+| Search adapters (§12.2) | research/search_adapters.py | tavily/brave/serpapi adapters behind the manifest gate: injectable transport, 256 KiB refuse-not-truncate body cap, 10 s timeout, ≤20 results, http(s) URLs only, snippets bounded (display data); non-200 / malformed / non-list results RAISE (never coerced to empty "no results"); raw transport exceptions SANITIZED to type-only messages (a key-bearing URL can never reach a recorded row — serpapi carries the key in the URL); wire formats from public docs, fixture-tested (offline sandbox — live compatibility honestly untested) |
+| web_search upgrade | research/tools/web_search.py | real adapter calls behind the SAME capability gate; unconfigured → honest capability_unavailable; transport failure → honest error row (never a faked empty success); the key reaches the adapter via manifest.credential (the ONE sanctioned execution-site value accessor — snapshots stay names-only, sentinel test intact) |
+| Discovery chain (§12.2) | research/tools/discovery.py | search_buyers (name-hints from REAL result titles, domain-deduped, honest "not verified identities" note), classify_buyer (deterministic keyword sectors, every match lists keyword+location; zero evidence → insufficient_evidence, ties → ambiguous, never a guess), find_decision_makers (deterministic role-pattern extraction from provided text and/or search hits; URL-attributed extractions win dedupe; every candidate unverified with bounded context; NO emails/phones ever extracted or invented) |
+| Contact gate (§12.3) | research/contact_verification.py + tools/contact_verify.py | ContactVerificationService: a contact channel is usable ONLY with admissible evidence rows (non-suppressed/outdated/disputed, source ≠ llm_inference, value match — emails case-insensitive, phones digits-only); llm_inference NEVER verifies; usable ≠ verified (§4.5 human approval queue unchanged, downstream); org-scoped, no existence oracle; verify_contact tool composes it into sessions/plans |
+| Agent 2 integration (§12.5) | agents/agent2_enrichment.py | schedule_research_session: plan + create the org-scoped session + enqueue research.run_session THROUGH THE QUEUE (never the event loop); explicit-tenant-org refusal (no silent org-system, §4.1); duplicate protection (live-session reuse + pending/leased task scan → honest task_pending skip); registry reuse without re-registration |
+
+### 16.2 Design decisions (test-pinned)
+
+- An LLM plan is DATA and is only ever stored after STRICT validation;
+  the deterministic template is the honest floor, not a patch-up.
+- Search results are DISPLAY data; evidence must come from web_fetch
+  (cap-and-refuse) or the operator — the adapters never write facts.
+- Deterministic extraction/classification everywhere: a name-hint, a
+  sector, a person mention is always explainable by a rule over real
+  text — never an AI guess. AI proposes (planning); evidence decides.
+- The contact gate reuses the Phase 1 ledger as its single source of
+  truth: no second contact store, no duplicated verification logic.
+- manifest.credential() is the narrow, documented exception to
+  "names-only": values reach the execution site from the SAME mapping
+  the capability was detected from, and never appear in snapshots,
+  results, logs or error messages (sentinel + sanitization tests).
+
+### 16.3 Verification (actual commands, actual results)
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Planning battery | `pytest tests/test_research_planning_ai.py -q` | **25 passed** |
+| Discovery battery | `pytest tests/test_research_discovery.py -q` | **31 passed** |
+| Contact gate battery | `pytest tests/test_contact_verification.py -q` | **21 passed** |
+| Agent-2 battery | `pytest tests/test_agent2_research.py -q` | **7 passed** (incl. end-to-end worker execution of a scheduled session) |
+| Agent-2 smoke suite | `python -m tests.test_agent2` (fresh DB copy) | **PASS** |
+| Phase 2 regression | `pytest tests/test_research_tools.py tests/test_provider_manifest.py -q` | **36 passed** (web_search test updated to adapter reality) |
+| Phase 3 regression | `pytest tests/test_research_tasks.py tests/test_research_followups.py -q` | **33 passed** |
+| Operational DB | sha256 before/after every run | `ce14d7b0…` byte-identical |
+| Lint/format | ruff + black on every touched file | clean |
+
+## 17. Phase 5 record — buyer qualification & matching (2026-11-25)
+
+### 17.1 What was built
+
+| Layer | Files | Semantics |
+| --- | --- | --- |
+| Requirement extraction | research/qualification.py | persistent facts → structured requirements (annual_volume_mt scale, purchase_volume_mt per-lot, sector, certifications, min_cupping_score, preferred_process); live-evidence check — a fact whose rows are ALL outdated/disputed is an honest miss; missing facts are MISSING INFORMATION, never guessed |
+| Qualification scoring | research/qualification.py | weighted dimensions — volume 40 (≥ ≈1 FCL/year default, injectable), segment 30 (importer/trader/roaster), contact channel 30 (IS the §12.3 gate; llm_inference never satisfies); every dimension traces to a fact + evidence level; evidenced negatives are 'unsatisfied' (honest zero, not hidden); unknowns score zero AND are listed in missing_information; the human Q1–Q5 conversation remains the commercial gate (documented in every scorecard) |
+| Inventory matching | research/qualification.py | org-scoped active/in-stock/not-deleted lots vs extracted requirements, criterion-by-criterion (volume, certifications, cupping floor, process) with pass/fail/missing_info + one-line explanations; ranking by matched criteria; unknown requirements are missing_info on EVERY lot (never counted compatible); ungraded lots honestly missing_info; annual volume (scale) vs purchase volume (per-lot) never conflated |
+| Research tools | research/tools/qualification.py | qualify_buyer + match_inventory (registry-composable, org-scoped via ToolContext, engine-required; planner phases 'qualify'/'match') |
+
+### 17.2 Design decisions (test-pinned)
+
+- Scoring weights and thresholds are explicit constants (documented,
+  injectable) — every point in a scorecard is explainable by a fact.
+- An unknown NEVER passes: not-evidenced dimensions score zero and are
+  surfaced; evidenced negatives are recorded as unsatisfied — the
+  scorecard can never silently turn missing data into a qualification.
+- Matching reads lots read-only (column Rows, no ORM session, no
+  mutation); lot data itself is not re-verified here (QA/grading owns
+  lot data — ungraded lots are honest missing_info).
+- The contact dimension deliberately REUSES the §12.3 gate as the
+  authority proxy — one contact-truth source, zero duplication.
+
+### 17.3 Verification (actual commands, actual results)
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Phase 5 battery | `pytest tests/test_qualification_matching.py -q` | **21 passed** |
+| Full research regression (P1–P5) | `pytest tests/test_provider_manifest.py tests/test_research_*.py tests/test_contact_verification.py tests/test_qualification_matching.py tests/test_agent2_research.py -q` | **202 passed** |
+| Operational DB | sha256 before/after every run | `ce14d7b0…` byte-identical |
+| Lint/format | ruff + black on every touched file | clean |
