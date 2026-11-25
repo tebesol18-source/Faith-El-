@@ -1,15 +1,18 @@
 """
 Research foundation — shared vocabulary and helpers.
 
-Everything the EvidenceLedger and FactStore services agree on lives here:
-source types and their honesty rules, verification states, canonical JSON,
-source identity for corroboration, ID generation and the org-scoped
-not-found semantics.
+Everything the EvidenceLedger, FactStore, ResearchSessions and
+ResearchEngine services agree on lives here: source types and their
+honesty rules, verification states, session/tool-call lifecycle states,
+canonical JSON, source identity for corroboration, ID generation, the
+normalized objective fingerprint and the org-scoped not-found semantics.
 
 This module has NO service-layer imports on purpose: facts.py and
-evidence.py both build on it, and evidence.py additionally imports
-recompute_fact from facts.py — keeping the dependency graph acyclic
-(common ← facts ← evidence).
+evidence.py both build on it, evidence.py additionally imports
+recompute_fact from facts.py, and the Phase 2 modules (budget, sessions,
+engine, tools) build on it directly — keeping the dependency graph
+acyclic (common ← facts ← evidence; common ← budget/sessions/tools ←
+engine).
 """
 
 from __future__ import annotations
@@ -55,6 +58,59 @@ EVIDENCE_STATUSES: tuple[str, ...] = ("observed", "corroborated", "disputed", "o
 #: Sanctioned fact states. status='human_verified' IS the lock: AI-driven
 #: recompute can never touch such a fact (§4.3 human-correction protection).
 FACT_STATUSES: tuple[str, ...] = ("observed", "corroborated", "human_verified")
+
+#: Sanctioned research-session states (Phase 2, §12.1):
+#:   pending          — created, not yet started (auto-started by the first
+#:                       engine.run_tool, or explicitly)
+#:   running          — executing tools/model calls under its budgets
+#:   completed        — finished with a structured result
+#:   failed           — finished with an error
+#:   cancelled        — finished by an operator decision
+#:   budget_exhausted — STOPPED by budget enforcement; resumable ONLY via
+#:                       the human intervention path (resume_session with
+#:                       new budgets) — never silently continues
+SESSION_STATUSES: tuple[str, ...] = (
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "budget_exhausted",
+)
+
+#: Sessions that count as LIVE for duplicate-research detection (§12.5):
+#: a new session with the same objective_key reuses a live one instead of
+#: duplicating work. Completed/failed/cancelled/exhausted sessions are
+#: history — searchable, but they do not block new research.
+LIVE_SESSION_STATUSES: tuple[str, ...] = ("pending", "running")
+
+#: The sanctioned session transition map. Note budget_exhausted → running
+#: (resume with new budgets — the human intervention path) and the absent
+#: pending → completed shortcut: a result can only be recorded for a
+#: session that actually ran.
+SESSION_TRANSITIONS: dict[str, frozenset[str]] = {
+    "pending": frozenset({"running", "cancelled"}),
+    "running": frozenset({"completed", "failed", "cancelled", "budget_exhausted"}),
+    "budget_exhausted": frozenset({"running", "cancelled"}),
+    "completed": frozenset(),
+    "failed": frozenset(),
+    "cancelled": frozenset(),
+}
+
+#: Sanctioned tool-call statuses (Phase 2, §12.1):
+#:   ok                     — executed, structured output recorded
+#:   error                  — operational failure (network, validation, bug)
+#:   capability_unavailable — the required provider is not configured;
+#:                           NEVER faked (§3 G / §10)
+#:   budget_exhausted       — refused BEFORE execution; audit row, not usage
+#:   blocked_policy         — refused by policy (robots.txt, allowlists)
+TOOL_CALL_STATUSES: tuple[str, ...] = (
+    "ok",
+    "error",
+    "capability_unavailable",
+    "budget_exhausted",
+    "blocked_policy",
+)
 
 
 class ResearchNotFoundError(Exception):
@@ -126,3 +182,23 @@ def new_evidence_id() -> str:
 
 def new_fact_id() -> str:
     return f"rfact-{uuid.uuid4().hex}"
+
+
+def new_session_id() -> str:
+    return f"rses-{uuid.uuid4().hex}"
+
+
+def new_tool_call_id() -> str:
+    return f"rtcl-{uuid.uuid4().hex}"
+
+
+def normalize_objective(objective: str) -> str:
+    """The duplicate-research fingerprint of an objective (§12.5).
+
+    Lowercase + collapsed whitespace, so "Coffee importers in Hamburg" and
+    "coffee   importers  in hamburg" are the SAME research request while
+    genuinely different objectives stay distinct. Deliberately shallow:
+    semantic similarity is NOT attempted (that would be an AI judgement,
+    not a deterministic key).
+    """
+    return " ".join(objective.strip().lower().split())

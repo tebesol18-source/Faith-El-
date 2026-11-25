@@ -1,7 +1,7 @@
 """
 SQLAlchemy ORM models for the coffee export system.
 
-All 49 models across 9 domains. Importing this package registers every
+All 51 models across 9 domains. Importing this package registers every
 model on Base.metadata, which Alembic uses for autogenerate.
 
 Usage:
@@ -27,7 +27,8 @@ Domain organization:
     relationship.py   — Account, AccountActivity
     events.py         — Event
     agent_tasks.py    — AgentTask (durable task queue, Phase 1A)
-    research.py       — ResearchEvidence, ResearchFact (TryComp Phase 1)
+    research.py       — ResearchEvidence, ResearchFact, ResearchSession,
+                        ResearchToolCall (TryComp Phase 1/2)
 """
 
 # Import all modules so models are registered on Base.metadata
@@ -91,6 +92,8 @@ from coffee_export.database.models.relationship import (  # noqa: F401
 from coffee_export.database.models.research import (  # noqa: F401
     ResearchEvidence,
     ResearchFact,
+    ResearchSession,
+    ResearchToolCall,
 )
 from coffee_export.database.models.sample import (  # noqa: F401
     CuppingScore,
@@ -157,6 +160,9 @@ __all__ = [
     # Research foundation (TryComp Phase 1)
     "ResearchEvidence",
     "ResearchFact",
+    # Research engine (TryComp Phase 2)
+    "ResearchSession",
+    "ResearchToolCall",
     # Memory
     "ConversationMemory",
     # AI Gateway

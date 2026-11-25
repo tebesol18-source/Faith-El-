@@ -1,5 +1,6 @@
 """
-Research foundation migration tests — TryComp Phase 1 (f2a3b4c5d6e7).
+Research foundation migration tests — TryComp Phase 1 (f2a3b4c5d6e7),
+updated for the Phase 2 chain (a3b4c5d6e7f8 on top).
 
 Proves, on disposable DBs only (never the committed operational DB):
 
@@ -17,13 +18,15 @@ Proves, on disposable DBs only (never the committed operational DB):
     the named constraint in the CREATE TABLE SQL — so nobody "fixes" it
     backwards later (original-implementation incident #3).
   * the deployment path — upgrading a THROWAWAY COPY of the committed
-    operational DB from b9d0e1f2a4b5 to head (three revisions) adds
-    exactly three tables (agent_tasks + the two research tables) and
-    leaves every pre-existing table and row count untouched
-  * downgrade scope — head → d9e0f1a2b3c4 drops ONLY the research tables
-    (agent_tasks survives); the version pointer moves correctly
-  * migration graph — exactly one head (f2a3b4c5d6e7) and a linear
-    19-revision chain from the initial schema
+    operational DB from b9d0e1f2a4b5 to head (four revisions) adds
+    exactly five tables (agent_tasks + the two research tables + the
+    two research-engine tables) and leaves every pre-existing table and
+    row count untouched
+  * downgrade scope — head → d9e0f1a2b3c4 drops ONLY the research and
+    research-engine tables (agent_tasks survives); the version pointer
+    moves correctly
+  * migration graph — exactly one head (a3b4c5d6e7f8) and a linear
+    20-revision chain from the initial schema
 
 Uses the project venv python (same pattern as
 test_agent_task_migration) with COFFEE_DATABASE_URL pointing at the
@@ -46,7 +49,8 @@ REPO_ROOT = REPO_COFFEE.parent  # workspace root
 VENV_PY = REPO_ROOT / ".venv" / "bin" / "python"
 REAL_DB = REPO_ROOT / "state" / "coffee_export.db"
 
-NEW_HEAD = "f2a3b4c5d6e7"  # research evidence + facts
+NEW_HEAD = "a3b4c5d6e7f8"  # research engine: sessions + tool calls (TryComp Phase 2)
+PHASE1_HEAD = "f2a3b4c5d6e7"  # this suite's own revision (research evidence + facts)
 FIVE_STATE_HEAD = "d9e0f1a2b3c4"  # parent — agent_tasks five-state contract
 OPS_BASE = "b9d0e1f2a4b5"  # where the committed operational DB sits
 
@@ -225,15 +229,24 @@ def test_fresh_install_shape_and_constraints(scratch) -> None:
 
 def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> None:
     """The exact deployment step: upgrade a throwaway COPY of the committed
-    operational DB (at b9d0e1f2a4b5) to head — three revisions. Must add
-    exactly three tables and touch zero existing rows."""
+    operational DB (at b9d0e1f2a4b5) to head — four revisions. Must add
+    exactly five tables and touch zero existing rows."""
     db, alembic = scratch
     db.write_bytes(REAL_DB.read_bytes())  # COPY — the committed DB is only read
     before_tables = _table_names(db)
     before_counts = _row_counts(db)
     assert _version(db) == OPS_BASE
     assert len(before_tables) == 65
-    assert not (before_tables & {"agent_tasks", "research_evidence", "research_facts"})
+    assert not (
+        before_tables
+        & {
+            "agent_tasks",
+            "research_evidence",
+            "research_facts",
+            "research_sessions",
+            "research_tool_calls",
+        }
+    )
 
     alembic("upgrade", "head")
 
@@ -243,6 +256,8 @@ def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> N
         "agent_tasks",
         "research_evidence",
         "research_facts",
+        "research_sessions",
+        "research_tool_calls",
     }
     after_counts = _row_counts(db)
     for table, count in before_counts.items():
@@ -256,11 +271,11 @@ def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> N
 
 
 def test_downgrade_drops_only_research_tables(scratch) -> None:
-    """head → d9e0f1a2b3c4 drops ONLY the research tables; agent_tasks
-    (created by the two earlier revisions) survives."""
+    """head → d9e0f1a2b3c4 drops ONLY the research and research-engine
+    tables; agent_tasks (created by the two earlier revisions) survives."""
     db, alembic = scratch
     alembic("upgrade", "head")
-    assert len(_table_names(db)) == 68
+    assert len(_table_names(db)) == 70
 
     alembic("downgrade", FIVE_STATE_HEAD)
 
@@ -268,17 +283,20 @@ def test_downgrade_drops_only_research_tables(scratch) -> None:
     assert _version(db) == FIVE_STATE_HEAD
     assert "research_evidence" not in tables
     assert "research_facts" not in tables
+    assert "research_sessions" not in tables
+    assert "research_tool_calls" not in tables
     assert "agent_tasks" in tables
     assert len(tables) == 66
 
     alembic("upgrade", "head")  # re-upgrade works
     assert _version(db) == NEW_HEAD
-    assert len(_table_names(db)) == 68
+    assert len(_table_names(db)) == 70
 
 
 def test_single_head_linear_chain(scratch) -> None:
-    """Exactly one head; the new revision chains directly on the five-state
-    head; the whole chain is linear (19 revisions from the initial schema).
+    """Exactly one head; the chain is linear (20 revisions from the initial
+    schema) with the Phase 1 revision linking directly on the five-state
+    head and the Phase 2 engine revision on the Phase 1 head.
 
     NOTE: `alembic history` renders lines as "<parent> -> <rev> (head),
     title" — assert the head marker and revision PRESENCE, never the
@@ -287,11 +305,12 @@ def test_single_head_linear_chain(scratch) -> None:
     """
     _, alembic = scratch
     heads = alembic("heads")
-    assert "f2a3b4c5d6e7" in heads
+    assert "a3b4c5d6e7f8" in heads
     assert heads.count("(head)") == 1
 
     history = alembic("history")
-    assert "d9e0f1a2b3c4 -> f2a3b4c5d6e7" in history  # direct parent link
+    assert "d9e0f1a2b3c4 -> f2a3b4c5d6e7" in history  # Phase 1 parent link
+    assert "f2a3b4c5d6e7 -> a3b4c5d6e7f8" in history  # Phase 2 parent link
     lines = [ln for ln in history.splitlines() if ln.strip()]
-    assert len(lines) == 19  # linear chain, one line per revision
+    assert len(lines) == 20  # linear chain, one line per revision
     assert "47eb259e4dd2" in history  # initial schema is the chain tail

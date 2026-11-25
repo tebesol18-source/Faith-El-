@@ -1,8 +1,9 @@
 """
-Research foundation models — Evidence Ledger + Persistent Facts (TryComp Phase 1).
+Research models — Evidence Ledger, Persistent Facts and the Research Engine
+(TryComp Phase 1 + Phase 2).
 
-Two org-scoped tables backing the research services in coffee_export/research/
-(docs/trycomp-integration-progress.md §3 B/C):
+Four org-scoped tables backing the research services in coffee_export/research/
+(docs/trycomp-integration-progress.md §3 B/C/G/H/I):
 
   * research_evidence — the append-only Evidence Ledger. One row per
     immutable observation about a polymorphic subject. Rows are never
@@ -16,6 +17,15 @@ Two org-scoped tables backing the research services in coffee_export/research/
     recomputed from the live evidence set. human_verified facts are LOCKED:
     no AI-driven recompute may ever touch them (standing security decision
     §4.3).
+  * research_sessions — one research objective in execution: the plan JSON,
+    the status lifecycle (pending → running → completed/failed/cancelled/
+    budget_exhausted), per-session budgets and usage counters (Phase 2 §12.1).
+    Wall-clock budget is measured from started_ts per active run — no
+    fabricated counter.
+  * research_tool_calls — the append-only tool-call log: every tool
+    invocation (and every budget refusal) is recorded with input, output,
+    honest status, reported cost (never invented) and measured duration
+    (Phase 2 §12.1). Rows are never deleted.
 
 Conventions shared with every other table: ISO-8601 +03:00 timestamps with
 seconds precision (now_addis_iso, lexicographically sortable) and
@@ -32,7 +42,7 @@ downgrade-safe).
 
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, Index, Integer, Text, UniqueConstraint
+from sqlalchemy import REAL, CheckConstraint, Index, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from coffee_export.database.base import Base
@@ -184,3 +194,145 @@ class ResearchFact(Base):
             f"<ResearchFact {self.fact_key}={self.value!r} "
             f"({self.status}{', conflicting' if self.conflicting else ''})>"
         )
+
+
+class ResearchSession(Base):
+    """One research objective under execution — the session engine record.
+
+    Lifecycle is owned by ResearchSessions (research/sessions.py); tool
+    invocation and usage accounting by ResearchEngine (research/engine.py).
+    `status` follows the sanctioned transition map in common.py:
+    pending → running → completed | failed | cancelled | budget_exhausted;
+    budget_exhausted → running is the human intervention path (resume with
+    new budgets) — an exhausted session never silently continues.
+
+    Budgets are canonical JSON (BudgetSpec): null fields mean unlimited.
+    Usage counters are execution facts, never estimates: tool/model call
+    counts increment per executed call; usage_cost_usd is NULL until a
+    provider actually reports a cost — NULL means "nothing reported yet",
+    never "zero" (never fabricate cost measurements, §12.4). Wall-clock is
+    derived from started_ts per active run, not stored.
+
+    objective_key is the normalized objective fingerprint used for
+    duplicate-research detection (org-scoped reuse before starting a new
+    session, §12.5) — an index, not a UNIQUE constraint: history may hold
+    several sessions with the same objective over time.
+    """
+
+    __tablename__ = "research_sessions"
+
+    session_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    # Attribution/audit stamp — NO default (same pattern as evidence/facts).
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False)
+
+    objective: Mapped[str] = mapped_column(Text, nullable=False)
+    # Normalized fingerprint (lowercase, whitespace-collapsed) for dedup.
+    objective_key: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # pending | running | completed | failed | cancelled | budget_exhausted
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+
+    # Canonical JSON: list of plan steps (planning.py deterministic template
+    # or a Phase 3 LLM-assisted plan — the plan is data, never executed blind).
+    plan: Mapped[str] = mapped_column(Text, nullable=False)
+    # Canonical JSON BudgetSpec; null fields = unlimited.
+    budgets: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Execution facts (never fabricated).
+    usage_tool_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    usage_model_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # NULL until a provider reports a cost; NULL ≠ 0.
+    usage_cost_usd: Mapped[float | None] = mapped_column(REAL)
+
+    # Canonical JSON structured result (set on completion).
+    result: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+    # Actor attribution — "operator:<id>", "agent:<n>", "task:<type>" …
+    created_by: Mapped[str] = mapped_column(Text, nullable=False)
+
+    created_ts: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_ts: Mapped[str] = mapped_column(Text, nullable=False)
+    # Set when the session (re)enters running; wall budget is measured from
+    # here per active run. Reset on resume (new budget window, honest).
+    started_ts: Mapped[str | None] = mapped_column(Text)
+    finished_ts: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed', 'failed', 'cancelled',"
+            " 'budget_exhausted')",
+            name="ck_research_sessions_status",
+        ),
+        CheckConstraint("usage_tool_calls >= 0", name="ck_research_sessions_tool_calls"),
+        CheckConstraint("usage_model_calls >= 0", name="ck_research_sessions_model_calls"),
+        Index("ix_research_sessions_org_status", "organization_id", "status"),
+        # Duplicate-research detection hot path (§12.5).
+        Index("ix_research_sessions_org_key", "organization_id", "objective_key"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ResearchSession {self.session_id}: {self.status} {self.objective!r}>"
+
+
+class ResearchToolCall(Base):
+    """One tool invocation (or budget refusal) inside a session — the
+    append-only tool-call log (§12.1).
+
+    Rows are never deleted and never mutated: a row records the honest
+    outcome of one attempted call — ok, error (operational failure),
+    capability_unavailable (no provider configured — never faked),
+    blocked_policy (robots.txt / allowlist refusal) or budget_exhausted
+    (refused BEFORE the tool ran; recorded for audit, NOT counted as
+    usage). cost_usd is NULL unless a provider actually reported a cost;
+    duration_ms is wall-clock measured around the invocation.
+
+    No FK to research_sessions by design (same decision as the Phase 1
+    tables): session integrity is enforced by the org-scoped service layer
+    — a tool call can only be recorded for a session that exists in THIS
+    org (ResearchNotFoundError otherwise).
+    """
+
+    __tablename__ = "research_tool_calls"
+
+    call_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    # Attribution/audit stamp — NO default (same pattern as evidence/facts).
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False)
+    # Reference to research_sessions.session_id in the SAME org.
+    session_id: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Registered tool name (registry lookup — unknown names are refused).
+    tool: Mapped[str] = mapped_column(Text, nullable=False)
+    # Canonical JSON of the validated input.
+    input: Mapped[str] = mapped_column(Text, nullable=False)
+    # Canonical JSON of the structured output (None for error rows).
+    output: Mapped[str | None] = mapped_column(Text)
+
+    # ok | error | capability_unavailable | budget_exhausted | blocked_policy
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+    # Reported cost only — never invented (None = not reported).
+    cost_usd: Mapped[float | None] = mapped_column(REAL)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    created_ts: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('ok', 'error', 'capability_unavailable', 'budget_exhausted',"
+            " 'blocked_policy')",
+            name="ck_research_tool_calls_status",
+        ),
+        CheckConstraint("duration_ms >= 0", name="ck_research_tool_calls_duration"),
+        # The history/audit hot path: calls of one session in order.
+        Index(
+            "ix_research_tool_calls_session",
+            "organization_id",
+            "session_id",
+            "created_ts",
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ResearchToolCall {self.call_id}: {self.tool} → {self.status}>"

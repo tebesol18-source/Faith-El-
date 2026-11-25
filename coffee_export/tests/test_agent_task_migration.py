@@ -5,7 +5,7 @@ Proves, on disposable DBs only (never the committed operational DB):
 
   * fresh install — `alembic upgrade head` from an empty file creates
     agent_tasks with the approved shape (columns, defaults, check
-    constraints, indexes) and lands at revision d9e0f1a2b3c4 — the
+    constraints, indexes) and lands at the current head — the
     five-state CHECK (failed admissible, junk rejected) and
     organization_id NOT NULL with NO default
   * batch-rebuild preservation — upgrading c8d9e0f1a2b3 → head rebuilds
@@ -15,12 +15,12 @@ Proves, on disposable DBs only (never the committed operational DB):
   * downgrade remap — failed rows are remapped to dead on downgrade so
     the 4-state CHECK stays satisfiable
   * the deployment path — upgrading a THROWAWAY COPY of the committed
-    operational DB from b9d0e1f2a4b5 to head (three revisions:
-    c8d9e0f1a2b3 + d9e0f1a2b3c4 + f2a3b4c5d6e7) adds exactly three
-    tables (agent_tasks + research_evidence + research_facts) and leaves
-    all 65 pre-existing tables and their row counts byte-identical
-    (additive, no data touched)
-  * reversibility — `downgrade b9d0e1f2a4b5` drops only the three new
+    operational DB from b9d0e1f2a4b5 to head (four revisions:
+    c8d9e0f1a2b3 + d9e0f1a2b3c4 + f2a3b4c5d6e7 + a3b4c5d6e7f8) adds
+    exactly five tables (agent_tasks + the two research tables + the
+    two research-engine tables) and leaves all 65 pre-existing tables
+    and their row counts byte-identical (additive, no data touched)
+  * reversibility — `downgrade b9d0e1f2a4b5` drops only the five new
     tables and returns the version pointer; a re-upgrade works
 
 Uses the project venv python (same pattern as
@@ -45,7 +45,7 @@ VENV_PY = REPO_ROOT / ".venv" / "bin" / "python"
 REAL_DB = REPO_ROOT / "state" / "coffee_export.db"
 
 OLD_HEAD = "c8d9e0f1a2b3"  # 4-state revision (pushed, immutable)
-NEW_HEAD = "f2a3b4c5d6e7"  # research evidence + facts (TryComp Phase 1)
+NEW_HEAD = "a3b4c5d6e7f8"  # research engine: sessions + tool calls (TryComp Phase 2)
 PARENT = "b9d0e1f2a4b5"
 
 TS = "2026-01-01T00:00:00+03:00"
@@ -299,9 +299,9 @@ def test_upgrade_downgrade_reupgrade_roundtrip(scratch) -> None:
 
 def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> None:
     """The exact deployment step: upgrade a throwaway COPY of the committed
-    operational DB (already at b9d0e1f2a4b5) to the new head — now THREE
-    revisions (c8d9e0f1a2b3 + d9e0f1a2b3c4 + f2a3b4c5d6e7). Must add
-    exactly three tables and touch zero existing rows."""
+    operational DB (already at b9d0e1f2a4b5) to the new head — now FOUR
+    revisions (c8d9e0f1a2b3 + d9e0f1a2b3c4 + f2a3b4c5d6e7 + a3b4c5d6e7f8).
+    Must add exactly five tables and touch zero existing rows."""
     db, alembic = scratch
     db.write_bytes(REAL_DB.read_bytes())  # COPY — the committed DB is only read
     before_tables = _table_names(db)
@@ -319,6 +319,8 @@ def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> N
         "agent_tasks",
         "research_evidence",
         "research_facts",
+        "research_sessions",
+        "research_tool_calls",
     }
     after_counts = _row_counts(db)
     for table, count in before_counts.items():
