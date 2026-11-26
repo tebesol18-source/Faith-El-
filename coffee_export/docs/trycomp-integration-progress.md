@@ -4,9 +4,9 @@ This is the permanent project memory for the selective TryComp AI integration in
 Faith-El Export. Every implementation phase updates this file. A new coding session
 must be able to continue from this document alone.
 
-- **Integration branch:** `trycomp-selective-integration` (workspace lost a THIRD time on 2026-11-25, AFTER the Phase 2 commit — restored loss-free from the exported bundle; see §0.2; a FOURTH loss on 2026-11-25 was restored the same way from the phase5 bundle — §0.3)
-- **Last updated:** Phase 7 (monitoring & UX) — 2026-11-25
-- **Current phase:** 7 complete (Phase 6 commit `5e7ae11`, Phase 7 commit `d85c928`); next action in §12 (Phase 8 — end-to-end validation & stabilization)
+- **Integration branch:** `trycomp-selective-integration` (workspace lost a THIRD time on 2026-11-25, AFTER the Phase 2 commit — restored loss-free from the exported bundle; see §0.2; a FOURTH loss on 2026-11-25 was restored the same way from the phase5 bundle — §0.3; a FIFTH loss on 2026-11-26 wiped `faithel-trycomp/.git` only — files intact, repo rebuilt from `faith-el-trycomp-complete.bundle` and the branch pushed to origin the same day)
+- **Last updated:** Phase 8 (end-to-end validation & stabilization) — 2026-11-26
+- **Current phase:** 8 complete — THE INTEGRATION ARC (Phases 0–8) IS FINISHED (Phase 8 commit `1ad066e` + docs commit); branch pushed to `origin/trycomp-selective-integration`; remaining items are owner decisions (§12)
 
 ---
 
@@ -206,6 +206,16 @@ paid provider dependencies by default; unverifiable buyer claims.
   `ce14d7b0edce930de510e450d2642fa04b06c8860a473eec7a3d230145669ed7` verified
   **byte-identical before and after every baseline run** — no production
   migration was run.
+- [UPDATED Phase 8, 2026-11-26] The deployment migration HAS NOW RUN for
+  real: `b9d0e1f2a4b5 → b4c5d6e7f8a9` (five additive revisions) applied to
+  `state/coffee_export.db` — 64 → 70 tables, **zero row-count drift** on
+  pre-existing tables (proven first on a byte-copy, then applied).
+  Post-deployment sha256 baseline:
+  `55363dbb18d867f9a9048b41d63263e157fa6d1b4bb83a45329fa045feafdb05` —
+  the one-time change vs `ce14d7b0…` is the migration itself plus the WAL
+  checkpoint settle; data preserved. The suite's hermeticity guard
+  re-verified the NEW baseline byte-identical across every battery. The
+  chain is now 21 revisions, single head, linear, history untouched.
 
 ### 5.3 Baseline test results (all on isolated/throwaway DBs)
 
@@ -411,9 +421,16 @@ Status: `[ ]` pending, `[x]` complete (with commit SHA).
       (new 'Research Monitor' page, existing design system) and the
       queue admin CLI (`health --org`); list_research_orgs org picker
       (ids only). Record: §19.
-- [ ] **Phase 8 — End-to-end validation & stabilization**: full regression,
-      business-workflow scenario on synthetic data, final technical/business/
-      security reports + deployment runbook; clean tree.
+- [x] **Phase 8 — End-to-end validation & stabilization** (commit
+      `1ad066e`, 2026-11-26): full regression on the deployed schema (400
+      Python + 8 smoke suites + supervisor tick; vitest 136; tsc 0 errors;
+      DB hermeticity), the REAL deployment migration b9d0e1f2a4b5 → head
+      with zero data drift (§5.2 update), the 9-stage Buyer Opportunity
+      Radar scenario on synthetic data as a permanent suite test, migration
+      test stabilization (baseline reconstruction on throwaway copies),
+      the Phase 8-verified deployment runbook
+      (`coffee_export/docs/deployment-runbook.md`), and the final
+      technical/business/security reports + final bundle. Record: §20.
 
 ## 9. Changed files (cumulative)
 
@@ -643,19 +660,20 @@ Phase 7 (commit d85c928):
 
 ## 12. Exact next action
 
-Phase 6 and Phase 7 are COMPLETE (§18, §19). Implement **Phase 8 —
-End-to-end validation & stabilization** on top of the Phase 7 head
-(`d85c928`):
+Phase 8 is COMPLETE (§20; commit `1ad066e`). **The TryComp selective
+integration arc (Phases 0–8) is finished.** The branch
+`trycomp-selective-integration` is pushed to origin; the operational DB
+is deployed at head; the tree is clean. Remaining items are OWNER
+decisions, not integration work:
 
-1. Full regression across every battery (P1–P7) on a fresh operational
-   DB copy; the deployment path (b9d0e1f2a4b5 → head) upgraded and
-   re-verified end to end.
-2. One business-workflow scenario on synthetic data: lead → research
-   session (durable) → evidence → qualification scorecard → outreach
-   draft (approval queue) → milestone followup → monitoring snapshot —
-   the full Buyer Opportunity Radar chain in one honest trace.
-3. Final technical/business/security reports + deployment runbook;
-   clean tree; final bundle export.
+1. Configure real providers when going live (a search-provider key for
+   buyer discovery; Resend/bridge credentials for email) — unconfigured
+   capabilities stay honestly disabled (§11.2/§11.13), never faked.
+2. Merge/PR decision: `trycomp-selective-integration` → `main` (the
+   Round 11F stale-branch ruling in §5.4 is unaffected).
+3. Business tuning of qualification weights/thresholds (§11.19) and
+   outreach followup cadence — operator-level settings, documented
+   defaults in place.
 
 (The historical Phase 6 §12 directive is retained below verbatim.)
 
@@ -1227,3 +1245,79 @@ Zero migrations, zero new tables, zero Node changes.
 | Operational DB | sha256 before/after every run | `ce14d7b0…` byte-identical |
 | Lint/format | ruff + black on every touched file | clean |
 | Import smoke | dashboard app + page module + CLI parser + research exports | OK |
+
+## 20. Phase 8 record — end-to-end validation & stabilization (commit `1ad066e`, 2026-11-26)
+
+Directive: **"Phase 8: end-to-end validation and stabilization"** — executed
+per the §12 plan written when Phase 7 closed.
+
+### 20.1 What was done
+
+1. **Full regression, twice.** Pre-deploy (operational DB still at
+   b9d0e1f2a4b5): 398 Python + 8 smoke suites (agents 2–7, StateManager,
+   logistics) + supervisor single tick; vitest tests/lib 136; `tsc
+   --noEmit` 0 errors; operational DB byte-identical before/after
+   (hermeticity guard). Post-deploy: the same battery re-run against the
+   deployed schema — 400 passed (398 + the 2 new scenario tests below).
+2. **The deployment migration, for real.** `state/coffee_export.db`
+   upgraded `b9d0e1f2a4b5 → b4c5d6e7f8a9` — five additive revisions
+   (agent_tasks + five-state + the three research revisions). Proven FIRST
+   on a byte-copy (row counts snapshotted before, compared after: zero
+   drift; 64 → 70 tables), then applied to the deployment target. See the
+   §5.2 Phase 8 update for the post-deployment sha256 baseline.
+3. **The business-workflow scenario (§12.2), as a permanent test.**
+   `tests/test_phase8_e2e_scenario.py` — one synthetic buyer through the
+   full Buyer Opportunity Radar chain in one throwaway DB, nine asserted
+   stages: seed → Agent-2 durable scheduling (queue-only) → real
+   TaskWorker execution (session completes honestly, fallback plan) →
+   evidence via the ledger AND the record_evidence tool (expires_ts →
+   auto-scheduled revalidation followup, §12.4) → QualificationService
+   100/100 → scorecard stored as llm_inference evidence (§12.4) →
+   outreach draft into pending_agent_actions (§4.5 dual gate: pending,
+   supervisor payload contract) → no-reply milestone followup →
+   ResearchHealthService snapshot reflecting every stage (sessions/
+   evidence incl. expiring backlog/facts/budgets/followups/queue/
+   outreach). Plus an org-scoping proof (zero cross-org leakage).
+4. **Stabilization.** The four `test_*_migration.py`
+   `test_deployment_path_on_copy_of_operational_db` tests assumed the
+   operational DB ships at b9d0e1f2a4b5 — false after the Phase 8
+   deployment (4 failures on the post-deploy battery, the exact defect
+   class Phase 8 exists to catch). Fix: the tests now RECONSTRUCT the
+   b9d0e1f2a4b5 baseline on their throwaway copies via the (clean,
+   additive) downgrade before exercising the upgrade — the deployment
+   path stays proven forever, independent of the shipped DB state.
+5. **Deployment runbook.** `coffee_export/docs/deployment-runbook.md` —
+   the Phase 8-verified procedure (prerequisites, pre-flight hash +
+   backup, migration, post-flight hermetic batteries, rollback via
+   downgrade or file restore, runtime, standing invariants).
+6. **Final reports + final bundle.** Technical / business / security
+   reports exported alongside this record; full-history bundle exported
+   after every commit (the §0.3 discipline — which also survived the
+   FIFTH workspace loss on 2026-11-26, §0 header note).
+
+### 20.2 Verification (actual commands, actual results)
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Pre-deploy full battery | `bash scripts/run-python-tests.sh` | **398 passed, 1 warning** + 9/9 suites; DB `ce14d7b0…` byte-identical |
+| Deployment path (copy) | `alembic upgrade head` on byte-copy | 5 revisions; 64 → 70 tables; **zero row-count drift** |
+| ORM ↔ migration parity | `Base.metadata.create_all` vs migrated schema | Python-owned tables (agent_tasks, research_*) match exactly; Node-owned tables are ORM-unmodeled by design |
+| Deployment (real) | `alembic upgrade head` on `state/coffee_export.db` | version `b4c5d6e7f8a9`, 70 tables |
+| Post-deploy full battery | `bash scripts/run-python-tests.sh` | **400 passed, 1 warning** + 9/9 suites; DB `55363dbb…` byte-identical (new baseline) |
+| JS unit | `npx vitest run tests/lib` | **136 passed** (8 files) |
+| TypeScript | `npx tsc --noEmit` | **0 errors** |
+| Scenario trace | `pytest tests/test_phase8_e2e_scenario.py -s` | 9/9 stages, each asserted (see 20.1.3) |
+| Lint/format | ruff + black on every touched file | clean |
+
+### 20.3 Honest notes
+
+- The post-deploy sha256 change (`ce14d7b0…` → `55363dbb…`) is the
+  migration + a one-time WAL checkpoint settle, not data modification;
+  every battery after it re-verified the NEW baseline byte-identical.
+- The supervisor single tick still reports the Agent 3 bridge transport
+  error offline — the documented honest-failure contract (action
+  `execution_failed`, lead NOT advanced), not a defect.
+- The scenario's qualification score (100/100) uses synthetic facts —
+  it proves the CHAIN, not any real buyer's quality.
+- Live provider calls (search, email) remain honestly unconfigured in
+  this sandbox; wire formats are fixture-tested only (§11.13).
