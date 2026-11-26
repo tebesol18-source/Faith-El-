@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -618,6 +619,128 @@ class Agent2(BaseAgent):
                 is_primary=(prefix == "decision_maker_1"),
                 is_buyer=is_buyer,
             )
+
+    # =============================================================
+    # DURABLE RESEARCH SCHEDULING (Phase 4 §12.5)
+    # =============================================================
+
+    def schedule_research_session(
+        self,
+        objective: str,
+        *,
+        budgets: Any = None,
+        gateway: Any = None,
+        engine: Any = None,
+        registry: Any = None,
+    ) -> dict[str, Any]:
+        """Plan + create a research session and enqueue the durable
+        research.run_session task (Phase 4 §12.5 — the first agent to
+        create research sessions).
+
+        THROUGH THE QUEUE, never the event loop (§7): the task executes
+        when the Python task worker ticks, under the session's budgets,
+        through the same Phase 2 engine facade the in-process path uses.
+        LLM-assisted planning runs here (deterministic fallback when no
+        provider answers — planning.py) and the model call is accounted
+        against the session.
+
+        Requires an explicit tenant org: a default 'org-system' agent
+        refuses (no silent org-system fallback in new code — §4.1).
+        Construct Agent2(organization_id=...) first.
+
+        Duplicate protection: a LIVE session with the same objective is
+        org-scoped-reused; while its task is pending or leased, a second
+        call does NOT enqueue a duplicate (honest 'task_pending' skip).
+
+        Returns {session_id, created, plan_source, task_id, task_status,
+        skipped} — honest audit data, ids and statuses only.
+        """
+        org = self.sm.organization_id
+        if not org or org == "org-system":
+            raise ValueError(
+                "research sessions require an explicit tenant org — construct "
+                "Agent2(organization_id=<org>) before scheduling research "
+                "(no silent org-system fallback)"
+            )
+        # Lazy imports: agents stay importable without the task stack.
+        from coffee_export.research.budget import BudgetSpec
+        from coffee_export.tasks.durable_queue import (
+            DurableTaskQueue,
+            create_queue_engine,
+        )
+        from coffee_export.tasks.registry import TaskRegistry
+        from coffee_export.tasks.research_tasks import (
+            create_session_with_planning,
+            register_research_tasks,
+        )
+
+        db_engine = engine if engine is not None else create_queue_engine()
+        spec = budgets if budgets is not None else BudgetSpec()
+        if not isinstance(spec, BudgetSpec):
+            raise TypeError("budgets must be a BudgetSpec (or None for unlimited)")
+
+        session, created, outcome = create_session_with_planning(
+            db_engine,
+            org,
+            objective,
+            created_by=f"agent:{self.agent_id}",
+            budgets=spec,
+            gateway=gateway,
+        )
+
+        task_registry = registry if registry is not None else TaskRegistry()
+        if "research.run_session" not in task_registry:
+            # an already-registered registry (tests, worker wiring) is
+            # reused as-is — never re-registered (no silent overwrite)
+            register_research_tasks(task_registry, engine=db_engine)
+        queue = DurableTaskQueue(task_registry, db_engine)
+
+        # Duplicate protection: a live task for THIS session is enough.
+        live_tasks = [
+            row
+            for row in queue.list_tasks(status="pending") + queue.list_tasks(status="leased")
+            if row.task_type == "research.run_session"
+        ]
+        live_for_session = []
+        for row in live_tasks:
+            try:
+                payload = json.loads(row.payload) if row.payload else {}
+            except json.JSONDecodeError:
+                payload = {}
+            if payload.get("session_id") == session.session_id:
+                live_for_session.append((row, payload))
+
+        if live_for_session:
+            task_id = None
+            skipped = "task_pending"
+            task_status = live_for_session[0][0].status
+        else:
+            task_id = queue.enqueue(
+                "research.run_session",
+                {"session_id": session.session_id},
+                organization_id=org,
+            )
+            skipped = None
+            task_status = "pending"
+
+        log.info(
+            "Agent 2 scheduled research session %s (objective %r) for org %s: " "plan=%s task=%s",
+            session.session_id,
+            objective[:80],
+            org,
+            outcome.source,
+            task_id or skipped,
+        )
+        return {
+            "session_id": session.session_id,
+            "created": created,
+            "plan_source": outcome.source,
+            "plan_provider": outcome.provider,
+            "task_id": task_id,
+            "task_status": task_status,
+            "skipped": skipped,
+            "session_status": session.status,
+        }
 
     # =============================================================
     # BATCH RUN (for AgentRunner compatibility)

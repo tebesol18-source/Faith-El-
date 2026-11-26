@@ -31,6 +31,9 @@ env/
 data/logs/*.log
 data/logs/*.log.*
 
+# Durable task queue worker (Phase 1A) — singleton flock file, never commit
+data/worker.lock
+
 # Uploaded documents (PDFs, certs, etc.)
 data/docs/**/*.pdf
 

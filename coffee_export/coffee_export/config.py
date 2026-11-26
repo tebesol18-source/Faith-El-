@@ -101,7 +101,7 @@ def _resolve_database_url() -> str:
     """
     raw = os.environ.get("COFFEE_DATABASE_URL", "").strip()
     if raw.startswith("file:"):
-        p = Path(raw[len("file:"):])
+        p = Path(raw[len("file:") :])
         if not p.is_absolute():
             p = BASE_DIR / p
         raw = f"sqlite:///{p}"
@@ -148,6 +148,51 @@ class Settings:
     )
     DAILY_SYNC_HOUR: int = field(default_factory=lambda: _get_int("DAILY_SYNC_HOUR", 8))
     DAILY_SYNC_MINUTE: int = field(default_factory=lambda: _get_int("DAILY_SYNC_MINUTE", 0))
+
+    # ── Durable Task Queue (Phase 1A) ──
+    # Infrastructure for agent_tasks: at-least-once execution with lease
+    # fencing. NO recurring business job is registered or activated in
+    # Phase 1A — the registry ships empty and nothing enqueues business
+    # work (recurring-job integration is a separately approved phase).
+    # See docs/phase-1a-durable-task-queue.md for the full contract.
+    TASK_QUEUE_LEASE_TTL_SECONDS: int = field(
+        default_factory=lambda: _get_int("TASK_QUEUE_LEASE_TTL_SECONDS", 300)
+    )
+    TASK_QUEUE_HEARTBEAT_SECONDS: int = field(
+        default_factory=lambda: _get_int("TASK_QUEUE_HEARTBEAT_SECONDS", 100)
+    )
+    TASK_QUEUE_REAPER_INTERVAL_SECONDS: int = field(
+        default_factory=lambda: _get_int("TASK_QUEUE_REAPER_INTERVAL_SECONDS", 60)
+    )
+    TASK_QUEUE_POLL_INTERVAL_SECONDS: int = field(
+        default_factory=lambda: _get_int("TASK_QUEUE_POLL_INTERVAL_SECONDS", 5)
+    )
+    # Exponential retry backoff: scheduled_ts = now + BASE * 2^(attempts-1)
+    TASK_QUEUE_BACKOFF_BASE_SECONDS: int = field(
+        default_factory=lambda: _get_int("TASK_QUEUE_BACKOFF_BASE_SECONDS", 60)
+    )
+    TASK_QUEUE_MAX_ATTEMPTS: int = field(
+        default_factory=lambda: _get_int("TASK_QUEUE_MAX_ATTEMPTS", 3)
+    )
+    TASK_QUEUE_DEFAULT_PRIORITY: int = field(
+        default_factory=lambda: _get_int("TASK_QUEUE_DEFAULT_PRIORITY", 100)
+    )
+    # Concurrent claimers on SQLite wait (instead of failing) up to this long.
+    TASK_QUEUE_SQLITE_BUSY_TIMEOUT_MS: int = field(
+        default_factory=lambda: _get_int("TASK_QUEUE_SQLITE_BUSY_TIMEOUT_MS", 5000)
+    )
+    # Singleton worker lock file (flock). Resolved against BASE_DIR when
+    # relative. Never committed — see coffee_export/.gitignore.
+    TASK_WORKER_LOCK_FILE: str = field(
+        default_factory=lambda: os.getenv("TASK_WORKER_LOCK_FILE", "data/worker.lock")
+    )
+    # Research followup dispatch cadence (Phase 3): reconcile + dispatch
+    # DUE research_followups this often. 0 is not special — the pass
+    # always runs at least this far apart; disable it by building the
+    # worker without a followup_engine.
+    TASK_WORKER_FOLLOWUP_INTERVAL_SECONDS: int = field(
+        default_factory=lambda: _get_int("TASK_WORKER_FOLLOWUP_INTERVAL_SECONDS", 60)
+    )
 
     # ── Dashboard ──
     DASHBOARD_PORT: int = field(default_factory=lambda: _get_int("DASHBOARD_PORT", 8501))

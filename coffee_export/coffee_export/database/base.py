@@ -85,6 +85,9 @@ def _create_engine() -> Engine:
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.execute("PRAGMA journal_mode=WAL")
+            # Wait (instead of failing) when a concurrent writer holds the
+            # lock — Phase 1A durable queue claimers rely on this.
+            cursor.execute("PRAGMA busy_timeout=5000")
             cursor.close()
 
     log.debug(f"Engine created: {settings.DATABASE_URL}")

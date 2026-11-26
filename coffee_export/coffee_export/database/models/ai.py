@@ -34,12 +34,21 @@ class AICallLog(Base):
     cached: Mapped[int] = mapped_column(Integer, default=0)
     response_preview: Mapped[str | None] = mapped_column(Text)
     called_ts: Mapped[str] = mapped_column(Text, nullable=False)
+    # Tenant stamp — the column EXISTS at DB level since migration
+    # a1b2c3d4e5f7 (TEXT NOT NULL DEFAULT 'org-system', indexed as
+    # ix_ai_call_logs_org_id) but was previously unmapped in the ORM
+    # (recorded as a pre-existing condition, §5.5.4). Mapped now for
+    # Phase 2 research budget accounting. The ORM-level default mirrors
+    # the DB default so existing insert paths behave exactly as before —
+    # SCHEMA-NEUTRAL: no migration, the DB column is unchanged.
+    organization_id: Mapped[str] = mapped_column(Text, nullable=False, default="org-system")
 
     __table_args__ = (
         Index("ix_ai_call_logs_agent", "agent_id"),
         Index("ix_ai_call_logs_provider", "provider"),
         Index("ix_ai_call_logs_ts", "called_ts"),
         Index("ix_ai_call_logs_prompt_hash", "prompt_hash"),
+        Index("ix_ai_call_logs_org_id", "organization_id"),
     )
 
     def __repr__(self) -> str:
