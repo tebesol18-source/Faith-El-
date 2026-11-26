@@ -40,7 +40,7 @@ REAL_DB = REPO_ROOT / "state" / "coffee_export.db"
 
 NEW_HEAD = "b4c5d6e7f8a9"  # research followups (TryComp Phase 3)
 PHASE2_HEAD = "a3b4c5d6e7f8"  # parent — research engine (sessions + tool calls)
-OPS_BASE = "b9d0e1f2a4b5"  # where the committed operational DB sits
+OPS_BASE = "b9d0e1f2a4b5"  # deployment baseline (pre-Phase-8)
 
 TS = "2026-01-01T00:00:00+03:00"
 
@@ -202,10 +202,19 @@ def test_single_head_and_parent_link(scratch) -> None:
 
 def test_deployment_path_on_copy_of_operational_db(scratch, tmp_path: Path) -> None:
     """The exact deployment step: upgrade a throwaway COPY of the committed
-    operational DB (at b9d0e1f2a4b5) to head — five revisions. Must add
-    exactly six tables and touch zero existing rows."""
+    operational DB to head — five revisions. Must add exactly six tables and
+    touch zero existing rows.
+
+    Phase 8 (2026-11-26): the operational DB now ships at head, so the
+    b9d0e1f2a4b5 baseline is reconstructed on the copy via the clean
+    additive downgrade before the upgrade is exercised."""
     db, alembic = scratch
     db.write_bytes(REAL_DB.read_bytes())  # COPY — the committed DB is only read
+    if _version(db) == NEW_HEAD:
+        # Phase 8 deployed the operational DB to head; rebuild the baseline
+        # state on this throwaway copy (downgrades cleanly — asserted again
+        # at the end of this test).
+        alembic("downgrade", OPS_BASE)
     before_tables = _table_names(db)
     before_counts = {
         t: c
